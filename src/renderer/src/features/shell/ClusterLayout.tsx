@@ -164,7 +164,9 @@ export function ClusterLayout() {
               <div
                 id="content"
                 tabIndex={-1}
-                className="min-w-0 flex-1 overflow-y-auto outline-none [view-transition-name:page]"
+                // (Its scroll bar's room kept from the start, where scroll bars take room: a page
+                // that grows past the window later never narrows, and nothing on it jumps.)
+                className="min-w-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto outline-none [view-transition-name:page]"
               >
                 <ShortContextRow />
                 <Outlet />

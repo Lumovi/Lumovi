@@ -12,7 +12,7 @@ import {
   type ProposalOutcome,
 } from '@shared/plugin-changes'
 import { mayStart } from '@shared/plugin-presses'
-import { whose } from '@shared/plugins'
+import { whose, type Harm } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
 import type { Layout } from '@renderer/lib/layout'
 import { useActionsUi } from '@renderer/state/actions'
@@ -32,6 +32,8 @@ export interface ProposedBy {
   context: string
   /** The namespace the person is looking at: where a create that names no object's goes. */
   namespace?: string
+  /** What its file says it changes, each kind with what of a change does harm there. */
+  changes?: readonly { kind: string; harm?: readonly Harm[] }[]
 }
 
 export interface ShownProposal {

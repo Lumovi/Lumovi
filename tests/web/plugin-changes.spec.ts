@@ -23,7 +23,11 @@ spec:
   label: Tinker
   kinds: [{ group: example.com, kind: Widget }]
   pages: [{ id: overview, title: Overview }]
-  changes: [{ group: example.com, kind: Widget, actions: [patch, create, delete] }]
+  changes:
+    - group: example.com
+      kind: Widget
+      actions: [patch, create, delete]
+      harm: [{ path: spec.wipe, is: true, says: Wipes every part it has., verb: wipe, unless: { path: spec.dryRun, is: true } }]
 `
 
 /**
@@ -63,6 +67,7 @@ const CODE = `box.then(({ post, listen }) => {
           rows: [
             { key: 'shrink', lead: { name: 'shrink' }, cells: [{ kind: 'button', key: 'shrink', name: 'Shrink', changes: true, asks: true }] },
             { key: 'peek', lead: { name: 'peek' }, cells: [{ kind: 'button', key: 'peek', name: 'Peek' }] },
+            { key: 'tune', lead: { name: 'tune' }, cells: [{ kind: 'button', key: 'tune', name: 'Tune', changes: true, asks: true }] },
           ],
           onPress: 'rowPress',
         }],
@@ -77,7 +82,26 @@ const CODE = `box.then(({ post, listen }) => {
       if (first) propose('no-press', { action: 'patch', target: widget, patch: { spec: { size: 9 } } })
     }
     if (said.proposed) say('outcome ' + said.proposed + ' ' + said.outcome)
-    if (said.call === 'rowPress') {
+    if (said.call === 'rowPress' && said.carries.row === 'tune') {
+      // A form past five fields, in sections: checks, a switch showing its limit, a pick of a list.
+      propose(said.press, { action: 'patch', target: widget, patch: { spec: {
+        wipe: { field: 'wipe' }, polish: { field: 'polish' }, retry: { limit: { field: 'limit' } }, parts: { field: 'parts' }, dryRun: { field: 'dryRun' },
+      } } }, {
+        verb: 'Tune',
+        fields: [
+          { kind: 'section', label: 'How' },
+          { kind: 'check', key: 'wipe', label: 'Wipe' },
+          { kind: 'check', key: 'polish', label: 'Polish' },
+          { kind: 'switch', key: 'dryRun', label: 'Dry run', verb: 'Dry run' },
+          { kind: 'section', label: 'If it fails' },
+          { kind: 'switch', key: 'retry', label: 'Retry', shows: ['limit'] },
+          { kind: 'number', key: 'limit', label: 'Limit', min: 1, max: 5, value: 2 },
+          { kind: 'section', label: 'Parts' },
+          { kind: 'picks', key: 'parts', label: 'Only these', options: [{ label: 'bolt', value: { name: 'bolt', count: 1 } }, { label: 'gear', value: { name: 'gear', count: 1 } }] },
+        ],
+        harm: [{ path: 'spec.wipe', detail: 'The bolt and the gear go.' }],
+      })
+    } else if (said.call === 'rowPress') {
       propose(said.press, { action: 'patch', target: widget, patch: { spec: { size: 1 } } }, { verb: 'Shrink' })
     }
     if (said.call === 'press') {
@@ -443,4 +467,45 @@ test('a row’s button that changes something proposes a change, shown in Lumovi
   await expect(dialog(page).getByRole('button', { name: 'Shrink', exact: true })).toBeVisible()
   await dialog(page).getByRole('button', { name: 'Cancel' }).click()
   await expect(said(page)).toContainText('outcome 3 cancelled')
+})
+
+test('a form past five fields stands in sections; a switch shows its field; a harm the file names is drawn in red and named on the button, but not on a dry run', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server)
+  await body(page).getByRole('button', { name: 'Tune…', exact: true }).click()
+  const shown = dialog(page)
+  await expect(shown).toBeVisible()
+  // In sections, under the plugin's headings.
+  await expect(shown.getByRole('heading', { level: 4 })).toHaveText(['How', 'If it fails', 'Parts'])
+  // A switch's field stands only while it's on.
+  await expect(shown.getByText('Limit', { exact: true })).toHaveCount(0)
+  await shown.getByRole('switch', { name: 'Retry' }).click()
+  await expect(shown.getByText('Limit', { exact: true })).toBeVisible()
+  // Nothing harms yet; the button is the plugin's word.
+  await expect(shown.getByRole('region', { name: 'What it harms' })).toHaveCount(0)
+  await expect(shown.getByRole('button', { name: 'Tune', exact: true })).toBeVisible()
+  // Wipe on: its file's words in red, the page's detail as its own words, and the harm named on the
+  // button, which is the danger one.
+  await shown.getByRole('checkbox', { name: 'Wipe' }).check()
+  const harms = shown.getByRole('region', { name: 'What it harms' })
+  await expect(harms).toContainText('Wipes every part it has.')
+  await expect(harms).toContainText('In Tinker’s words: The bolt and the gear go.')
+  await expect(shown.getByRole('button', { name: 'Tune and wipe', exact: true })).toBeVisible()
+  // A dry run, as the file says it, harms nothing: the button is the switch's word, nothing in red.
+  await shown.getByRole('switch', { name: 'Dry run' }).click()
+  await expect(shown.getByRole('region', { name: 'What it harms' })).toHaveCount(0)
+  await expect(shown.getByRole('button', { name: 'Dry run', exact: true })).toBeVisible()
+  await shown.getByRole('switch', { name: 'Dry run' }).click()
+  await expect(shown.getByRole('button', { name: 'Tune and wipe', exact: true })).toBeVisible()
+  // What's sent is what the fields say: picked parts as their values.
+  await shown
+    .getByRole('group', { name: 'Only these' })
+    .getByRole('checkbox', { name: 'gear' })
+    .check()
+  await expect(shown).toContainText('The cluster accepts it, as the options stand.')
+  await shown.getByRole('button', { name: 'Cancel' }).click()
+  await expect(said(page)).toContainText('outcome 2 cancelled')
 })

@@ -2167,3 +2167,86 @@ test('a page that takes one of the plugin’s own kinds stands in its tab, and m
     ),
   ).toEqual(['rollouts.yaml: spec.pages[1].takes: "Rollout" is already taken by spec.pages[0]'])
 })
+
+test('an action that runs at once writes nothing its file says harms: it has to ask first', () => {
+  const file = (patch: string) =>
+    adding(
+      `  pages: [{ id: overview, title: Overview }]\n  views:\n    - kinds: [{ group: example.com, kind: Rollout }]\n      actions:\n        - name: Go\n          runs: at-once\n          patch: ${patch}\n  changes:\n    - group: example.com\n      kind: Rollout\n      actions: [patch]\n      harm: [{ path: operation.sync.prune, is: true, says: Deletes., verb: prune }]\n`,
+    )
+  const why =
+    'writes operation.sync.prune, which this file says harms (prune), so it has to ask first'
+  expect(refusedWith(file('{ operation: { sync: { prune: true } } }')).join('\n')).toContain(why)
+  // Or what holds it, filled in.
+  expect(refusedWith(file("{ operation: { sync: '{{ .spec.next }}' } }")).join('\n')).toContain(why)
+  // Or brings in what it can't see: a copy onto it.
+  expect(
+    refusedWith(
+      file('[{ op: copy, from: /spec/next, path: /operation/sync/prune }]').replace(
+        '          patch:',
+        '          type: json\n          patch:',
+      ),
+    ).join('\n'),
+  ).toContain(why)
+  // Elsewhere, it may.
+  expect(refusedWith(file('{ operation: { info: [] } }')).join('\n')).not.toContain(why)
+})
+
+test('what a change harms, said in the file for a kind it changes: a path, the value that harms or that it’s there, words and a verb, and unless what', () => {
+  const withHarm = (harm: string) =>
+    adding(
+      `  pages: [{ id: overview, title: Overview }]\n  changes:\n    - group: example.com\n      kind: Rollout\n      actions: [patch]\n      harm:\n${harm}`,
+    )
+  const good =
+    '        - { path: operation.sync.prune, is: true, says: Deletes what’s no longer in the repository., verb: prune, unless: { path: operation.sync.dryRun, is: true } }\n        - { path: operation.sync.resources, set: true, says: Hooks don’t run., verb: sync only some }\n'
+  const { plugin, problems } = parsePlugin(withHarm(good), 'rollouts.yaml', { carriesCode: true })
+  expect(problems).toEqual([])
+  expect(plugin!.changes[0]!.harm!.map((harm) => harm.verb)).toEqual(['prune', 'sync only some'])
+  // A value a list there holds: Replace=true among a sync's options.
+  const listed = parsePlugin(
+    withHarm(
+      '        - { path: operation.sync.syncOptions, contains: Replace=true, says: Deletes and makes again., verb: replace }\n',
+    ),
+    'rollouts.yaml',
+    { carriesCode: true },
+  )
+  expect(listed.problems).toEqual([])
+  expect(listed.plugin!.changes[0]!.harm![0]!.contains).toBe('Replace=true')
+  // Unless what's sent says otherwise, as only the file says: a dry run.
+  expect(plugin!.changes[0]!.harm![0]!.unless).toEqual({ path: 'operation.sync.dryRun', is: true })
+  for (const [harm, why] of [
+    [
+      '        - { path: operation..prune, is: true, says: x, verb: prune }\n',
+      'its path should be names with dots between',
+    ],
+    [
+      '        - { path: a, says: x, verb: prune }\n',
+      'needs one of: the value that harms (is), set: true (that it’s there at all), or a value a list there holds (contains)',
+    ],
+    [
+      '        - { path: a, is: 1, set: true, says: x, verb: prune }\n',
+      'needs one of: the value that harms (is), set: true (that it’s there at all), or a value a list there holds (contains)',
+    ],
+    [
+      '        - { path: a, set: false, says: x, verb: prune }\n',
+      'set says it harms where it’s there',
+    ],
+    [
+      `        - { path: a, is: 1, says: x, verb: ${'v'.repeat(25)} }\n`,
+      'verb: should be a word or two',
+    ],
+    [
+      '        - { path: a, is: 1, says: x, verb: prune, unless: { path: a..b, is: true } }\n',
+      'unless.path: should be names with dots between',
+    ],
+    [
+      '        - { path: a, is: 1, says: x, verb: prune, unless: { path: b } }\n',
+      'unless.is: is required',
+    ],
+    [
+      '        - { path: a, is: 1, contains: x, says: x, verb: prune }\n',
+      'needs one of: the value that harms (is)',
+    ],
+  ] as const) {
+    expect(refusedWith(withHarm(harm)).join('\n'), harm).toContain(why)
+  }
+})

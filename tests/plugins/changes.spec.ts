@@ -10,11 +10,17 @@ import {
   fieldAt,
   fieldWrong,
   filled,
+  harmedVerb,
+  harmsIn,
+  harmsSent,
+  hiddenFields,
   mayPropose,
   proposalProblem,
   sentProblem,
   startingValues,
+  verbNow,
   type Field,
+  type FieldValue,
   type Proposed,
 } from '../../src/shared/plugin-changes.ts'
 import { Tokens } from '../../src/shared/plugin-presses.ts'
@@ -131,9 +137,9 @@ test('what the door refuses of a proposal, in its own words, quoting nothing the
   expect(refused(proposal({ verb: 'Delete it' }, { action: 'delete', patch: undefined }))).toBe(
     'propose.verb: a deletion’s button is Lumovi’s own',
   )
-  // Fields: at most five, each key once, each going somewhere, each place a field's.
-  const five = Array.from({ length: 6 }, (_, i) => ({ kind: 'switch', key: `k${i}`, label: 'L' }))
-  expect(refused(proposal({ fields: five }))).toMatch(/longer than 5/)
+  // Fields: at most 24, each key once, each going somewhere, each place a field's.
+  const many = Array.from({ length: 25 }, (_, i) => ({ kind: 'switch', key: `k${i}`, label: 'L' }))
+  expect(refused(proposal({ fields: many }))).toMatch(/longer than 24/)
   expect(
     refused(
       proposal({
@@ -839,4 +845,301 @@ test('a change that writes an object’s status is judged with its status; and a
     ).toMatchObject({ ok: false, refused: 'not-granted' })
   }
   expect(asked).toEqual([])
+})
+
+test('a switch that’s off sends nothing of what it shows: an object only its fields stood in goes too, up to what holds something else; one the page wrote empty stays', () => {
+  const sync = read(
+    proposal(
+      {
+        verb: 'Sync',
+        fields: [
+          { kind: 'switch', key: 'retry', label: 'Retry', shows: ['limit', 'duration', 'factor'] },
+          { kind: 'number', key: 'limit', label: 'Limit', min: 1, max: 10, value: 2 },
+          { kind: 'text', key: 'duration', label: 'Duration', value: '5s' },
+          { kind: 'number', key: 'factor', label: 'Factor', min: 1, max: 5, value: 2 },
+        ],
+      },
+      {
+        patch: {
+          operation: {
+            sync: { syncStrategy: { hook: {} } },
+            retry: {
+              limit: { field: 'limit' },
+              backoff: { duration: { field: 'duration' }, factor: { field: 'factor' } },
+            },
+          },
+        },
+      },
+    ),
+  )
+  const values = startingValues(sync.fields)
+  expect(filled(sync, values)).toEqual({
+    body: { operation: { sync: { syncStrategy: { hook: {} } } } },
+  })
+  expect(filled(sync, { ...values, retry: true })).toEqual({
+    body: {
+      operation: {
+        sync: { syncStrategy: { hook: {} } },
+        retry: { limit: 2, backoff: { duration: '5s', factor: 2 } },
+      },
+    },
+  })
+})
+
+test('a form past five fields: sections, checks, picks of a list, and fields a switch shows only while it’s on', () => {
+  const sync = read(
+    proposal(
+      {
+        verb: 'Sync',
+        fields: [
+          { kind: 'section', label: 'How' },
+          { kind: 'check', key: 'prune', label: 'Prune', hint: 'Deletes what’s gone from git.' },
+          { kind: 'check', key: 'force', label: 'Force' },
+          { kind: 'section', label: 'If it fails' },
+          { kind: 'switch', key: 'retry', label: 'Retry', shows: ['limit'] },
+          { kind: 'number', key: 'limit', label: 'Limit', min: 1, max: 10, value: 2 },
+          { kind: 'section', label: 'Resources' },
+          {
+            kind: 'picks',
+            key: 'only',
+            label: 'Only these',
+            options: [
+              { label: 'Deployment shop/cart', value: { kind: 'Deployment', name: 'cart' } },
+              { label: 'Service shop/cart', value: { kind: 'Service', name: 'cart' } },
+            ],
+          },
+        ],
+      },
+      {
+        patch: {
+          operation: {
+            sync: {
+              prune: { field: 'prune' },
+              force: { field: 'force' },
+              retry: { limit: { field: 'limit' } },
+              resources: { field: 'only' },
+            },
+          },
+        },
+      },
+    ),
+  )
+  // Where each starts: a check off, a pick of none, a switch off; a heading holds nothing.
+  const values = startingValues(sync.fields)
+  expect(values).toEqual({ prune: false, force: false, retry: false, limit: 2, only: [] })
+  // Hidden while its switch is off: left out of the change; shown once it's on.
+  expect(hiddenFields(sync.fields, values)).toEqual(new Set(['limit']))
+  expect(filled(sync, values)).toEqual({
+    body: { operation: { sync: { prune: false, force: false, resources: [] } } },
+  })
+  expect(filled(sync, { ...values, retry: true, prune: true, only: [1] })).toEqual({
+    body: {
+      operation: {
+        sync: {
+          prune: true,
+          force: false,
+          retry: { limit: 2 },
+          resources: [{ kind: 'Service', name: 'cart' }],
+        },
+      },
+    },
+  })
+  // What each kind takes, in Lumovi's words.
+  const picks = sync.fields.find((field) => field.kind === 'picks')!
+  expect(fieldWrong(picks as Exclude<Field, { kind: 'section' }>, [5])).toBe(
+    'Choose from the list.',
+  )
+  // What the door refuses: a switch showing what isn't after it, or another switch's, or nothing.
+  const refusedWith = (fields: unknown[]) =>
+    proposalProblem({
+      ...proposal({ fields }),
+      change: { action: 'patch', target: 'o1', patch: { a: { field: 'a' }, b: { field: 'b' } } },
+    })
+  expect(
+    refusedWith([
+      { kind: 'number', key: 'a', label: 'A', min: 0, max: 1 },
+      { kind: 'switch', key: 'b', label: 'B', shows: ['a'] },
+    ]),
+  ).toBe('propose.fields[1].shows: a should come after the switch')
+  expect(
+    refusedWith([
+      { kind: 'switch', key: 'a', label: 'A', shows: ['c'] },
+      { kind: 'switch', key: 'b', label: 'B' },
+    ]),
+  ).toBe('propose.fields[0].shows: names no field c')
+  expect(
+    refusedWith([
+      { kind: 'switch', key: 'a', label: 'A', shows: ['b'] },
+      { kind: 'picks', key: 'b', label: 'B', options: [{ label: 'X', value: 1 }], value: [0, 0] },
+    ]),
+  ).toBe('propose.fields[1].value: names an option twice')
+})
+
+test('a switch that fills values of its own: Apply only picks the key, and Force fills inside it; a switch’s word for the button while it’s on', () => {
+  const sync = read(
+    proposal(
+      {
+        verb: 'Sync',
+        fields: [
+          {
+            kind: 'switch',
+            key: 'applyOnly',
+            label: 'Apply only',
+            values: [
+              { hook: { force: { field: 'force' } } },
+              { apply: { force: { field: 'force' } } },
+            ],
+          },
+          { kind: 'switch', key: 'force', label: 'Force' },
+          { kind: 'switch', key: 'dryRun', label: 'Dry run', verb: 'Dry run' },
+        ],
+      },
+      {
+        patch: {
+          operation: {
+            sync: { syncStrategy: { field: 'applyOnly' }, dryRun: { field: 'dryRun' } },
+          },
+        },
+      },
+    ),
+  )
+  const values = startingValues(sync.fields)
+  // Force goes only inside what Apply only fills: it's used there.
+  expect(filled(sync, values)).toEqual({
+    body: { operation: { sync: { syncStrategy: { hook: { force: false } }, dryRun: false } } },
+  })
+  expect(filled(sync, { ...values, applyOnly: true, force: true })).toEqual({
+    body: { operation: { sync: { syncStrategy: { apply: { force: true } }, dryRun: false } } },
+  })
+  // The button's word: the page's, or a switch's while it's on.
+  expect(verbNow(sync, values)).toBe('Sync')
+  expect(verbNow(sync, { ...values, dryRun: true })).toBe('Dry run')
+  // A switch that shows it, off, hides its word too.
+  const shown = read(
+    proposal(
+      {
+        verb: 'Sync',
+        fields: [
+          { kind: 'switch', key: 'more', label: 'More', shows: ['dryRun'] },
+          { kind: 'switch', key: 'dryRun', label: 'Dry run', verb: 'Dry run' },
+        ],
+      },
+      { patch: { operation: { sync: { dryRun: { field: 'dryRun' } } } } },
+    ),
+  )
+  expect(verbNow(shown, { more: false, dryRun: true })).toBe('Sync')
+  // What the door refuses.
+  const refused = (field: Record<string, unknown>, patch: unknown = { a: { field: 's' } }) =>
+    proposalProblem({
+      ...proposal({ fields: [field, { kind: 'switch', key: 'f', label: 'F', values: [1, 2] }] }),
+      change: { action: 'patch', target: 'o1', patch: { ...(patch as object), b: { field: 'f' } } },
+    })
+  const sw = { kind: 'switch', key: 's', label: 'S' }
+  expect(refused({ ...sw, values: [1] })).toBe(
+    'propose.fields[0].values: should be two, what it fills off and on',
+  )
+  expect(refused({ ...sw, values: [{ field: 'f' }, 2] })).toBe(
+    'propose.fields[0].values[0]: names a switch that fills values of its own',
+  )
+  expect(refused({ ...sw, values: [{ field: 'nope' }, 2] })).toBe(
+    'propose.fields[0].values[0]: names no field nope',
+  )
+  expect(refused({ ...sw, verb: 'Cancel' })).toBe(
+    'propose.fields[0].verb: would read as the way out of the dialog (Cancel, Close, Back, Not now…)',
+  )
+  expect(refused({ ...sw, verb: 'Dry\nrun' })).toBe(
+    'propose.fields[0].verb: should be one line of words',
+  )
+})
+
+test('what a change harms: its file’s paths and values, checked against what’s sent; the page adds, never takes away', () => {
+  const harms = [
+    {
+      path: 'operation.sync.prune',
+      is: true,
+      says: 'Deletes what’s no longer in the repository.',
+      verb: 'prune',
+    },
+    { path: 'operation.sync.syncOptions.force', is: true, says: 'Pods restart.', verb: 'force' },
+    {
+      path: 'operation.sync.resources',
+      set: true,
+      says: 'Hooks don’t run.',
+      verb: 'sync only some',
+    },
+  ]
+  const sent = (sync: Record<string, unknown>) => ({ operation: { sync } })
+  expect(harmsIn(sent({ prune: false, resources: [] }), harms)).toEqual([])
+  expect(
+    harmsIn(
+      sent({ prune: true, syncOptions: { force: true }, resources: [{ name: 'x' }] }),
+      harms,
+    ).map((harm) => harm.verb),
+  ).toEqual(['prune', 'force', 'sync only some'])
+  expect(harmsIn({ operation: 'x' }, harms)).toEqual([])
+  // A value a list there holds.
+  const replace = [
+    {
+      path: 'operation.sync.syncOptions',
+      contains: 'Replace=true',
+      says: 'Deletes and makes again.',
+      verb: 'replace',
+    },
+  ]
+  expect(harmsIn(sent({ syncOptions: ['PruneLast=true'] }), replace)).toEqual([])
+  expect(
+    harmsIn(sent({ syncOptions: ['PruneLast=true', 'Replace=true'] }), replace).map((h) => h.verb),
+  ).toEqual(['replace'])
+  // Unless what's sent holds what its file says makes it harmless (a dry run), and the person set
+  // it: a switch or a check of the page's, at just that path. Never a value the page wrote itself.
+  const unless = harms.map((harm) => ({
+    ...harm,
+    unless: { path: 'operation.sync.dryRun', is: true },
+  }))
+  const pruned = { prune: true, syncOptions: { force: true }, resources: [{ name: 'x' }] }
+  expect(harmsIn(sent({ ...pruned, dryRun: true }), unless)).toHaveLength(3)
+  const sync = (dryRun: unknown, fields: unknown[]) =>
+    read(
+      proposal(
+        { verb: 'Sync', fields },
+        { patch: { operation: { sync: { prune: { field: 'prune' }, dryRun } } } },
+      ),
+    )
+  const prune = { kind: 'check', key: 'prune', label: 'Prune' }
+  const bySwitch = sync({ field: 'dry' }, [prune, { kind: 'switch', key: 'dry', label: 'Dry run' }])
+  const quiet = (proposed: Proposed, values: Record<string, FieldValue>) => {
+    const change = filled(proposed, values)
+    return typeof change === 'string' ? change : harmsSent(proposed, change.body, unless)
+  }
+  expect(quiet(bySwitch, { prune: true, dry: true })).toEqual([])
+  expect(quiet(bySwitch, { prune: true, dry: false })).toHaveLength(1)
+  // The page's own true at that path: what it sends is a dry run, but the red stays.
+  expect(quiet(sync(true, [prune]), { prune: true })).toHaveLength(1)
+  // Nor a switch whose value is the page's own, filled through values.
+  const byValues = sync({ field: 'dry' }, [
+    prune,
+    { kind: 'switch', key: 'dry', label: 'Dry run', values: [false, true] },
+  ])
+  expect(quiet(byValues, { prune: true, dry: true })).toHaveLength(1)
+  // The button names each harm after its own verb, once.
+  expect(harmedVerb('Sync', [harms[0]!, harms[1]!])).toBe('Sync, prune and force')
+  expect(harmedVerb('Sync', [harms[0]!])).toBe('Sync and prune')
+  expect(harmedVerb('Sync', [])).toBe('Sync')
+  expect(harmedVerb('Prune', [harms[0]!])).toBe('Prune')
+  // The page's own: a harm of its own, or a detail at one of its file's paths.
+  const own = read(
+    proposal({
+      harm: [
+        { path: 'operation.sync.prune', detail: 'Deletes cart-old and cart-cache.' },
+        { says: 'Takes the shop down for a minute.', verb: 'restart' },
+      ],
+    }),
+  )
+  expect(own.harm).toHaveLength(2)
+  expect(proposalProblem(proposal({ harm: [{ verb: 'x' }] }))).toBe(
+    'propose.harm[0]: says what harm it does, or names its file’s harm by its path',
+  )
+  expect(proposalProblem(proposal({ harm: [{ path: 'a..b', detail: 'x' }] }))).toMatch(
+    /^propose\.harm\[0\]\.path: /,
+  )
 })

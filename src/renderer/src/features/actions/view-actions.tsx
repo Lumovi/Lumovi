@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { KubeObject } from '@shared/api'
 import { jsonPath } from '@shared/jsonpath'
 import { kindFor } from '@shared/resources'
+import { harmedVerb } from '@shared/plugin-changes'
 import { VIEW_ICONS } from '@renderer/components/KindIcon'
 import { Stepper } from '@renderer/components/Stepper'
 import { YamlText } from '@renderer/components/YamlText'
@@ -20,6 +21,8 @@ import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { formatRef, kindPath } from '@renderer/lib/routes'
 import { api } from '@renderer/lib/api'
 import {
+  actionHarms,
+  harmsFor,
   holds,
   inputOptions,
   render,
@@ -33,6 +36,7 @@ import { toYaml } from '@renderer/lib/yaml'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from './ActionDialog'
+import { HarmLines } from './HarmLines'
 import type { InstantChange } from './catalog'
 import { kindOf, subjectOf, target, type ActionProps } from './common'
 
@@ -241,6 +245,12 @@ export function initial(input: ViewInput, object: KubeObject): string {
   return value || (input.type === 'choice' ? (inputOptions(input, object)[0] ?? '') : '')
 }
 
+/** An action's inputs as their defaults fill them, from `object`: what's sent where none is asked. */
+export const defaultInputs = (action: ViewAction, object: KubeObject): InputValues =>
+  Object.fromEntries(
+    (action.inputs ?? []).map((input) => [input.name, inputValue(input, initial(input, object))]),
+  )
+
 /**
  * What an input gives its templates, from what's typed or picked: a number, yes or no, a
  * labelled choice's value as it is, or the text.
@@ -287,11 +297,20 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
         ...instantChange(viewChange(action, object, context, inputs, once.now)),
         created: undefined,
       }
+  // What it harms, as its kind's file says, judged on what it sends (every input asked here).
+  const kindHarms = action.create ? [] : harmsFor(kindOf(object))
+  const harms =
+    kindHarms.length && request.change.action === 'patch'
+      ? actionHarms(action, request.change.patch, kindHarms, () => true)
+      : []
+  const label = action.confirmButton
+    ? oneLine(render(action.confirmButton, object, once.now, inputs))
+    : action.name
 
   return (
     <ActionDialog
       icon={viewActionIcon(action)}
-      tone={action.danger ? 'danger' : 'default'}
+      tone={action.danger || harms.length ? 'danger' : 'default'}
       title={
         action.confirmTitle
           ? oneLine(render(action.confirmTitle, object, once.now, inputs))
@@ -300,11 +319,7 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
       name={object.metadata.name}
       subject={subjectOf(object)}
       command={meta.command}
-      confirmLabel={
-        action.confirmButton
-          ? oneLine(render(action.confirmButton, object, once.now, inputs))
-          : action.name
-      }
+      confirmLabel={harmedVerb(label, harms)}
       ready={ready}
       pending={pending}
       error={error}
@@ -312,7 +327,8 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
       onClose={onClose}
       onSubmit={() =>
         void submit(async () => {
-          if (!judgedAtSend(action)) return change(request, meta)
+          // (One its file says can harm is judged too: what it sends is what was shown, harm and all.)
+          if (!judgedAtSend(action) && kindHarms.length === 0) return change(request, meta)
           // Judged on its object: held, as it's sent, to what's there now, and sent with the
           // version read then, or not at all.
           const now = await judgedNow(action, object, context, inputs, once.now)
@@ -339,6 +355,7 @@ export function ViewActionDialog({ object, onClose }: ActionProps) {
           onChange={(value) => setTyped({ ...typed, [input.name]: value })}
         />
       ))}
+      <HarmLines harms={harms} />
       {created && (
         <div>
           <p className="mb-1.5 text-xs font-medium text-ink-2">

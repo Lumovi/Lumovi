@@ -43,6 +43,7 @@ import { ScaleDialog } from './ScaleDialog'
 import { SetImageDialog } from './SetImageDialog'
 import { DebugDialog, PortForwardDialog } from './StreamDialogs'
 import {
+  defaultInputs,
   judgedAtSend,
   judgedNow,
   viewActionIcon,
@@ -475,7 +476,10 @@ export const ACTIONS: readonly Action[] = [
  */
 function viewActions(kind: ResourceKind): Action[] {
   return (viewFor(kind)?.actions ?? []).map((action, i) => {
-    const asks = Boolean(action.confirm || action.inputs || action.create)
+    // (One done to several with inputs runs at once for one, with their defaults.)
+    const asks = Boolean(
+      action.confirm || action.create || (action.inputs && action.runs !== 'at-once'),
+    )
     return {
       id: `view:${i}`,
       label: asks ? `${action.name}…` : action.name,
@@ -487,7 +491,7 @@ function viewActions(kind: ResourceKind): Action[] {
         ? {
             judged: true,
             again: (object: KubeObject, context: string, now: number) =>
-              judgedNow(action, object, context, {}, now),
+              judgedNow(action, object, context, defaultInputs(action, object), now),
           }
         : {}),
       access: action.create
@@ -503,7 +507,7 @@ function viewActions(kind: ResourceKind): Action[] {
         ? { dialog: ViewActionDialog }
         : {
             instant: (object: KubeObject, context: string, now?: number, version?: string) =>
-              viewChange(action, object, context, {}, now, version),
+              viewChange(action, object, context, defaultInputs(action, object), now, version),
           }),
     }
   })

@@ -27,10 +27,19 @@ import { labelFor } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { objectArg } from '@renderer/lib/kubectl'
-import { actionBusy, actionEnded, holds, viewFor } from '@renderer/lib/plugins'
+import {
+  actionBusy,
+  actionEnded,
+  actionHarms,
+  harmsFor,
+  holds,
+  viewFor,
+} from '@renderer/lib/plugins'
+import { harmedVerb } from '@shared/plugin-changes'
 import { useCluster } from '@renderer/state/cluster'
 import { HEALTH_STYLE } from '@renderer/components/Status'
 import { ActionDialog } from '../actions/ActionDialog'
+import { HarmLines } from '../actions/HarmLines'
 import { kindOf } from '../actions/common'
 import {
   InputField,
@@ -244,6 +253,20 @@ function BulkDialog({
       )
     })
     .join('\n')
+  // What it harms, as its kind's file says: judged on each one's own filled patch, and drawn where
+  // it holds for any of them. (Only what's asked of the person quiets one; a default never does.)
+  // At the send each is judged again, its patch the one it was shown, so no other harm goes.
+  const kindHarms = harmsFor(kind)
+  const sentPatch = (object: KubeObject) => {
+    const sent = viewChange(action, object, context, valuesFor(object), now).change.change
+    return sent.action === 'patch' ? sent.patch : undefined
+  }
+  const fired = kindHarms.filter((harm) =>
+    sending.some(
+      ({ object }) =>
+        actionHarms(action, sentPatch(object), [harm], (input) => input.bulk !== false).length > 0,
+    ),
+  )
 
   // Sent four at a time, each judged again as it goes; then each is followed.
   const send = async () => {
@@ -349,7 +372,8 @@ function BulkDialog({
             commandNote: `Shown for ${[...byNamespace.values()].map((each) => each[0]!.metadata.name).join(', ')}: each is filled in from its own object.`,
           }
         : {})}
-      confirmLabel={`${action.name} ${sending.length} ${plural}`}
+      confirmLabel={`${harmedVerb(action.name, fired)} ${sending.length} ${plural}`}
+      tone={action.danger || fired.length ? 'danger' : 'default'}
       ready={ready && !going}
       pending={false}
       wide
@@ -405,6 +429,7 @@ function BulkDialog({
         </ul>
       ) : (
         <>
+          <HarmLines harms={fired} />
           <div>
             <p className="mb-1.5 text-xs font-medium text-ink-2">
               {action.name} for these {sending.length}:

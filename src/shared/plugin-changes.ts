@@ -8,6 +8,7 @@
  * Plain functions: the door checks what came up the channel (`proposalProblem`), Lumovi fills the
  * person's values in (`filled`) and says what's wrong with one in its own words (`fieldWrong`).
  */
+import type { Harm } from './plugins'
 import {
   choice,
   list,
@@ -23,8 +24,13 @@ import {
 
 /** How much a proposal may hold. */
 export const CHANGE_LIMITS = {
-  /** Fields the person sets, above the change. */
-  fields: 5,
+  /**
+   * Fields the person sets, above the change, headings of sections among them: past a few, they
+   * stand in sections, and the dialog's options scroll past its window.
+   */
+  fields: 24,
+  /** What a list to pick several from offers. */
+  picks: 200,
   /** A field's label, and its hint (about two lines), the plugin's words. */
   label: 40,
   hint: 160,
@@ -107,13 +113,40 @@ export const FIELD = choice(
       options: list(record({ label }, ['label']), CHANGE_LIMITS.options),
       value: number(0, CHANGE_LIMITS.options - 1, true),
     },
-    switch: { key: fieldKey, label, hint, value: yesOrNo },
+    /**
+     * Yes or no; `shows`, the fields after it that stand only while it's on (Retry's limit and
+     * backoff): while it's off they're hidden and go into the change as nothing. `values`, what it
+     * fills off and on instead of false and true (Apply only: `{ hook: … }` or `{ apply: … }`),
+     * other fields' places in them filled too; `verb`, the button's word while it's on (Dry run).
+     */
+    switch: {
+      key: fieldKey,
+      label,
+      hint,
+      value: yesOrNo,
+      shows: list(fieldKey, CHANGE_LIMITS.fields - 1),
+      verb: text(CHANGE_LIMITS.verb),
+    },
+    /** A box: yes or no, among others in a section ("Prune", "Force"). */
+    check: { key: fieldKey, label, hint, value: yesOrNo },
+    /** Several of a list (the resources to sync): their values, in the list's order. */
+    picks: {
+      key: fieldKey,
+      label,
+      hint,
+      options: list(record({ label }, ['label']), CHANGE_LIMITS.picks),
+      value: list(number(0, CHANGE_LIMITS.picks - 1, true), CHANGE_LIMITS.picks),
+    },
+    /** A heading the fields after it stand under, until the next. It holds no value. */
+    section: { label },
   },
   {
     text: ['hint', 'most', 'required', 'value'],
     number: ['hint', 'value'],
     choice: ['hint', 'value'],
-    switch: ['hint', 'value'],
+    switch: ['hint', 'value', 'shows', 'verb'],
+    check: ['hint', 'value'],
+    picks: ['hint', 'value'],
   },
 ) satisfies Kind
 
@@ -149,10 +182,35 @@ export type Field =
       options: FieldOption[]
       value?: number
     }
-  | { kind: 'switch'; key: string; label: string; hint?: string; value?: boolean }
+  | {
+      kind: 'switch'
+      key: string
+      label: string
+      hint?: string
+      value?: boolean
+      shows?: string[]
+      /** What it fills off and on: any JSON, other fields' places in them filled too. */
+      values?: [unknown, unknown]
+      /** The button's word while it's on. */
+      verb?: string
+    }
+  | { kind: 'check'; key: string; label: string; hint?: string; value?: boolean }
+  | {
+      kind: 'picks'
+      key: string
+      label: string
+      hint?: string
+      options: FieldOption[]
+      value?: number[]
+    }
+  | { kind: 'section'; label: string; key?: undefined }
+
+/** A field that holds a value: every one but a section's heading. */
+export type ValueField = Exclude<Field, { kind: 'section' }>
+export const holdsValue = (field: Field): field is ValueField => field.kind !== 'section'
 
 /** A field's value as the person has set it: what goes in where the page marked it. */
-export type FieldValue = string | number | boolean | undefined
+export type FieldValue = string | number | boolean | readonly number[] | undefined
 
 /** The change a page proposes, once the door has read it. */
 export interface Proposed {
@@ -173,6 +231,12 @@ export interface Proposed {
   /** A scale's count, or the field it comes from. */
   replicas?: number | { field: string }
   fields: Field[]
+  /**
+   * What the page adds to what its file says does harm: a harm of its own (`says`, and a `verb`
+   * for the button), or, at one of its file's harms' `path`, a `detail` under it (prune's list of
+   * what it deletes). Never less than the file says: none of it takes a harm away.
+   */
+  harm?: { path?: string; says?: string; verb?: string; detail?: string }[]
 }
 
 /** A proposal as the page hands it to Lumovi's dialog: with the objects its tokens stood for. */
@@ -225,7 +289,7 @@ export function proposalProblem(said: unknown): string | Proposed {
   if (typeof said !== 'object' || said === null || Array.isArray(said)) {
     return 'propose: should be named values'
   }
-  const { propose: id, press, verb, change, fields = [] } = said as Record<string, unknown>
+  const { propose: id, press, verb, change, fields = [], harm } = said as Record<string, unknown>
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) {
     return 'propose: should be a whole number, which its answer names'
   }
@@ -263,13 +327,82 @@ export function proposalProblem(said: unknown): string | Proposed {
   const fieldsWrong = wrongWith(shaped, list(FIELD, CHANGE_LIMITS.fields), 'propose.fields')
   if (fieldsWrong) return fieldsWrong
   const declared = fields as Field[]
-  const keys = declared.map((field) => field.key)
+  // (A section's heading holds no value, and has no key.)
+  const keys = declared.filter(holdsValue).map((field) => field.key)
   if (new Set(keys).size !== keys.length) return 'propose.fields: each key once'
   for (const [i, field] of declared.entries()) {
     const wrong = fieldShapeProblem(field, `propose.fields[${i}]`)
     if (wrong) return wrong
   }
+  // What a switch shows: fields after it, each shown by one switch at most, never a switch's own.
+  const shownBy = new Map<string, number>()
+  for (const [i, field] of declared.entries()) {
+    if (field.kind !== 'switch') continue
+    for (const key of field.shows ?? []) {
+      const at = declared.findIndex((each) => holdsValue(each) && each.key === key)
+      if (at < 0) return `propose.fields[${i}].shows: names no field ${key}`
+      if (at <= i) return `propose.fields[${i}].shows: ${key} should come after the switch`
+      if (shownBy.has(key)) return `propose.fields[${i}].shows: ${key} is shown by another switch`
+      shownBy.set(key, i)
+    }
+  }
+  // What a switch fills off and on: two values, plain JSON, whose places name other fields, filled
+  // once (none a switch that fills values of its own); and its button's word, a line of words.
+  const filling = new Set(
+    declared.flatMap((field) => (field.kind === 'switch' && field.values ? [field.key] : [])),
+  )
+  for (const [i, field] of declared.entries()) {
+    if (field.kind !== 'switch') continue
+    const where = `propose.fields[${i}]`
+    if (field.values !== undefined) {
+      if (!Array.isArray(field.values) || field.values.length !== 2) {
+        return `${where}.values: should be two, what it fills off and on`
+      }
+      for (const [at, value] of field.values.entries()) {
+        const inner = keys.filter((key) => !filling.has(key))
+        const wrong = jsonProblem(value, `${where}.values[${at}]`, 0, inner)
+        if (wrong) {
+          return [...placesOf(value)].some((place) => filling.has(place))
+            ? `${where}.values[${at}]: names a switch that fills values of its own`
+            : wrong
+        }
+      }
+    }
+    if (field.verb !== undefined) {
+      if (field.verb.trim() === '' || /[\r\n]/.test(field.verb)) {
+        return `${where}.verb: should be one line of words`
+      }
+      if (WAY_OUT.has(lettersOf(field.verb))) {
+        return `${where}.verb: would read as the way out of the dialog (Cancel, Close, Back, Not now…)`
+      }
+      if (action === 'delete') return `${where}.verb: a deletion’s button is Lumovi’s own`
+    }
+  }
   const proposed: Proposed = { id, press, action: action as ChangeAction, fields: declared }
+  if (harm !== undefined) {
+    const harmWrong = wrongWith(
+      harm,
+      list(
+        record({ path: text(253), says: hint, verb: text(CHANGE_LIMITS.verb), detail: hint }),
+        8,
+      ),
+      'propose.harm',
+    )
+    if (harmWrong) return harmWrong
+    for (const [i, each] of (harm as NonNullable<Proposed['harm']>).entries()) {
+      const where = `propose.harm[${i}]`
+      if (each.path !== undefined && !/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(each.path)) {
+        return `${where}.path: should be names with dots between, as its file’s harm says it`
+      }
+      if (each.path === undefined && each.says === undefined) {
+        return `${where}: says what harm it does, or names its file’s harm by its path`
+      }
+      if (each.verb !== undefined && WAY_OUT.has(lettersOf(each.verb))) {
+        return `${where}.verb: would read as the way out of the dialog`
+      }
+    }
+    proposed.harm = harm as NonNullable<Proposed['harm']>
+  }
   if (verb !== undefined) proposed.verb = (verb as string).trim()
   if (action === 'create') {
     if (typeof kind !== 'string' || !/^[a-z0-9.-]+\/[A-Z][A-Za-z0-9]*$/.test(kind)) {
@@ -311,17 +444,33 @@ export function proposalProblem(said: unknown): string | Proposed {
   }
   // Every field changes something: one that goes nowhere would ask the person for nothing.
   const used = placesIn(proposed)
-  const unused = keys.find((key) => !used.has(key))
+  // (A switch that shows others is how they're asked for: it may go nowhere itself.)
+  const shows = new Set(
+    declared.flatMap((field) =>
+      field.kind === 'switch' && field.shows?.length ? [field.key] : [],
+    ),
+  )
+  const unused = keys.find((key) => !used.has(key) && !shows.has(key))
   if (unused !== undefined) return `propose.fields: ${unused} goes nowhere in the change`
   return proposed
 }
 
-/** A field as its shape is checked: a choice's options without the values they put in. */
+/**
+ * A field as its shape is checked: a choice's options without the values they put in, and a
+ * switch without what it fills (each checked as JSON apart from it).
+ */
 function withoutOptionValues(field: unknown): unknown {
+  if (
+    typeof field === 'object' &&
+    field !== null &&
+    (field as { kind?: unknown }).kind === 'switch'
+  ) {
+    return Object.fromEntries(Object.entries(field).filter(([key]) => key !== 'values'))
+  }
   if (
     typeof field !== 'object' ||
     field === null ||
-    (field as { kind?: unknown }).kind !== 'choice'
+    !['choice', 'picks'].includes((field as { kind?: unknown }).kind as string)
   ) {
     return field
   }
@@ -339,7 +488,20 @@ function withoutOptionValues(field: unknown): unknown {
 
 /** What's wrong with a field beyond its kind's shape: a number's bounds, a choice's options. */
 function fieldShapeProblem(field: Field, where: string): string | undefined {
+  if (!holdsValue(field)) return undefined
   if (!FIELD_KEY.test(field.key)) return `${where}.key: should be a name`
+  if (field.kind === 'picks') {
+    for (const [i, option] of field.options.entries()) {
+      if (!Object.hasOwn(option, 'value')) return `${where}.options[${i}].value: is required`
+      const wrong = jsonProblem(option.value, `${where}.options[${i}].value`, 0, [])
+      if (wrong) return wrong
+    }
+    const picked = field.value ?? []
+    if (new Set(picked).size !== picked.length) return `${where}.value: names an option twice`
+    if (picked.some((at) => at >= field.options.length)) {
+      return `${where}.value: should be its options’ places`
+    }
+  }
   if (field.kind === 'number') {
     if (field.min > field.max) return `${where}: its min is above its max`
     if (field.value !== undefined && (field.value < field.min || field.value > field.max)) {
@@ -498,13 +660,27 @@ function jsonProblem(
 function placesIn(proposed: Proposed): Set<string> {
   const found = new Set<string>()
   const walk = (value: unknown): void => {
-    const place = placeOf(value)
-    if (place !== undefined) found.add(place)
-    else if (Array.isArray(value)) value.forEach(walk)
-    else if (typeof value === 'object' && value !== null) Object.values(value).forEach(walk)
+    for (const place of placesOf(value)) found.add(place)
   }
   walk(proposed.body)
   walk(proposed.replicas)
+  // (And those in what a switch that's used fills.)
+  for (const field of proposed.fields) {
+    if (field.kind === 'switch' && field.values && found.has(field.key)) field.values.forEach(walk)
+  }
+  return found
+}
+
+/** The fields' places in a value as a page wrote it. */
+function placesOf(value: unknown): Set<string> {
+  const found = new Set<string>()
+  const walk = (at: unknown): void => {
+    const place = placeOf(at)
+    if (place !== undefined) found.add(place)
+    else if (Array.isArray(at)) at.forEach(walk)
+    else if (typeof at === 'object' && at !== null) Object.values(at).forEach(walk)
+  }
+  walk(value)
   return found
 }
 
@@ -535,11 +711,34 @@ export function fieldAt(proposed: Proposed, path: string): string | undefined {
   return found
 }
 
-/** A field's value as it goes in: a choice's is its option's value, the rest as set. */
-function valueOf(field: Field, value: FieldValue): unknown {
+/**
+ * A field's value as it goes in: a choice's is its option's value, a pick's its options' values
+ * in the list's order, the rest as set.
+ */
+function valueOf(field: ValueField, value: FieldValue): unknown {
   if (field.kind === 'choice')
     return typeof value === 'number' ? field.options[value]?.value : undefined
+  if (field.kind === 'picks') {
+    const picked = new Set(Array.isArray(value) ? value : [])
+    return field.options.flatMap((option, i) => (picked.has(i) ? [option.value] : []))
+  }
   return value
+}
+
+/** The fields hidden as `values` stand: those a switch that's off shows. */
+export function hiddenFields(
+  fields: readonly Field[],
+  values: Readonly<Record<string, FieldValue>>,
+): Set<string> {
+  const hidden = new Set<string>()
+  for (const field of fields) {
+    if (field.kind !== 'switch') continue
+    // (One hidden itself hides what it shows, too.)
+    if (values[field.key] !== true || hidden.has(field.key)) {
+      for (const key of field.shows ?? []) hidden.add(key)
+    }
+  }
+  return hidden
 }
 
 /** The change as it's to be sent: the patch or object, or a scale's count. */
@@ -558,20 +757,39 @@ export function filled(
   proposed: Proposed,
   values: Readonly<Record<string, FieldValue>>,
 ): Filled | 'fields' | 'too-big' | 'not-allowed' {
-  const fields = new Map(proposed.fields.map((field) => [field.key, field]))
-  for (const field of proposed.fields) if (fieldWrong(field, values[field.key])) return 'fields'
+  const valued = proposed.fields.filter(holdsValue)
+  const fields = new Map(valued.map((field) => [field.key, field]))
+  // (A field a switch that's off hides goes in as nothing: it's left out of the change, and so is
+  // an object only hidden fields stood in, up to the first that holds something else: Retry off
+  // sends no `retry`. One the page wrote empty stays.)
+  const hidden = hiddenFields(proposed.fields, values)
+  for (const field of valued) {
+    if (!hidden.has(field.key) && fieldWrong(field, values[field.key])) return 'fields'
+  }
   const fill = (value: unknown): unknown => {
     const place = placeOf(value)
-    if (place !== undefined) return valueOf(fields.get(place)!, values[place])
-    if (Array.isArray(value)) return value.map(fill)
+    if (place !== undefined) {
+      if (hidden.has(place)) return undefined
+      const field = fields.get(place)!
+      // (What a switch fills is filled in turn: its fields fill only values, so once.)
+      if (field.kind === 'switch' && field.values) {
+        return fill(field.values[values[place] === true ? 1 : 0])
+      }
+      return valueOf(field, values[place])
+    }
+    if (Array.isArray(value)) return value.map(fill).filter((item) => item !== undefined)
     if (typeof value === 'object' && value !== null) {
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fill(item)]))
+      const entries = Object.entries(value)
+      const kept = entries
+        .map(([key, item]) => [key, fill(item)] as const)
+        .filter(([, item]) => item !== undefined)
+      return entries.length > 0 && kept.length === 0 ? undefined : Object.fromEntries(kept)
     }
     return value
   }
   const out: Filled = {}
   if (proposed.body !== undefined) {
-    out.body = fill(proposed.body)
+    out.body = fill(proposed.body) ?? {}
     if (new TextEncoder().encode(JSON.stringify(out.body)).length > CHANGE_LIMITS.bytes) {
       return 'too-big'
     }
@@ -588,16 +806,32 @@ export function filled(
  */
 export function startingValues(fields: readonly Field[]): Record<string, FieldValue> {
   return Object.fromEntries(
-    fields.map((field) => [
-      field.key,
-      field.value ?? (field.kind === 'text' ? '' : field.kind === 'switch' ? false : undefined),
-    ]),
+    fields
+      .filter(holdsValue)
+      .map((field) => [
+        field.key,
+        field.value ??
+          (field.kind === 'text'
+            ? ''
+            : field.kind === 'switch' || field.kind === 'check'
+              ? false
+              : field.kind === 'picks'
+                ? []
+                : undefined),
+      ]),
   )
 }
 
 /** What's wrong with a field's value, in Lumovi's words by its kind; or nothing. */
-export function fieldWrong(field: Field, value: FieldValue): string | undefined {
+export function fieldWrong(field: ValueField, value: FieldValue): string | undefined {
   switch (field.kind) {
+    case 'check':
+      return typeof value === 'boolean' ? undefined : 'Choose one.'
+    case 'picks':
+      return Array.isArray(value) &&
+        value.every((at) => Number.isInteger(at) && at >= 0 && at < field.options.length)
+        ? undefined
+        : 'Choose from the list.'
     case 'text': {
       const typed = typeof value === 'string' ? value : ''
       if (field.required && typed.trim() === '') return 'Fill this in.'
@@ -626,9 +860,116 @@ export function changedFields(
   values: Readonly<Record<string, FieldValue>>,
 ): string[] {
   const started = startingValues(fields)
+  const same = (a: FieldValue, b: FieldValue) => JSON.stringify(a) === JSON.stringify(b)
   return fields
-    .filter((field) => values[field.key] !== started[field.key])
+    .filter(holdsValue)
+    .filter((field) => !same(values[field.key], started[field.key]))
     .map((field) => field.key)
+}
+
+/**
+ * The harms a change does, as it's to be sent (`body`, filled in): those of `harms` (its plugin's
+ * file's, for its kind) whose path in it holds the value that harms, or is there at all (and not
+ * an empty list); in the file's order. Lumovi draws each in red, whatever the plugin's code says.
+ */
+/** What `body` holds at a path of names (`operation.sync.prune`), if it holds anything there. */
+export function heldAt(body: unknown, path: string): { found: boolean; value?: unknown } {
+  let at: unknown = body
+  for (const name of path.split('.')) {
+    if (typeof at !== 'object' || at === null || Array.isArray(at) || !Object.hasOwn(at, name)) {
+      return { found: false }
+    }
+    at = (at as Record<string, unknown>)[name]
+  }
+  return { found: true, value: at }
+}
+
+/** Whether a harm's `unless` holds in what's sent, where the person may have set it. */
+export function quieted(body: unknown, harm: Harm, quietable: (path: string) => boolean): boolean {
+  if (!harm.unless || !quietable(harm.unless.path)) return false
+  const at = heldAt(body, harm.unless.path)
+  return at.found && JSON.stringify(at.value) === JSON.stringify(harm.unless.is)
+}
+
+export function harmsIn(
+  body: unknown,
+  harms: readonly Harm[],
+  /** Where an `unless` may quiet a harm: none unless said (see harmsSent). */
+  quietable: (path: string) => boolean = () => false,
+): Harm[] {
+  const valueAt = (path: string) => heldAt(body, path)
+  return harms.filter((harm) => {
+    // (Unless what's sent says it harms nothing, as its file says: a dry run; and only where the
+    // person said so.)
+    if (quieted(body, harm, quietable)) return false
+    const at = valueAt(harm.path)
+    if (!at.found) return false
+    if (harm.contains !== undefined) {
+      const wanted = JSON.stringify(harm.contains)
+      return Array.isArray(at.value) && at.value.some((each) => JSON.stringify(each) === wanted)
+    }
+    if (harm.set) {
+      return (
+        at.value !== undefined &&
+        at.value !== null &&
+        !(Array.isArray(at.value) && at.value.length === 0)
+      )
+    }
+    return JSON.stringify(at.value) === JSON.stringify(harm.is)
+  })
+}
+
+/**
+ * The harms a proposal's change does as it's sent (`body`, filled in from it), by its file's
+ * `harms`. A harm's `unless` quiets it only where the person set what it names: the page wrote,
+ * at just that path, a switch or a check of its own (a dry run's), never a value of its own or one
+ * a switch fills. So a page can't make a change that harms look as if it didn't; and what quiets
+ * it is in what's sent, as the person set it.
+ */
+export function harmsSent(proposed: Proposed, body: unknown, harms: readonly Harm[]): Harm[] {
+  const kinds = new Map(
+    proposed.fields.filter(holdsValue).map((field) => [field.key, field] as const),
+  )
+  const quietable = (path: string) => {
+    let at: unknown = proposed.body
+    for (const name of path.split('.')) {
+      if (typeof at !== 'object' || at === null || Array.isArray(at) || !Object.hasOwn(at, name)) {
+        return false
+      }
+      at = (at as Record<string, unknown>)[name]
+    }
+    const place = placeOf(at)
+    const field = place === undefined ? undefined : kinds.get(place)
+    return (field?.kind === 'switch' && field.values === undefined) || field?.kind === 'check'
+  }
+  return harmsIn(body, harms, quietable)
+}
+
+/**
+ * The button's word as the person's values stand: the last switch that's on, shown, and says one
+ * (Dry run); else the page's own.
+ */
+export function verbNow(
+  proposed: Proposed,
+  values: Readonly<Record<string, FieldValue>>,
+): string | undefined {
+  const hidden = hiddenFields(proposed.fields, values)
+  const on = proposed.fields.filter(
+    (field) =>
+      field.kind === 'switch' && field.verb && values[field.key] === true && !hidden.has(field.key),
+  )
+  return (on.at(-1) as { verb?: string } | undefined)?.verb?.trim() ?? proposed.verb
+}
+
+/** A button's words where a change harms: its own verb, then each harm's ("Sync, prune and force"). */
+export function harmedVerb(verb: string, harms: readonly { verb?: string }[]): string {
+  const said = [verb]
+  for (const harm of harms) {
+    if (harm.verb && !said.some((one) => one.toLowerCase() === harm.verb!.toLowerCase())) {
+      said.push(harm.verb)
+    }
+  }
+  return said.length === 1 ? said[0]! : `${said.slice(0, -1).join(', ')} and ${said.at(-1)}`
 }
 
 /** Kubernetes' own groups: never written by a plugin, even where its file reads them. */

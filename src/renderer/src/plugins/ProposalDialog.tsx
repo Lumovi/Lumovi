@@ -36,11 +36,16 @@ import {
   changedFields,
   fieldAt,
   fieldWrong,
+  harmedVerb,
+  harmsSent,
+  hiddenFields,
+  holdsValue,
   filled,
   PROPOSALS_OFF,
   startingValues,
-  type Field,
+  verbNow,
   type FieldValue,
+  type ValueField,
   type PluginChangeAnswer,
 } from '@shared/plugin-changes'
 import { whose } from '@shared/plugins'
@@ -333,6 +338,8 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     startingValues(proposed.fields),
   )
+  // Fields a switch that's off shows: hidden, and left out of the change.
+  const hidden = hiddenFields(proposed.fields, values)
   // (A number's field as typed: what isn't a whole number yet is said so, never lost.)
   const [typing, setTyping] = useState<Record<string, string>>({})
   const change = useMemo(() => filled(proposed, values), [proposed, values])
@@ -505,7 +512,26 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   // (Today's rule, as Lumovi's own Delete has it: the kinds it always asks it for, or production.)
   const typeToConfirm =
     danger && (TYPE_TO_DELETE.includes(kind) || production) ? target?.name : undefined
-  const word = danger ? LUMOVIS_WORD.delete : (proposed.verb ?? LUMOVIS_WORD[proposed.action])
+  // What does harm: the file's, where what this sends holds it, and what the page adds. Drawn in
+  // red, and named on the button, whatever the page's code says.
+  const fileKind =
+    proposed.kind ?? `${kind.includes('.') ? kind.slice(kind.indexOf('.') + 1) : ''}/${apiKind}`
+  const fileHarm = by.changes?.find((each) => each.kind === fileKind)?.harm ?? []
+  const fired =
+    typeof change === 'object' && change.body !== undefined
+      ? harmsSent(proposed, change.body, fileHarm)
+      : []
+  const ownHarm = (proposed.harm ?? []).filter((each) => each.path === undefined)
+  const harmDetail = (path: string) =>
+    (proposed.harm ?? []).filter((each) => each.path === path && each.detail)
+  const harmed = !danger && fired.length + ownHarm.length > 0
+  // (The page's word, or a switch's that's on: Dry run.)
+  const verb = verbNow(proposed, values) ?? LUMOVIS_WORD[proposed.action]
+  const word = danger
+    ? LUMOVIS_WORD.delete
+    : harmed
+      ? harmedVerb(verb, [...fired, ...ownHarm])
+      : verb
   const confirmable =
     answer?.ok === true &&
     live &&
@@ -625,26 +651,64 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
                   optionsMore && FADE,
                 )}
               >
-                {proposed.fields.map((field) => (
-                  <FieldInput
-                    key={field.key}
-                    field={field}
-                    value={values[field.key]}
-                    typed={typing[field.key]}
-                    wrong={
-                      fieldWrong(field, values[field.key]) ??
-                      (refusedField === field.key && answer && !answer.ok
-                        ? refusedWords(answer)
-                        : undefined)
-                    }
-                    onChange={(value, raw) => {
-                      setValues((all) => ({ ...all, [field.key]: value }))
-                      if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
-                      setRefused(undefined)
-                    }}
-                  />
-                ))}
+                {proposed.fields.map((field, at) =>
+                  // A section's heading: the fields after it stand under it, until the next.
+                  !holdsValue(field) ? (
+                    <h4
+                      key={`section-${at}`}
+                      className="pt-1 text-xs font-semibold [overflow-wrap:anywhere] text-ink-2"
+                    >
+                      <TheirText text={field.label} inline />
+                    </h4>
+                  ) : hidden.has(field.key) ? null : (
+                    <FieldInput
+                      key={field.key}
+                      field={field}
+                      value={values[field.key]}
+                      typed={typing[field.key]}
+                      wrong={
+                        fieldWrong(field, values[field.key]) ??
+                        (refusedField === field.key && answer && !answer.ok
+                          ? refusedWords(answer)
+                          : undefined)
+                      }
+                      onChange={(value, raw) => {
+                        setValues((all) => ({ ...all, [field.key]: value }))
+                        if (raw !== undefined) setTyping((all) => ({ ...all, [field.key]: raw }))
+                        setRefused(undefined)
+                      }}
+                    />
+                  ),
+                )}
               </div>
+            </section>
+          )}
+
+          {/* What it harms, in red: its file's words for what this sends, the page's detail under
+              them as its own words, and any harm the page adds. Never fewer than its file says. */}
+          {harmed && (
+            <section aria-label="What it harms" className="shrink-0 border-t border-line px-5 py-3">
+              <p className="mb-1.5 text-2xs font-medium tracking-wider text-critical-text uppercase">
+                What it harms
+              </p>
+              <ul className="space-y-1.5 text-xs [overflow-wrap:anywhere]">
+                {fired.map((harm) => (
+                  <li key={harm.path} className="text-critical-text">
+                    <TheirText text={{ their: harm.says }} inline />
+                    {harmDetail(harm.path).map((each, i) => (
+                      <span key={i} className="mt-0.5 block text-ink-2">
+                        In {whose(by.label)} words:{' '}
+                        <TheirText text={{ their: each.detail! }} inline />
+                      </span>
+                    ))}
+                  </li>
+                ))}
+                {ownHarm.map((each, i) => (
+                  <li key={`own-${i}`} className="text-critical-text">
+                    In {whose(by.label)} words: <TheirText text={{ their: each.says! }} inline />
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
 
@@ -812,7 +876,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
             </Button>
             <Button
               data-confirm
-              variant={danger ? 'danger' : 'primary'}
+              variant={danger || harmed ? 'danger' : 'primary'}
               disabled={!confirmable}
               aria-disabled={!confirmable}
               onClick={() => void confirm()}
@@ -961,7 +1025,7 @@ function FieldInput({
   wrong,
   onChange,
 }: {
-  field: Field
+  field: ValueField
   value: FieldValue
   typed: string | undefined
   wrong: string | undefined
@@ -1043,6 +1107,64 @@ function FieldInput({
           </select>
         )
       break
+    case 'check':
+      // (Its label is beside the box, and the box is the field: drawn whole below.)
+      return (
+        <div data-field={field.key}>
+          <label className="flex items-start gap-2.5 text-xs text-ink-1">
+            <input
+              id={id}
+              type="checkbox"
+              checked={value === true}
+              onChange={(event) => onChange(event.target.checked)}
+              className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent)]"
+            />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              <span className="font-medium">
+                <TheirText text={field.label} inline />
+              </span>
+              {field.hint && (
+                <span className="mt-0.5 block text-ink-3">
+                  <TheirText text={field.hint} inline />
+                </span>
+              )}
+            </span>
+          </label>
+          {wrong && <p className="mt-1 text-xs text-critical-text">{wrong}</p>}
+        </div>
+      )
+    case 'picks': {
+      // Several of a list: a box each, in a box of its own that scrolls past a few.
+      const picked = new Set(Array.isArray(value) ? value : [])
+      control = (
+        <div
+          id={id}
+          role="group"
+          aria-labelledby={`${id}-label`}
+          className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border border-line bg-surface px-2.5 py-1.5"
+        >
+          {field.options.map((option, i) => (
+            <label key={i} className="flex items-center gap-2 text-xs text-ink-1">
+              <input
+                type="checkbox"
+                checked={picked.has(i)}
+                onChange={(event) => {
+                  const next = new Set(picked)
+                  if (event.target.checked) next.add(i)
+                  else next.delete(i)
+                  onChange(field.options.flatMap((_, at) => (next.has(at) ? [at] : [])))
+                }}
+                className="size-3.5 shrink-0 accent-[var(--accent)]"
+              />
+              <span className="min-w-0 truncate">
+                <TheirText text={option.label} inline />
+              </span>
+            </label>
+          ))}
+        </div>
+      )
+      break
+    }
     case 'switch':
       control = (
         <button

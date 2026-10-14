@@ -712,7 +712,7 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     'texts.yaml: spec.views[0].related[0].labels.tiU+200Ber: holds a character that can’t be seen (U+200B)',
     'texts.yaml: spec.views[0].actions[0].patch.metadata.annotations.note: holds a character that can’t be seen (U+E0041)',
     // An action that asks nothing says so, and only such a one.
-    'hurried.yaml: spec.views[0].actions[0]: asks first, so it can’t say runs: at-once',
+    'hurried.yaml: spec.views[0].actions[0]: asks first, so it can’t say runs: at-once (one done to several may, with inputs only)',
     'hurried.yaml: spec.views[0].actions[1]: runs at once, so it has to say so: runs: at-once',
     'hurried.yaml: spec.views[0].actions[2].runs: should be one of at-once, not "sometimes"',
     // A name is one plugin's, and so is a kind: the first by file name is used.

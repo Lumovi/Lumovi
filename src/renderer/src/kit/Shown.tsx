@@ -71,7 +71,9 @@ export function ShownCard({
       <h3 className="flex min-h-8 flex-wrap items-center gap-x-3 px-4 pt-3 text-[13px] font-semibold text-ink-1 phone:px-0 phone:pt-0">
         {/* (The title is the plugin's text beside Lumovi's own: its own island of direction.) */}
         <bdi className="min-w-0 truncate">{title}</bdi>
-        {!phone && caption}
+        {/* (A sentence: where the heading's line is too short for it, it wraps as one, under the
+            title, a scroll bar's room or not.) */}
+        {!phone && <span className="min-w-0">{caption}</span>}
         {aside && <span className="ml-auto shrink-0">{aside}</span>}
       </h3>
       {/* A phone's heading has no room beside it: the caption stands under the title. */}

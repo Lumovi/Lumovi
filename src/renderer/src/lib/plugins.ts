@@ -32,8 +32,10 @@ import {
   type ViewAction,
   type ViewField,
   type ViewInput,
+  type Harm,
 } from '@shared/plugins'
-import { apiGroupOf, type ResourceKind } from '@shared/resources'
+import { harmsIn, quieted } from '@shared/plugin-changes'
+import { apiGroupOf, apiKindOf, type ResourceKind } from '@shared/resources'
 import { offersPages } from './code-pages'
 import type { Status } from './health'
 
@@ -172,7 +174,7 @@ const NOTHING: Added = { pages: [], tabs: [], commands: [] }
 export function listedPlugins(): ListedPlugin[] {
   const listed = (plugins: Iterable<Plugin>) =>
     [...plugins].flatMap((plugin) => {
-      const { name, source, version, place, added, opens, links, logs } = plugin
+      const { name, source, version, place, added, opens, links, logs, changes } = plugin
       return place
         ? [
             {
@@ -183,6 +185,7 @@ export function listedPlugins(): ListedPlugin[] {
               named: namedKinds(plugin),
               opens,
               links,
+              changes,
               ...(logs ? { logs } : {}),
               // (Its pages, tabs and commands are drawn by the door, and offered where Lumovi offers
               // code pages: only for a plugin whose code is part of this Lumovi, never a page that
@@ -474,4 +477,92 @@ export function viewRelated(
       },
     ]
   })
+}
+
+/**
+ * What a kind's change does harm, as the file of the plugin whose view shows it says
+ * (`spec.changes[].harm`): drawn wherever a change of that file's is asked, its views' actions
+ * as its pages' proposals.
+ */
+export function harmsFor(kind: ResourceKind): readonly Harm[] {
+  const view = viewFor(kind)
+  const plugin = view && pluginNamed(view.plugin)
+  const named = `${apiGroupOf(kind)}/${apiKindOf(kind)}`
+  return plugin?.changes?.find((each) => each.kind === named)?.harm ?? []
+}
+
+/** A JSON patch's operations as what they write: an object, so a harm's path is judged in it. */
+function written(body: unknown): unknown {
+  if (!Array.isArray(body)) return body
+  const out: Record<string, unknown> = {}
+  for (const op of body as { op?: unknown; path?: unknown; value?: unknown }[]) {
+    if ((op.op !== 'add' && op.op !== 'replace') || typeof op.path !== 'string') continue
+    const names = op.path
+      .split('/')
+      .slice(1)
+      .map((name) => name.replace(/~1/g, '/').replace(/~0/g, '~'))
+    let at = out
+    for (const name of names.slice(0, -1)) {
+      if (typeof at[name] !== 'object' || at[name] === null) at[name] = {}
+      at = at[name] as Record<string, unknown>
+    }
+    if (names.length) at[names.at(-1)!] = op.value
+  }
+  return out
+}
+
+/**
+ * The harms a view's action does as it's sent (`body`, its patch filled in), by its kind's file's
+ * `harms`. An `unless` quiets one only where the person set what it names: the action's patch has,
+ * at just that path, a switch input whole that the person is asked (`asked`), never a value of
+ * the file's own, one read off the object, or a default filled where it isn't asked.
+ */
+export function actionHarms(
+  action: ViewAction,
+  body: unknown,
+  harms: readonly Harm[],
+  asked: (input: ViewInput) => boolean,
+): Harm[] {
+  const template = written(action.patch)
+  const quietable = (path: string) => {
+    let at: unknown = template
+    for (const name of path.split('.')) {
+      if (typeof at !== 'object' || at === null || Array.isArray(at) || !Object.hasOwn(at, name)) {
+        return false
+      }
+      at = (at as Record<string, unknown>)[name]
+    }
+    const only = typeof at === 'string' ? ONLY_PLACEHOLDER.exec(at) : null
+    if (!only || !INPUT_PATH.test(only[1]!)) return false
+    const input = action.inputs?.find((each) => `input.${each.name}` === only[1])
+    return input !== undefined && input.type === 'switch' && asked(input)
+  }
+  if (!Array.isArray(body)) return harmsIn(body, harms, quietable)
+  // A JSON patch: judged as what its additions and replacements write, and, failing closed, any
+  // operation that lands on a harm's path or inside it (a copy, a move, a list's new item)
+  // harms, whatever it carries, unless what the person set quiets it.
+  const asWritten = written(body)
+  const fired = new Set(harmsIn(asWritten, harms, quietable))
+  return harms.filter(
+    (harm) =>
+      fired.has(harm) ||
+      (!quieted(asWritten, harm, quietable) &&
+        (body as { op?: unknown; path?: unknown }[]).some((op) => lands(op, harm.path))),
+  )
+}
+
+/**
+ * Whether a JSON patch's operation writes at `path` (names with dots), or inside what's there; a
+ * copy or a move onto what holds it, too.
+ */
+function lands(op: { op?: unknown; path?: unknown }, path: string): boolean {
+  if (op.op === 'remove' || op.op === 'test' || typeof op.path !== 'string') return false
+  const at = op.path
+    .split('/')
+    .slice(1)
+    .map((name) => name.replace(/~1/g, '/').replace(/~0/g, '~'))
+    .join('.')
+  // (A copy or a move onto what holds it brings in what it can't see: it lands there too.)
+  const blind = op.op === 'copy' || op.op === 'move'
+  return at === path || at.startsWith(`${path}.`) || (blind && path.startsWith(`${at}.`))
 }
