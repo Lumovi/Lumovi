@@ -412,32 +412,44 @@ export const workerText = (plugin: string): string => `${WORKER_FIRST_LINES};\n$
 export const workerTextBare = (plugin: string): string =>
   `// lumovi: first lines taken away\n${WORKER_CHANNEL};\n${plugin}`
 
-/** A box as it's placed: its plugin, and the process its frame is in. */
+/** A box as it's placed: its plugin, the process its frame is in, and the window it's in. */
 export interface BoxPlace {
   plugin: string
   pid: number
+  /** The window whose page holds its frame (one window, where there's one). */
+  window: number
 }
 
 /**
- * What the boxes' places ask for. Each plugin is to be in processes of its own: a process that
- * holds two plugins is to be ended, both with it; and a plugin with a box in the page's own
- * process, which can't be ended, is to have its boxes taken off the page. For the rest, whose
- * each process is.
+ * What the boxes' places ask for, over every window at once: a process is a process whichever
+ * window's frame is in it. Each plugin is to be in processes of its own: a process that holds
+ * two plugins is to be ended, both with it; and a plugin with a box in any page's own process
+ * (Lumovi's renderer, which can't be ended) is to have its boxes taken off the page of the window
+ * they're in. For the rest, whose each process is; never a page's.
  */
 export function placed(
   boxes: BoxPlace[],
-  page: number,
-): { endProcesses: Map<number, string[]>; takeOff: string[]; pluginOf: Map<number, string> } {
+  pages: number[],
+): {
+  endProcesses: Map<number, string[]>
+  /** By window: the plugins whose boxes are to come off its page. */
+  takeOff: Map<number, string[]>
+  pluginOf: Map<number, string>
+} {
   const inProcess = new Map<number, Set<string>>()
-  for (const { plugin, pid } of boxes) {
+  const takeOff = new Map<number, string[]>()
+  for (const { plugin, pid, window } of boxes) {
+    if (pages.includes(pid)) {
+      const off = takeOff.get(window) ?? []
+      if (!off.includes(plugin)) takeOff.set(window, [...off, plugin])
+      continue
+    }
     inProcess.set(pid, (inProcess.get(pid) ?? new Set()).add(plugin))
   }
   const endProcesses = new Map<number, string[]>()
-  const takeOff: string[] = []
   const pluginOf = new Map<number, string>()
   for (const [pid, plugins] of inProcess) {
-    if (pid === page) takeOff.push(...plugins)
-    else if (plugins.size > 1) endProcesses.set(pid, [...plugins])
+    if (plugins.size > 1) endProcesses.set(pid, [...plugins])
     else pluginOf.set(pid, [...plugins][0]!)
   }
   return { endProcesses, takeOff, pluginOf }

@@ -35,6 +35,7 @@ import type { AgreedPlugins } from './plugins-agreed'
 import type { PluginsWatch } from './plugins-watch'
 import { InstallError, type InstalledPlugins } from './plugins-installed'
 import type { Updates } from './updates'
+import type { Windows } from './windows'
 
 interface Dependencies extends Backend {
   assistants: Assistants
@@ -60,8 +61,12 @@ interface Dependencies extends Backend {
   sponsor: SponsorSource
   /** The audit log itself, for the Audit page (everything in it is this computer's person's). */
   auditLog: AuditLog
-  /** Tells the page of something. */
+  /** Lumovi's windows: each stream is told to the page that started it alone. */
+  windows: Windows
+  /** Tells every window's page of something. */
   send: (channel: string, ...args: unknown[]) => void
+  /** Opens another window. */
+  newWindow: () => void
   /** Opens the app's menu at a point of the page; done once it closes. */
   openMenu: (x: number, y: number) => Promise<void>
   /** Only frames showing this URL may call into the main process. */
@@ -71,6 +76,14 @@ interface Dependencies extends Backend {
 }
 
 /** Whether it's a list of strings. */
+/** What starts a stream by an id the page picked: a shell, a log, a copy out or in. */
+const STARTED_BY_ID = new Set<string>([
+  IPC.terminalOpen,
+  IPC.logsStart,
+  IPC.filesDownload,
+  IPC.filesUpload,
+])
+
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')
 
@@ -98,13 +111,34 @@ export function registerIpc(deps: Dependencies): void {
     auditLog,
     send,
     openMenu,
+    newWindow,
+    windows,
   } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
   const handle = (channel: string, handler: Handler) => {
-    ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+    ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
       if (!trusted(event)) throw new Error(`Blocked ${channel} from an untrusted frame`)
-      return handler(...args)
+      // A stream is the page's that starts it (by the id the page picked): it alone hears of
+      // it, from before it's started; never one another window's page is still hearing. One
+      // that doesn't start owns nothing. A forward's id is the one it's given.
+      const id = STARTED_BY_ID.has(channel) && typeof args[0] === 'string' ? args[0] : undefined
+      if (id !== undefined && !windows.own(id, event.sender)) {
+        throw new Error(`Blocked ${channel}: that stream is another window's`)
+      }
+      let result: unknown
+      try {
+        result = await handler(...args)
+      } catch (error) {
+        if (id !== undefined) windows.disown(id, event.sender)
+        throw error
+      }
+      const failed = (result as { ok?: unknown } | undefined)?.ok === false
+      if (id !== undefined && failed) windows.disown(id, event.sender)
+      if (channel === IPC.forwardStart && !failed) {
+        windows.own((result as Result<{ id: string }> & { ok: true }).data.id, event.sender)
+      }
+      return result
     })
   }
   /** One-way messages, for keystrokes that shouldn't wait for an answer; others are dropped. */
@@ -132,6 +166,7 @@ export function registerIpc(deps: Dependencies): void {
       }
       return openMenu(x as number, y as number)
     },
+    [IPC.newWindow]: () => newWindow(),
     [IPC.setTheme]: (theme) => {
       if (!isTheme(theme)) throw new Error(`Unknown theme "${String(theme)}"`)
       nativeTheme.themeSource = theme
@@ -375,13 +410,37 @@ export function registerIpc(deps: Dependencies): void {
     }
   }
 
-  // Everything in this computer's audit log is its person's: they read all of it.
+  // Everything in this computer's audit log is its person's: they read all of it. Its events are
+  // told as they're recorded while a page of any window watches (each says when it stops).
   const auditing = auditHandlers(auditLog, { everyone: true, may: () => true }, send)
-  for (const [channel, handler] of Object.entries({
-    ...shared.invoke,
-    ...auditing.invoke,
-    ...desktop,
-  })) {
+  const { [IPC.auditWatch]: watch, ...audited } = auditing.invoke
+  const watching = new Map<number, () => void>()
+  const watchNow = (on: boolean) => void watch!(on)
+  ipcMain.handle(IPC.auditWatch, (event: IpcMainInvokeEvent, on: unknown) => {
+    if (!trusted(event)) throw new Error(`Blocked ${IPC.auditWatch} from an untrusted frame`)
+    const page = event.sender
+    const before = watching.size > 0
+    if (on === true && !watching.has(page.id)) {
+      // (A page that goes, reloaded or closed, watches no more: a move within it is no going.)
+      const gone = () => stop()
+      const left = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+        if (details.isMainFrame && !details.isSameDocument) stop()
+      }
+      const stop = () => {
+        page.off('destroyed', gone)
+        page.off('did-start-navigation', left)
+        watching.delete(page.id)
+        if (watching.size === 0) watchNow(false)
+      }
+      page.once('destroyed', gone)
+      page.on('did-start-navigation', left)
+      watching.set(page.id, stop)
+    } else if (on !== true) {
+      watching.get(page.id)?.()
+    }
+    if (!before && watching.size > 0) watchNow(true)
+  })
+  for (const [channel, handler] of Object.entries({ ...shared.invoke, ...audited, ...desktop })) {
     handle(channel, handler)
   }
   const desktopSend: Record<string, Handler> = {
@@ -397,10 +456,22 @@ export function registerIpc(deps: Dependencies): void {
       terminals.close(id)
       local.close(id)
     },
-    [IPC.terminalFocus]: (focused) => terminalKeys.focus(focused),
     [IPC.filesShow]: (saved) => localFiles.show(saved),
   }
   for (const [channel, handler] of Object.entries({ ...shared.send, ...desktopSend })) {
     on(channel, handler)
   }
+  // Whether a page's terminal has focus is that page's own: its window's ⌘ keys follow it.
+  const focusing = new Set<number>()
+  ipcMain.on(IPC.terminalFocus, (event: IpcMainEvent, focused: unknown) => {
+    if (!trusted(event)) return
+    const page = event.sender
+    terminalKeys.focus(page.id, focused)
+    if (focusing.has(page.id)) return
+    focusing.add(page.id)
+    page.once('destroyed', () => {
+      focusing.delete(page.id)
+      terminalKeys.focus(page.id, false)
+    })
+  })
 }

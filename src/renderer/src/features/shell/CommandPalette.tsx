@@ -5,6 +5,7 @@ import { useLayout, useTouch } from '@renderer/lib/layout'
 import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
+  AppWindow,
   Blocks,
   Bookmark,
   Plug,
@@ -598,6 +599,16 @@ function Palette({ onDone }: { onDone: () => void }) {
               onSelect={run(() => useDock.getState().add(context, namespace ?? undefined))}
             >
               New terminal
+            </Item>
+          )}
+          {api.desktop && (
+            <Item
+              icon={<AppWindow />}
+              value="New window another cluster"
+              hint={<Keys keys={[MOD_KEY, '⇧', 'N']} />}
+              onSelect={run(() => void api.desktop!.newWindow())}
+            >
+              New window
             </Item>
           )}
           {!phone && (

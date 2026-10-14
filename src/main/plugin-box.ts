@@ -145,7 +145,9 @@ export function boxProcesses(win: BrowserWindow): { page: number; boxes: BoxPlac
   for (const frame of main.framesInSubtree) {
     try {
       const box = boxOf(frame.url)
-      if (box && frame.osProcessId > 0) boxes.push({ plugin: box.plugin, pid: frame.osProcessId })
+      if (box && frame.osProcessId > 0) {
+        boxes.push({ plugin: box.plugin, pid: frame.osProcessId, window: win.id })
+      }
     } catch {
       // A frame whose process has just gone (ended here, or by itself) can't be asked: it has
       // nothing running to measure.
@@ -180,51 +182,72 @@ function end(pid: number): void {
 }
 
 /**
- * Measures the plugins' processes of a window, and ends one that's over its memory, or near a
- * whole core over the last while. And holds, while the app runs, what the box rests on: a
- * plugin found in a process with another plugin has that process ended, and one found in the
- * page's own process (which can't be ended) has its boxes taken off the page. `ended` is told
- * which plugin and why; every page of it went. Returns how to stop measuring.
+ * Measures the plugins' processes of every window, and ends one that's over its memory, or near a
+ * whole core over the last while. And holds, while the app runs, what the box rests on, across
+ * all the windows at once (a process is a process whichever window's frame is in it): a plugin
+ * found in a process with another plugin has that process ended, and one found in a page's own
+ * process (which can't be ended) has its boxes taken off the page of the window they're in.
+ * `ended` is told which window, which plugin and why; every page of it in that window went.
+ * Returns how to stop measuring.
  */
 export function watchBoxes(
-  win: BrowserWindow,
-  ended: (plugin: string, over: BoxOver) => void,
-  /** A plugin in the page's own process couldn't be taken off the page: it's still there. */
-  stillThere: (plugin: string, why: string) => void,
+  windows: () => BrowserWindow[],
+  ended: (win: BrowserWindow, plugin: string, over: BoxOver) => void,
+  /** A plugin in a page's own process couldn't be taken off that page: it's still there. */
+  stillThere: (win: BrowserWindow, plugin: string, why: string) => void,
   measured?: (processes: BoxProcess[]) => void,
 ): () => void {
   /** What each process used of a core at each of the last measures: as many as the limit looks at. */
   const used = new Map<number, number[]>()
   const WINDOW = Math.round(BOX_LIMITS.processorForMs / BOX_LIMITS.measureEveryMs)
-  /** The plugins being taken off the page just now: asked once, not at every measure. */
+  /** The plugins being taken off a window's page just now: asked once, not at every measure. */
   const leaving = new Set<string>()
   const timer = setInterval(() => {
-    const { page, boxes } = boxProcesses(win)
-    const { endProcesses, takeOff, pluginOf: whose } = placed(boxes, page)
+    const open = windows().filter((win) => !win.isDestroyed())
+    const byId = new Map(open.map((win) => [win.id, win]))
+    const found = open.map((win) => boxProcesses(win))
+    const boxes = found.flatMap((each) => each.boxes)
+    const pages = found.map((each) => each.page).filter((pid) => pid > 0)
+    const { endProcesses, takeOff, pluginOf: whose } = placed(boxes, pages)
     for (const pid of used.keys()) if (!whose.has(pid)) used.delete(pid)
     if (boxes.length === 0) return
+    /** Each window a plugin's boxes in a process were in: told it's ended, once each. */
+    const tell = (pid: number, plugin: string, over: BoxOver) => {
+      const told = new Set<number>()
+      for (const box of boxes) {
+        if (box.pid !== pid || box.plugin !== plugin || told.has(box.window)) continue
+        told.add(box.window)
+        const win = byId.get(box.window)
+        if (win) ended(win, plugin, over)
+      }
+    }
     for (const [pid, plugins] of endProcesses) {
       end(pid)
       used.delete(pid)
-      for (const plugin of plugins) ended(plugin, 'shared')
+      for (const plugin of plugins) tell(pid, plugin, 'shared')
     }
-    // (The page is Lumovi's own: its boxes are taken off it by Lumovi's own hand. Said as
-    // ended only once they are; and if they can't be, that's what's said.)
-    const toTakeOff = takeOff.filter((plugin) => !leaving.has(plugin))
-    if (toTakeOff.length) {
-      for (const plugin of toTakeOff) leaving.add(plugin)
+    // (A page is Lumovi's own: its boxes are taken off it by Lumovi's own hand, in the window
+    // they're in. Said as ended only once they are; and if they can't be, that's what's said.)
+    for (const [id, plugins] of takeOff) {
+      const win = byId.get(id)
+      if (!win) continue
+      const toTakeOff = plugins.filter((plugin) => !leaving.has(`${id}:${plugin}`))
+      if (!toTakeOff.length) continue
+      for (const plugin of toTakeOff) leaving.add(`${id}:${plugin}`)
       void takeBoxesOff(win, toTakeOff)
         .then(
-          () => toTakeOff.forEach((plugin) => ended(plugin, 'shared')),
-          (error: Error) => toTakeOff.forEach((plugin) => stillThere(plugin, error.message)),
+          () => toTakeOff.forEach((plugin) => ended(win, plugin, 'shared')),
+          (error: Error) => toTakeOff.forEach((plugin) => stillThere(win, plugin, error.message)),
         )
-        .finally(() => toTakeOff.forEach((plugin) => leaving.delete(plugin)))
+        .finally(() => toTakeOff.forEach((plugin) => leaving.delete(`${id}:${plugin}`)))
     }
     const seen: BoxProcess[] = []
     for (const metric of app.getAppMetrics()) {
       const plugin = whose.get(metric.pid)
-      // (Never the page's own process, nor one already ended above.)
-      if (plugin === undefined || metric.pid === page || endProcesses.has(metric.pid)) continue
+      // (Never a page's own process, nor one already ended above.)
+      if (plugin === undefined || pages.includes(metric.pid) || endProcesses.has(metric.pid)) {
+        continue
+      }
       // (Kilobytes. Only Windows says what's the process's own.)
       const memory = (metric.memory.privateBytes ?? metric.memory.workingSetSize) * 1024
       // (Said as a share of all the computer's processors: of one core, it's that many times more.)
@@ -241,7 +264,7 @@ export function watchBoxes(
       if (!over) continue
       used.delete(metric.pid)
       end(metric.pid)
-      ended(plugin, over)
+      tell(metric.pid, plugin, over)
     }
     measured?.(seen)
   }, BOX_LIMITS.measureEveryMs)

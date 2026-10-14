@@ -395,21 +395,21 @@ test('where boxes are, and why a plugin’s pages don’t run', async ({ page, s
     const { placed, notHandedLine } = (window as unknown as Lent).__lumoviDoor.doorChecks
     // One plugin in the page's own process; two sharing one; one alone in its own.
     const boxes = [
-      { plugin: 'a', pid: 1 },
-      { plugin: 'b', pid: 2 },
-      { plugin: 'c', pid: 2 },
-      { plugin: 'd', pid: 3 },
+      { plugin: 'a', pid: 1, window: 1 },
+      { plugin: 'b', pid: 2, window: 1 },
+      { plugin: 'c', pid: 2, window: 1 },
+      { plugin: 'd', pid: 3, window: 1 },
     ]
-    const { endProcesses, takeOff, pluginOf } = placed(boxes, 1)
+    const { endProcesses, takeOff, pluginOf } = placed(boxes, [1])
     return {
       ends: [...endProcesses],
-      takeOff,
+      takeOff: [...takeOff],
       own: [...pluginOf],
       lines: [notHandedLine('check-unfinished'), notHandedLine('no-code')],
     }
   })
   expect(said.ends).toEqual([[2, ['b', 'c']]])
-  expect(said.takeOff).toEqual(['a'])
+  expect(said.takeOff).toEqual([[1, ['a']]])
   expect(said.own).toEqual([[3, 'd']])
   expect(said.lines).toEqual([
     'Its pages don’t run here yet: Lumovi’s check of this browser didn’t finish in time.',

@@ -23,6 +23,7 @@ const api: LumoviApi = {
     onPluginEnded: (listener) => subscribe(IPC.pluginEnded, listener),
     setTerminalFocus: (focused) => ipcRenderer.send(IPC.terminalFocus, focused),
     openMenu: (x, y) => invoke(IPC.openMenu, x, y),
+    newWindow: () => invoke(IPC.newWindow),
   },
   app: {
     info: () => invoke(IPC.appInfo),

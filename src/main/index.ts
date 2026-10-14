@@ -1,8 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { app, dialog, Menu, nativeTheme, Notification, session, shell } from 'electron'
-import { developerModeLocked, IPC, type ShellExit } from '@shared/api'
+import {
+  app,
+  dialog,
+  Menu,
+  nativeTheme,
+  Notification,
+  session,
+  shell,
+  type BrowserWindow,
+} from 'electron'
+import { developerModeLocked, IPC, type ShellExit, type WindowState } from '@shared/api'
 import { folderOf } from '@shared/plugin-loading'
 import { parsePlugin } from '@shared/plugins'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
@@ -57,7 +66,8 @@ import { InstalledPlugins } from './plugins-installed'
 import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import SHIPPED from 'virtual:lumovi-plugins'
-import { createMainWindow, rendererUrl } from './window'
+import { createMainWindow, rendererUrl, windowState } from './window'
+import { Windows } from './windows'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
 // single instance, which the app's (if it's running) is.
@@ -236,14 +246,31 @@ if (stdio) {
             }
           : undefined,
     })
-    // The page loads asynchronously, so the handlers below are in place before it can call them.
-    const win = createMainWindow(url, settings.get().window, (window) =>
-      settings.update({ window }),
-    )
-    // Streams can end after the window is gone, as the app quits.
-    const send = (channel: string, ...args: unknown[]) => {
-      if (!win.isDestroyed()) win.webContents.send(channel, ...args)
+    // Lumovi's windows: each where it was when Lumovi last closed, or one where a new one goes.
+    // Their pages load asynchronously, so the handlers below are in place before one can call
+    // them; each window's own events are listened to once all there is to tell them is (wire).
+    const windows = new Windows()
+    let quitting = false
+    const makeWindow = (saved?: WindowState) => {
+      const win = createMainWindow(url, saved, (state) => {
+        // (Quitting, every window is kept, below; else the last closing keeps itself alone.)
+        if (!quitting && windows.all().length === 1) settings.update({ windows: [state] })
+      })
+      windows.add(win)
+      return win
     }
+    const saved = settings.get().windows ?? []
+    for (const state of saved.length ? saved : [undefined]) makeWindow(state)
+    app.on('before-quit', () => {
+      quitting = true
+      const open = windows.all()
+      if (open.length) settings.update({ windows: open.map(windowState) })
+    })
+    /** What every window hears: what's the app's own, not one page's stream. */
+    const send = (channel: string, ...args: unknown[]) => windows.toAll(channel, ...args)
+    /** What the page a stream belongs to hears, alone. */
+    const toOwner = (channel: string, id: string, ...args: unknown[]) =>
+      windows.toOwner(channel, id, ...args)
     // The plugins this Lumovi has, as its backend reads them: read each time they're asked.
     /** What's installed from Lumovi-plugins: there once the store is set up, below. */
     // eslint-disable-next-line prefer-const -- set once, below, after knownPlugins (which reads it) is made
@@ -309,8 +336,8 @@ if (stdio) {
       pluginLogsOff: () => policy.managed?.pluginLogsOff === true,
     }
     const shellEvents = {
-      data: (id: string, data: string) => send(IPC.terminalData, id, data),
-      exit: (id: string, exit: ShellExit) => send(IPC.terminalExit, id, exit),
+      data: (id: string, data: string) => toOwner(IPC.terminalData, id, data),
+      exit: (id: string, exit: ShellExit) => toOwner(IPC.terminalExit, id, exit),
     }
     const terminals = new Terminals(
       { ...deps, nodeShell: (context) => settings.nodeShell(context), timeoutMs: kube.timeoutMs },
@@ -356,11 +383,11 @@ if (stdio) {
     // system's dialogs, and picked there too.
     const localFiles = new DesktopFiles({
       save: async (options) => {
-        const { canceled, filePath } = await dialog.showSaveDialog(win, options)
+        const { canceled, filePath } = await dialog.showSaveDialog(windows.front()!, options)
         return canceled ? undefined : filePath
       },
       open: async ({ title, folder }) => {
-        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        const { canceled, filePaths } = await dialog.showOpenDialog(windows.front()!, {
           title,
           properties: [folder ? 'openDirectory' : 'openFile', 'showHiddenFiles'],
         })
@@ -377,15 +404,15 @@ if (stdio) {
       }),
       localFiles,
       {
-        progress: (id, progress) => send(IPC.filesProgress, id, progress),
-        end: (id, end) => send(IPC.filesEnd, id, end),
+        progress: (id, progress) => toOwner(IPC.filesProgress, id, progress),
+        end: (id, end) => toOwner(IPC.filesEnd, id, end),
       },
     )
     const logs = new LogStreams(
       { ...deps, timeoutMs: kube.timeoutMs },
       {
-        lines: (id, lines) => send(IPC.logsLines, id, lines),
-        end: (id, error) => send(IPC.logsEnd, id, error),
+        lines: (id, lines) => toOwner(IPC.logsLines, id, lines),
+        end: (id, error) => toOwner(IPC.logsEnd, id, error),
       },
     )
     const updates = new Updates(
@@ -470,33 +497,22 @@ if (stdio) {
       // At once: it's the policy's alone, not waiting on the shell, before the first check.
       void chromiumProxy(proxy, noProxy ?? '', [session.defaultSession, updates.session])
     }
-    // A focused terminal's ⌘ keys are its own, before the menu's.
+    // A focused terminal's ⌘ keys are its own, before the menu's (each window's: see wire).
     const terminalKeys = new TerminalKeys()
-    win.webContents.on('before-input-event', (event, input) => {
-      const command = terminalKeys.command(input)
-      if (!command) return
-      event.preventDefault()
-      send(IPC.command, command)
-    })
-    win.on('enter-full-screen', () => send(IPC.fullScreen, true))
-    win.on('leave-full-screen', () => send(IPC.fullScreen, false))
-    // A page that (re)loads learns how the window is now.
-    win.webContents.on('did-finish-load', () => send(IPC.fullScreen, win.isFullScreen()))
     // AI assistants on this computer, over MCP. How the app is started again, should
     // Claude Desktop's bridge find it isn't running: as it was this time.
     settings.update({ assistants: { ...settings.get().assistants!, launch: process.argv } })
+    /** The window in front, brought there. */
     const reveal = () => {
+      const win = windows.front()
+      if (!win) return
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
     }
     // Notifications of changes waiting, kept (one let go can't be clicked) until the person
-    // comes to Lumovi, when they've done their job.
+    // comes to Lumovi, when they've done their job (each window, as it's focused: see wire).
     const notices = new Set<Notification>()
-    win.on('focus', () => {
-      for (const notice of notices) notice.close()
-      notices.clear()
-    })
     const assistants = new Assistants({
       settings,
       kube,
@@ -506,7 +522,7 @@ if (stdio) {
       send,
       // A change waiting for an answer, while the person is elsewhere (in their assistant).
       attention: (proposal) => {
-        if (win.isFocused()) return
+        if (windows.all().some((win) => win.isFocused())) return
         const notice = new Notification({
           title: `${proposal.client} asks to change ${proposal.context}`,
           body: `${proposal.title}. Review it in Lumovi.`,
@@ -540,6 +556,76 @@ if (stdio) {
       claudeDesktopConfig: process.env.LUMOVI_CLAUDE_DESKTOP_CONFIG ?? claudeDesktopConfig(),
     })
     void assistants.start()
+    // Shells, forwards, log streams and copies belong to the page that started them: they end
+    // as it does (reloaded, or its window closed), whatever the other windows' pages do.
+    const closeStreams = (ids: string[]) => {
+      for (const id of ids) {
+        terminals.close(id)
+        local.close(id)
+        forwards.stop(id)
+        logs.stop(id)
+        files.cancel(id)
+      }
+    }
+    /** A window's own: what it's told of itself, and what ends with its page. */
+    const wire = (win: BrowserWindow) => {
+      const page = win.webContents
+      page.on('before-input-event', (event, input) => {
+        const command = terminalKeys.command(page.id, input)
+        if (!command) return
+        event.preventDefault()
+        page.send(IPC.command, command)
+      })
+      win.on('enter-full-screen', () => page.send(IPC.fullScreen, true))
+      win.on('leave-full-screen', () => page.send(IPC.fullScreen, false))
+      // A page that (re)loads learns how the window is now.
+      page.on('did-finish-load', () => page.send(IPC.fullScreen, win.isFullScreen()))
+      win.on('focus', () => {
+        for (const notice of notices) notice.close()
+        notices.clear()
+      })
+      page.on('did-start-navigation', (details) => {
+        // (The page's own: a plugin's box arriving in a frame of it ends nothing.)
+        if (details.isMainFrame && !details.isSameDocument) closeStreams(windows.release(page))
+      })
+      // (Its page gone with it: what it started ends.)
+      win.on('closed', () => closeStreams(windows.release(page)))
+    }
+    for (const win of windows.all()) wire(win)
+    // A plugin's process is measured while it runs, and ended when it's over its limits: one
+    // watch over every window's boxes, since a process is a process whichever window's frame is
+    // in it. The window whose box it was is told.
+    watchBoxes(
+      () => windows.all(),
+      (win, plugin, over) => {
+        console.warn(
+          over === 'shared'
+            ? `Lumovi ended the plugin ${plugin}: it wasn’t in a process of its own`
+            : `Lumovi ended the plugin ${plugin}: it was over its ${over === 'memory' ? 'memory' : 'time on the processor'}`,
+        )
+        // (The page says so where the plugin's page was: `plugins/page.ts`.)
+        if (!win.isDestroyed()) win.webContents.send(IPC.pluginEnded, plugin, over)
+      },
+      (_win, plugin, why) =>
+        console.warn(
+          `Lumovi couldn’t take the plugin ${plugin} off its page, where it isn’t in a process of its own: ${why}`,
+        ),
+    )
+    /** Another window, the size of the one in front and just below it, on the start screen. */
+    const newWindow = () => {
+      const front = windows.front()
+      const at = front && windowState(front)
+      wire(
+        makeWindow(
+          at && {
+            ...at,
+            x: at.x + NEW_WINDOW_OFFSET,
+            y: at.y + NEW_WINDOW_OFFSET,
+            maximized: false,
+          },
+        ),
+      )
+    }
     registerIpc({
       problems: () => envReady.then(() => problems),
       kubeconfigFiles,
@@ -596,42 +682,20 @@ if (stdio) {
       pluginHistory: pluginsListed,
       auditLog,
       send,
-      openMenu: (x, y) => popupMenu(win, x, y),
+      windows,
+      newWindow,
+      openMenu: (x, y) => popupMenu(windows.front()!, x, y),
     })
-    // Shells, forwards and log streams belong to the page that started them.
-    const closeStreams = () => {
+    // Node shells' pods are deleted as their shells end: quitting waits for that (a few
+    // seconds at most; their deadline ends any that are left).
+    let waited = false
+    app.on('will-quit', (event) => {
+      closeStreams(windows.releaseAll())
       void terminals.closeAll()
       local.closeAll()
       forwards.stopAll()
       logs.stopAll()
       void files.cancelAll()
-    }
-    win.webContents.on('did-start-navigation', (details) => {
-      // (The page's own: a plugin's box arriving in a frame of it ends nothing.)
-      if (details.isMainFrame && !details.isSameDocument) closeStreams()
-    })
-    // A plugin's process is measured while it runs, and ended when it's over its limits.
-    watchBoxes(
-      win,
-      (plugin, over) => {
-        console.warn(
-          over === 'shared'
-            ? `Lumovi ended the plugin ${plugin}: it wasn’t in a process of its own`
-            : `Lumovi ended the plugin ${plugin}: it was over its ${over === 'memory' ? 'memory' : 'time on the processor'}`,
-        )
-        // (The page says so where the plugin's page was: `plugins/page.ts`.)
-        send(IPC.pluginEnded, plugin, over)
-      },
-      (plugin, why) =>
-        console.warn(
-          `Lumovi couldn’t take the plugin ${plugin} off its page, where it isn’t in a process of its own: ${why}`,
-        ),
-    )
-    // Node shells' pods are deleted as their shells end: quitting waits for that (a few
-    // seconds at most; their deadline ends any that are left).
-    let waited = false
-    app.on('will-quit', (event) => {
-      closeStreams()
       pluginsWatch.set(false)
       void assistants.stop()
       pluginsListed.stop()
@@ -645,10 +709,15 @@ if (stdio) {
         new Promise((resolve) => setTimeout(resolve, 3_000)),
       ]).then(() => app.quit())
     })
-    Menu.setApplicationMenu(buildMenu(win, { updates, settings }))
+    Menu.setApplicationMenu(
+      buildMenu({ front: () => windows.front(), newWindow, updates, settings }),
+    )
     app.on('second-instance', reveal)
   })
 }
+
+/** How far a new window opens from the one in front, down and to the right. */
+const NEW_WINDOW_OFFSET = 24
 
 /** After starting, so the sponsor card's first read doesn't compete with loading a cluster. */
 const SPONSOR_FIRST_MS = 3_000

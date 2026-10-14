@@ -96,8 +96,8 @@ export interface ChangedOutside {
 
 export interface Settings {
   theme: ThemePreference
-  /** Where the window was when it last closed. */
-  window?: WindowState
+  /** Where Lumovi's windows were when it last closed: each opens there again, the first first. */
+  windows?: WindowState[]
   /** Contexts the user has made read-only: Lumovi refuses to change them. */
   readOnly?: string[]
   /** Every context is read-only (LUMOVI_READ_ONLY is set); not stored. */
@@ -1270,6 +1270,8 @@ export interface LumoviApi {
      * bar (Windows', Linux's); done once it closes.
      */
     openMenu(x: number, y: number): Promise<void>
+    /** Opens another window, on the start screen: its own pages, and its own streams. */
+    newWindow(): Promise<void>
   }
   app: {
     info(): Promise<AppInfo>
@@ -1715,6 +1717,7 @@ export const IPC = {
   command: 'app:command',
   terminalFocus: 'terminal:focus',
   openMenu: 'app:open-menu',
+  newWindow: 'app:new-window',
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',
