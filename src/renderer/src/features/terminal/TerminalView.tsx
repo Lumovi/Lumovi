@@ -8,13 +8,22 @@ export function usePhase(session: TerminalSession): Phase {
 }
 
 /**
+ * Whether the person's last press was a key rather than a pointer: what tells tabs browsed with
+ * the keyboard from a tab that was clicked. (A clicked tab can look keyboard-focused too: Radix
+ * focuses it itself as it's pressed.)
+ */
+let lastPressWasKey = false
+addEventListener('keydown', () => void (lastPressWasKey = true), true)
+addEventListener('pointerdown', () => void (lastPressWasKey = false), true)
+
+/**
  * Ready to type once connected: focus the terminal unless focus has moved out of
  * the panel, or the tabs are being browsed with the keyboard (arrows would get
  * stuck). Focus is on the body when what had it went away, like Reconnect.
  */
 function takeFocus(host: HTMLElement, session: TerminalSession) {
   const active = document.activeElement!
-  const browsing = active.getAttribute('role') === 'tab' && active.matches(':focus-visible')
+  const browsing = active.getAttribute('role') === 'tab' && lastPressWasKey
   const here = active === document.body || host.closest('aside')!.contains(active)
   if (here && !browsing) session.focus()
 }
