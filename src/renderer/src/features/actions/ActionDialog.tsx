@@ -24,6 +24,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { useProduction } from '@renderer/hooks/settings'
+import { focusBack, useOpener } from '@renderer/lib/focus-back'
 import { useCluster } from '@renderer/state/cluster'
 import { useDock } from '../terminal/dock'
 
@@ -83,6 +84,7 @@ export function ActionDialog({
   const { context } = useCluster()
   const layout = useLayout()
   const [typed, setTyped] = useState('')
+  const opener = useOpener()
   const production = useProduction(context)
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const canSubmit = ready && confirmed && !pending
@@ -107,6 +109,11 @@ export function ActionDialog({
             if ((event.target as HTMLElement | null)?.closest?.('.cm-panel')) {
               event.preventDefault()
             }
+          }}
+          // (Closed: back to the button it was opened from, or the busy one in its place.)
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            focusBack(opener)
           }}
           onOpenAutoFocus={(event) => {
             event.preventDefault()

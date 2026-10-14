@@ -49,6 +49,7 @@ export function BusyButton({
   since,
   timed = true,
   className,
+  focusKey,
   children,
 }: {
   /** The action's own name: "Sync". */
@@ -59,6 +60,11 @@ export function BusyButton({
   /** Whether it says how long itself (not where a status beside it does). */
   timed?: boolean
   className?: string
+  /**
+   * Which button it stands in for, as that one says it (`data-focus-key`): where a dialog opened
+   * from that one closes, the keyboard comes here (lib/focus-back.ts).
+   */
+  focusKey?: string
   /** The word as it's drawn, where it's another's (a plugin's, in pieces). */
   children?: ReactNode
 }) {
@@ -76,6 +82,12 @@ export function BusyButton({
         aria-disabled="true"
         aria-label={`${name}, busy: ${doing}${elapsed === undefined ? '' : `, ${spokenElapsed(elapsed)}`}`}
         data-busy=""
+        {...(focusKey === undefined ? {} : { 'data-focus-key': focusKey })}
+        // (Its tooltip on focus only where the focus shows, from the keyboard: given it after a
+        // pointer's press, it says nothing the button doesn't, over what wasn't pointed at.)
+        onFocus={(event) => {
+          if (!event.currentTarget.matches(':focus-visible')) event.preventDefault()
+        }}
         onClick={(event) => event.preventDefault()}
         className={cn(
           buttonClass('secondary'),

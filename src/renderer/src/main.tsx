@@ -6,6 +6,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { api } from './lib/api'
+import { keepFocusOnRedrawn } from './lib/focus-back'
 
 // Lets CSS leave room for the desktop app's window controls: macOS's on the left (none in full
 // screen), others' on the right. A browser has its own, around the page.
@@ -30,6 +31,9 @@ if (LUMOVI_TEST_BUILD) {
     ;(window as unknown as { __lumoviDoor: unknown }).__lumoviDoor = stage
   })
 }
+
+// The keyboard stays on a button drawn anew in its place: busy once its change is made, and back.
+keepFocusOnRedrawn()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

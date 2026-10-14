@@ -126,6 +126,8 @@ test('an action at work is busy where it was, with how long once that’s known,
   // (In whole minutes: a name that changed every second would be said every second.)
   await expect(busy).toHaveAccessibleName('Polish, busy: polishing, 1 minute')
   await expect(busy).toHaveText(/^Polishing1m \d\ds$/)
+  // (From off it, as a person's pointer comes to it: the press above left it there.)
+  await page.mouse.move(0, 0)
   await busy.hover()
   await expect(page.getByRole('tooltip')).toHaveText(
     /^Polishing for 1m \d\ds\. Polish can be pressed again when it’s done\.$/,
@@ -246,4 +248,54 @@ test('a plugin’s entry says the status an action writes, and an action’s own
   await expect(actions).toContainText('Its question: “Stop polishing {{ .metadata.name }} now?”')
   await expect(actions).toContainText('Its button: Stop it')
   await expect(actions).toContainText('Sent only if .status.polishStarted is as you saw it')
+})
+
+test('pressed from the keyboard, an action that becomes busy keeps the keyboard: on its busy button, where it was, and on it again once it’s done', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page, userDataDir } = lumovi
+  const detail = await opened(page, userDataDir)
+  await detail.getByRole('button', { name: 'Polish', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  // Drawn anew, busy, in its place: the keyboard is there, never dropped to the page.
+  const busy = detail.getByRole('button', { name: /^Polish, busy/ })
+  await expect(busy).toBeVisible()
+  await expect(busy).toBeFocused()
+  await expect(page.locator('body')).not.toBeFocused()
+  // Done, and drawn back in its place: the keyboard stays with it.
+  changed(clusters, (widget) => {
+    delete (widget.spec as Record<string, unknown>).polishing
+    return widget
+  })
+  await expect(detail.getByRole('button', { name: 'Polish', exact: true })).toBeFocused({
+    timeout: 15_000,
+  })
+})
+
+test('the keyboard stays an object’s own: taken to another by its address, it isn’t put on that one’s button of the same name', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page, userDataDir } = lumovi
+  // A second widget, beside the first.
+  const widget = clusters.demo.object('Widget.example.com', 'default', CUSTOM.widget)!
+  const other = structuredClone(widget)
+  other.metadata = { ...other.metadata, name: 'green-widget', uid: 'green-widget-uid' }
+  clusters.demo.upsert(other)
+  const detail = await opened(page, userDataDir)
+  await detail.getByRole('button', { name: 'Polish', exact: true }).focus()
+  // To the other by its address, as a keyboard's way there changes it: the first one's bar goes.
+  await page.evaluate(
+    ([from, to]) => {
+      window.location.hash = window.location.hash.replace(from!, to!)
+    },
+    [CUSTOM.widget, 'green-widget'],
+  )
+  const theirs = panel(page, 'Widget', 'green-widget').getByRole('button', {
+    name: 'Polish',
+    exact: true,
+  })
+  await expect(theirs).toBeVisible()
+  await expect(theirs).not.toBeFocused()
 })
