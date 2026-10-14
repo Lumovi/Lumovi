@@ -5,7 +5,7 @@ name: Release
 # builds the installers for every
 # platform (macOS signed and notarized, Windows signed), attaches them, their checksums and the
 # software bill of materials (SBOM) to a GitHub release with the version's
-# CHANGELOG notes, and publishes it, which tags the commit. The image and Helm
+# CHANGELOG summary (its opening paragraphs, then a link to the rest), and publishes it, which tags the commit. The image and Helm
 # chart for running Lumovi in a cluster go to GitHub's container registry,
 # signed with cosign. Each is attested: built here, from this commit, of what. To release, bump the version, add its
 # CHANGELOG section and push (see CONTRIBUTING.md).
@@ -129,7 +129,7 @@ jobs:
           # 1.1.0-beta.1 and the like are pre-releases, never the latest release.
           if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-      - name: Its CHANGELOG section, for the release notes
+      - name: Its CHANGELOG summary, for the release notes
         if: steps.version.outputs.version
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -144,17 +144,22 @@ jobs:
           # The plugins it's built with: the release plugins.lock.json pins (scripts/plugins-bundle.ts).
           PLUGINS=$(node -p "require('./plugins.lock.json').version")
           PLUGINS_BUNDLE=$(node -p "require('./plugins.lock.json').bundle")
+          # The notes are short: the section's opening paragraphs, what the version is, then a
+          # link to all of it in CHANGELOG.md (the heading's own anchor, as GitHub makes it).
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { found = 1; next }
-            found && /^## \[/ { exit }
+            found && /^(## \[|### )/ { exit }
             found && /^\[[^]]+\]: / { next }
             found { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
-            echo "::error::CHANGELOG.md has no entry for $VERSION."
+            echo "::error::CHANGELOG.md has no section for $VERSION, or no opening above its entries."
             exit 1
           fi
+          heading=$(awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 { print; exit }' CHANGELOG.md)
+          anchor=$(printf '%s' "${heading#\#\# }" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9 -]//g; s/ /-/g')
           cat >> "$RUNNER_TEMP/notes.md" <<EOF
+          [Full changelog](https://github.com/$GITHUB_REPOSITORY/blob/v$VERSION/CHANGELOG.md#$anchor) · [Docs](https://docs.lumovi.dev)
 
           ---
 

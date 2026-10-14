@@ -162,8 +162,9 @@ suffix, like `1.1.0-beta.1`, is published as a pre-release.
    `## [1.1.0] - <date>` section of `CHANGELOG.md`, under Added, Changed and Fixed in the order
    their pull requests reached `main`, with the version's link at the bottom, and their files
    are deleted.
-2. In `CHANGELOG.md`, write the section's opening paragraph by hand, above its entries: what
-   the release is, in a sentence or two.
+2. In `CHANGELOG.md`, write the section's opening by hand, above its entries: what the release
+   is, in a few short paragraphs. The GitHub release's notes are that opening and a link to the
+   whole section, not its entries.
 3. Commit, on a branch named `release-1.1.0` (exactly `release-` and the version: CI runs
    everything for that branch alone, and any other `release-…` branch is an ordinary pull
    request), and open a pull request for it.
