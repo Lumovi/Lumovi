@@ -150,6 +150,11 @@ export async function startTestClusters(
   options: {
     jitter?: boolean
     ports?: { demo: number; sandbox: number; large: number; offline: number }
+    /**
+     * The sandbox over TLS too: the screenshots', whose clusters are reached by name through a
+     * proxy that tunnels TLS only (scripts/screenshots/proxy.ts).
+     */
+    sandboxTls?: boolean
   } = {},
 ): Promise<TestClusters> {
   const { ports } = options
@@ -166,6 +171,7 @@ export async function startTestClusters(
     // An older cluster: discovery one API group at a time, and no OpenAPI v3.
     startMockCluster({
       fixture: () => sandboxCluster(),
+      tls: options.sandboxTls,
       gitVersion: SANDBOX.gitVersion,
       aggregatedDiscovery: false,
       openApi: false,
