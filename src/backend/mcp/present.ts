@@ -227,3 +227,49 @@ export function changesOf(before: KubeObject | null, after: KubeObject | null): 
     .map((path) => `${path}: ${was.get(path)} → ${is.get(path)}`)
     .join('\n')
 }
+
+/** An annotation longer than this is left out of an object as it's shown, unless it's asked for. */
+export const LONG_ANNOTATION = 1_000
+
+/**
+ * Of an object as it's shown: annotations too long to be read at a glance (a tool's own record
+ * of the object, often), each left out in words that say how long it is and how to have it.
+ */
+export function withoutLongAnnotations(object: KubeObject): KubeObject {
+  const annotations = object.metadata.annotations
+  if (!annotations) return object
+  const long = Object.entries(annotations).filter(([, value]) => value.length > LONG_ANNOTATION)
+  if (long.length === 0) return object
+  const copy = structuredClone(object)
+  for (const [key, value] of long) {
+    copy.metadata.annotations![key] =
+      `(${value.length} characters, left out: ask for the field metadata.annotations to have it)`
+  }
+  return copy
+}
+
+/**
+ * Only these fields of an object, by dotted paths (`spec.replicas`, `status`,
+ * `spec.template.spec.containers.image`): a list along the way is followed into each of its
+ * items. Its kind, name and namespace are always there; a path that leads nowhere is said so.
+ */
+export function fieldsOf(object: KubeObject, paths: readonly string[]): Record<string, unknown> {
+  const picked: Record<string, unknown> = {
+    kind: object.kind,
+    name: object.metadata.name,
+    ...(object.metadata.namespace ? { namespace: object.metadata.namespace } : {}),
+  }
+  const follow = (value: unknown, steps: readonly string[]): unknown => {
+    if (steps.length === 0) return value
+    if (Array.isArray(value)) return value.map((item) => follow(item, steps))
+    if (typeof value !== 'object' || value === null || !Object.hasOwn(value, steps[0]!)) {
+      return undefined
+    }
+    return follow((value as Record<string, unknown>)[steps[0]!], steps.slice(1))
+  }
+  for (const path of paths) {
+    const found = follow(object, path.split('.'))
+    picked[path] = found === undefined ? '(not in this object)' : found
+  }
+  return picked
+}

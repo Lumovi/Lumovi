@@ -1,10 +1,14 @@
 /**
- * The lines get_logs answers with (src/backend/mcp/log-lines.ts): a line's level as a log says
- * it, the lines with a text or of a level, and never more than an answer holds, with what was
- * left out said and the line to ask from. Nothing is launched.
+ * What assistants' tools answer with, as plain functions: the lines get_logs answers with
+ * (src/backend/mcp/log-lines.ts: a line's level as a log says it, the lines with a text or of a
+ * level, and never more than an answer holds, with what was left out said and the line to ask
+ * from); and an object as get_resource shows it (long annotations left out, or only chosen
+ * fields). Nothing is launched.
  */
 import { expect, test } from '@playwright/test'
 import { fitted, levelOf, linesOf } from '../../src/backend/mcp/log-lines.ts'
+import { fieldsOf, withoutLongAnnotations } from '../../src/backend/mcp/present.ts'
+import type { KubeObject } from '../../src/shared/api.ts'
 
 test('a line’s level is what the log says: a structured field, or a word of its own at its start', () => {
   for (const [line, level] of [
@@ -67,4 +71,48 @@ test('more lines than an answer holds: the first and the last, what was left out
   // What fits is all there, with nothing said; and a line too long for anyone is cut, and said so.
   expect(fitted(lines.slice(0, 10), 48_000)).toBe(lines.slice(0, 10).join('\n'))
   expect(fitted(['y'.repeat(5_000)], 48_000)).toBe(`${'y'.repeat(2_000)}… (3000 more characters)`)
+})
+
+const pod = {
+  apiVersion: 'v1',
+  kind: 'Pod',
+  metadata: {
+    name: 'db-0',
+    namespace: 'data',
+    annotations: { short: 'kept', 'tool.example.com/record': 'z'.repeat(5_000) },
+  },
+  spec: {
+    containers: [
+      { name: 'db', image: 'postgres:latest' },
+      { name: 'exporter', image: 'exp:1' },
+    ],
+  },
+  status: { containerStatuses: [{ name: 'db', restartCount: 14 }] },
+} as unknown as KubeObject
+
+test('an annotation too long to read at a glance is left out, saying how long and how to have it', () => {
+  const shown = withoutLongAnnotations(pod)
+  expect(shown.metadata.annotations).toEqual({
+    short: 'kept',
+    'tool.example.com/record':
+      '(5000 characters, left out: ask for the field metadata.annotations to have it)',
+  })
+  // (A copy: the object read is as it was.)
+  expect(pod.metadata.annotations!['tool.example.com/record']).toHaveLength(5_000)
+})
+
+test('only the fields asked for, a list followed into each item, and a path that leads nowhere said so', () => {
+  expect(
+    fieldsOf(pod, ['spec.containers.image', 'status.containerStatuses.restartCount', 'spec.nope']),
+  ).toEqual({
+    kind: 'Pod',
+    name: 'db-0',
+    namespace: 'data',
+    'spec.containers.image': ['postgres:latest', 'exp:1'],
+    'status.containerStatuses.restartCount': [14],
+    'spec.nope': '(not in this object)',
+  })
+  expect(fieldsOf(pod, ['metadata.annotations'])['metadata.annotations']).toEqual(
+    pod.metadata.annotations,
+  )
 })
