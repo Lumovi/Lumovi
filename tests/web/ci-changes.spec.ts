@@ -6,7 +6,7 @@
  * where it is).
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyMac, othersIn, withoutChanged } from '../../scripts/borrow-coverage.ts'
 import { isRelease, plan, ranMacosInFull } from '../../scripts/ci-changes.ts'
@@ -508,4 +508,41 @@ test('a release is published whole: a draft that lacks a file one of the builds 
   // A prerelease: its installers and its bill of materials (what tells apps of an update is
   // named for its channel, and isn't asked for by name).
   expect(filesOf('1.22.0-beta.1', true)).toHaveLength(12)
+})
+
+test('every spec that has a test for each browser engine is in CI’s Browsers job: its file named, and every such title of its tests asked for', () => {
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8')
+  // The job's one command: the files it names, and the titles it asks for.
+  const command = /- name: Run what differs by engine\n[\s\S]*?\n {8}run: >-\n([\s\S]*?)\n\n/.exec(
+    ci,
+  )?.[1]
+  expect(command).toBeDefined()
+  const named = [...command!.matchAll(/tests\/web\/[\w-]+\.spec\.ts/g)].map(([file]) => file)
+  const asked = new RegExp(/--grep "([^"]+)"/.exec(command!)![1]!)
+  // The specs with a test for each engine: they read the switch only that job sets, which is
+  // what lets every other job skip the engines it hasn't got. (Its name is put together here,
+  // so that this file isn't one of them.)
+  const SWITCH = ['LUMOVI', 'E2E', 'BROWSERS'].join('_')
+  const byEngine = readdirSync('tests/web')
+    .filter((file) => file.endsWith('.spec.ts'))
+    .map((file) => `tests/web/${file}`)
+    .filter((file) => readFileSync(file, 'utf8').includes(SWITCH))
+  // Skipped everywhere else as "CI’s Browsers job runs it": so the job must, each of them.
+  expect([...named].sort()).toEqual([...byEngine].sort())
+  expect(byEngine.length).toBeGreaterThan(0)
+  // And named isn't run: every title of its tests with an engine's name in it is one the job
+  // asks for, each by itself. (A title takes the engine's name as `${name}`. One the job
+  // doesn't ask for would run in no engine but the first, in a file that looks covered.)
+  for (const file of byEngine) {
+    const titles = [
+      ...readFileSync(file, 'utf8').matchAll(
+        /\b(?:test|test\.describe)\(\s*`([^`]*\$\{name\}[^`]*)`/g,
+      ),
+    ].map(([, title]) => title!.replace('${name}', 'Firefox'))
+    expect(titles.length, file).toBeGreaterThan(0)
+    expect(
+      titles.filter((title) => !asked.test(title)),
+      `${file}: titles the job’s ${asked} doesn’t ask for`,
+    ).toEqual([])
+  }
 })
