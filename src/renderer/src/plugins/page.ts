@@ -7,12 +7,11 @@
 import type { ComponentType, ReactNode } from 'react'
 import {
   handedFields,
-  type ListDestination,
   type Reach,
-  type ReachDestination,
   type ObjectRef,
   type Part,
   type Swap,
+  type Going,
 } from '@shared/kit/declare'
 import {
   PROPOSE_AT_MOST,
@@ -39,7 +38,7 @@ export interface KitPart {
   draw: ComponentType<{
     props: Readonly<Record<string, unknown>>
     children?: ReactNode
-    go?: (to: ObjectRef | ListDestination | ReachDestination) => void
+    go?: (to: ObjectRef | Going) => void
     /** Whose page it is, as Lumovi knows it: for what Lumovi shows on it in its own words. */
     by?: PageBy
     /**
@@ -244,6 +243,8 @@ export function openPage(options: {
    * was handed: its Logs or Shell tab, its Port forward dialog. None, and a part links to none.
    */
   links?: readonly Reach[]
+  /** Its own pages, by the ids its file gives them: what its parts may link to, filtered. */
+  pages?: readonly string[]
   /**
    * What its code is told first, once it's there: which of its pages it describes, or which tab,
    * with the object the tab is on (read for it as its own kind is, and handed with a token).
@@ -260,6 +261,7 @@ export function openPage(options: {
   const kinds: ReadonlySet<string> = new Set(options.kinds)
   const opens: ReadonlySet<string> = new Set(options.opens)
   const links: ReadonlySet<Reach> = new Set(options.links)
+  const pages: ReadonlySet<string> = new Set(options.pages)
   const declared = Object.fromEntries(
     Object.entries(options.parts).map(([name, part]) => [name, part.declared]),
   )
@@ -421,6 +423,15 @@ export function openPage(options: {
           if (reading.tokens.unnamedToSay()) {
             console.warn(
               `Lumovi links to no ${at} for the plugin ${whose(options.plugin)} page: its file doesn’t name ${at} under spec.links, or the object isn’t one ${at} is for.`,
+            )
+          }
+        },
+        pages,
+        () => {
+          // (Likewise once a page: a link to a page that isn't its own goes nowhere.)
+          if (reading.tokens.unnamedToSay()) {
+            console.warn(
+              `A link of the plugin ${whose(options.plugin)} names none of its pages, so it goes nowhere: a link names a page by its id under the file’s spec.pages.`,
             )
           }
         },

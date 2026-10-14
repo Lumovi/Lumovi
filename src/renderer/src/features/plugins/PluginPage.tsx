@@ -230,8 +230,11 @@ export function PluginTabs({ served, current }: { served: ServedPlugin; current?
   const { context } = useCluster()
   const { plugin, kinds } = served
   const pages = plugin.added.pages
+  // A kind one of its pages takes: that page stands in its tab (Lumovi's own list of the kind
+  // stays where Lumovi lists every kind).
+  const listed = kinds.filter((resource) => !pages.some((each) => each.takes === resource.kind))
   // One page and no kinds of its own: no strip, the page is under the title.
-  if (pages.length === 1 && kinds.length === 0) return null
+  if (pages.length === 1 && listed.length === 0) return null
   return (
     <LinkTabs label={plugin.label}>
       {pages.length > 0 ? (
@@ -253,7 +256,7 @@ export function PluginTabs({ served, current }: { served: ServedPlugin; current?
           label={PLUGIN_PAGES[plugin.name]?.label ?? 'All'}
         />
       )}
-      {kinds.map((resource) => (
+      {listed.map((resource) => (
         <KindTab
           key={resource.kind}
           kind={resource.kind}

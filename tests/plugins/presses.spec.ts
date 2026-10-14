@@ -445,6 +445,53 @@ test('a list to open is one the door made: of a kind its file names, the same ea
   expect(page.destinationOf(pools)).toBe(pools)
 })
 
+test('a link to one of its own pages is one the door made: a page its file names, its filters kept in pairs, the same each time', () => {
+  const page = new Tokens({ objects: 0 })
+  const unknown: string[] = []
+  const swap = swapFor(
+    page,
+    () => undefined,
+    undefined,
+    new Set(),
+    undefined,
+    new Set(),
+    new Set(),
+    undefined,
+    new Set(['overview', 'applications']),
+    (named) => unknown.push(named),
+  )
+  const apps = swap.destination({
+    page: 'applications',
+    filters: { sync: ['Out of sync', 'Unknown'], health: ['critical'] },
+    search: 'shop',
+  })
+  expect(apps).toEqual({
+    to: 'page',
+    page: 'applications',
+    filters: [
+      ['health', ['critical']],
+      ['sync', ['Out of sync', 'Unknown']],
+    ],
+    search: 'shop',
+  })
+  expect(Object.isFrozen(apps) && Object.isFrozen((apps as { filters: unknown }).filters)).toBe(
+    true,
+  )
+  // Said the same way, in another order: the same one; and only one this door made opens.
+  expect(
+    swap.destination({
+      page: 'applications',
+      filters: { health: ['critical'], sync: ['Unknown', 'Out of sync'] },
+      search: 'shop',
+    }),
+  ).toBe(apps)
+  expect(page.destinationOf(apps)).toBe(apps)
+  expect(page.destinationOf({ ...(apps as object) })).toBeUndefined()
+  // A page its file doesn't name: nothing, and its author is told which.
+  expect(swap.destination({ page: 'settings' })).toBeUndefined()
+  expect(unknown).toEqual(['settings'])
+})
+
 test('a list at one object is opened only of a kind its file says its pages open, and only as the door made it', () => {
   const page = new Tokens({ objects: 0 })
   const kinds = new Set(['Deployment', 'Node', 'Application.argoproj.io'])

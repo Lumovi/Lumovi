@@ -142,7 +142,8 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
   },
   Card: ({ props, children }) => <Card {...(props as CardProps)}>{children}</Card>,
   Pair: ({ props, children }) => <Pair {...(props as PairProps)}>{children}</Pair>,
-  Counts: ({ props }) => <Counts {...(props as CountsProps)} />,
+  // (Where a row says, Lumovi opens: `go`.)
+  Counts: ({ props, go }) => <Counts {...(props as CountsProps)} {...(go ? { go } : {})} />,
   // (What it waits on, Lumovi opens: `go`.)
   Steps: ({ props, go }) => <Steps {...(props as StepsProps)} {...(go ? { go } : {})} />,
   Stack: ({ children }) => <Stack>{children}</Stack>,

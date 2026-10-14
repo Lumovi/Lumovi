@@ -6,7 +6,7 @@
 import { ArrowLeft } from 'lucide-react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
-import type { ListDestination, ReachDestination, Their } from '@shared/kit/declare'
+import type { Going, Their } from '@shared/kit/declare'
 import type {
   PairProps,
   PickList as PickListSaid,
@@ -71,7 +71,7 @@ export function Tiles({
 }: {
   tiles: readonly TileSaid[]
   /** Opens the list a tile names, as the door made it: Lumovi's own to do. */
-  go?: (to: ListDestination | ReachDestination) => void
+  go?: (to: Going) => void
   onOpen?: TilesProps['onOpen']
 }) {
   const across = Math.max(2, Math.min(4, tiles.length)) as 2 | 3 | 4

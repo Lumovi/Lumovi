@@ -41,6 +41,8 @@ export interface Opening {
   opens?: readonly string[]
   /** Lumovi's own places its file says its pages link to (`spec.links`). */
   links?: readonly Reach[]
+  /** Its own pages, by the ids its file gives them: what its parts may link to. */
+  pages?: readonly string[]
   /** Lumovi's own open of what a press named: an object, or a list the door made. */
   open?: (to: Destination) => void
   /**
@@ -130,6 +132,7 @@ function Running({
       ...(shown.kinds ? { kinds: shown.kinds } : {}),
       ...(shown.opens ? { opens: shown.opens } : {}),
       ...(shown.links ? { links: shown.links } : {}),
+      ...(shown.pages ? { pages: shown.pages } : {}),
       ...(shown.opening ? { opening: shown.opening } : {}),
       ...(shown.open ? { open: shown.open } : {}),
       ...(shown.propose && handed

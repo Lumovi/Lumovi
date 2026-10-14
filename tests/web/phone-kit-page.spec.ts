@@ -372,3 +372,38 @@ test('on a phone, a run’s steps are a sentence and what it waits on a card; a 
   await expectNoSidewaysScroll(page, 'a run’s steps and a row’s buttons, on a phone')
   await expectFingerSized(page, 'a run’s steps and a row’s buttons, on a phone')
 })
+
+test('on a phone, a table’s bar is the field and Filters, which opens its filters as a sheet', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/kit/frame`, DEMO_TOKEN)
+  const apps = page.getByRole('region', { name: 'Applications', exact: true })
+  await apps.scrollIntoViewIfNeeded()
+  const cards = apps.getByRole('listitem')
+  await expect(cards).toHaveCount(5)
+  // A running operation's time on its card, counted by Lumovi.
+  await expect(cards.filter({ hasText: 'storefront' })).toContainText(/Syncing\s*1m \d\ds/)
+  const filters = apps.getByRole('button', { name: 'Filters', exact: true })
+  await expect.poll(async () => (await filters.boundingBox())?.height ?? 0).toBe(44)
+  await filters.tap()
+  const sheet = page.getByRole('dialog', { name: 'Filters' })
+  await expect(sheet).toBeVisible()
+  await sheet.getByRole('checkbox', { name: /^Out of sync/ }).tap()
+  await expect(sheet.getByRole('checkbox', { name: /^Out of sync/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+  await expect(cards).toHaveCount(2)
+  await expect(apps.getByRole('button', { name: /^Filters/ })).toHaveText(/^Filters\s*1$/)
+  // What's set, as chips a finger takes off.
+  await apps.getByRole('button', { name: 'Take off Sync: Out of sync' }).tap()
+  await expect(cards).toHaveCount(5)
+  await apps.getByRole('textbox', { name: 'Search Applications' }).fill('pay')
+  await expect(cards).toHaveCount(1)
+  await expectNoSidewaysScroll(page, 'a table’s bar, on a phone')
+  await expectFingerSized(page, 'a table’s bar, on a phone')
+})

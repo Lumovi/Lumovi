@@ -2137,3 +2137,33 @@ test('the names Lumovi keeps for itself are the ones its detail and its palette 
     ),
   ).toEqual(new Set(LUMOVIS_COMMANDS))
 })
+
+test('a page that takes one of the plugin’s own kinds stands in its tab, and may be named as it', () => {
+  const takes = (pages: string) => adding(`  pages:\n${pages}`)
+  const { plugin, problems } = parsePlugin(
+    takes(
+      '    - { id: overview, title: Overview }\n    - { id: rollouts, title: Rollouts, takes: { group: example.com, kind: Rollout } }\n',
+    ),
+    'rollouts.yaml',
+    { carriesCode: true },
+  )
+  expect(problems).toEqual([])
+  expect(plugin!.added.pages).toEqual([
+    { id: 'overview', title: 'Overview' },
+    { id: 'rollouts', title: 'Rollouts', takes: 'Rollout.example.com' },
+  ])
+  // Without taking it, that's the kind's own name; a kind not its own; one taken twice.
+  expect(refusedWith(takes('    - { id: rollouts, title: Rollouts }\n'))).toEqual([
+    'rollouts.yaml: spec.pages[0].title: "Rollouts" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
+  ])
+  expect(refusedWith(takes('    - { id: pods, title: Pods, takes: { kind: Pod } }\n'))).toEqual([
+    'rollouts.yaml: spec.pages[0].takes: "Pod" isn’t one of the plugin’s own kinds (spec.kinds)',
+  ])
+  expect(
+    refusedWith(
+      takes(
+        '    - { id: a, title: A, takes: { group: example.com, kind: Rollout } }\n    - { id: b, title: B, takes: { group: example.com, kind: Rollout } }\n',
+      ),
+    ),
+  ).toEqual(['rollouts.yaml: spec.pages[1].takes: "Rollout" is already taken by spec.pages[0]'])
+})

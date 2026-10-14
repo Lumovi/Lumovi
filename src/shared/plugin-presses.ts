@@ -19,6 +19,7 @@ import {
   wrongWithFields,
   type CutRef,
   type ListDestination,
+  type PageDestination,
   type Reach,
   type ReachDestination,
   type ObjectRef,
@@ -26,6 +27,7 @@ import {
   type SecretRef,
   type Swap,
   type WrittenDestination,
+  type WrittenPage,
   type WrittenReach,
 } from './kit/declare'
 import type { Health } from './health'
@@ -124,6 +126,9 @@ export class Tokens {
   /** The links to Lumovi's own places it made, likewise. */
   readonly #reachesBy = new Map<string, ReachDestination>()
   readonly #reaches = new Set<ReachDestination>()
+  /** The links to its plugin's own pages it made, likewise. */
+  readonly #pagesBy = new Map<string, PageDestination>()
+  readonly #pages = new Set<PageDestination>()
   /** How reads were cut, by the token of each; and each read's one token, its latest answer's. */
   readonly #cuts = new Map<string, CutRef>()
   readonly #cutBy = new Map<number, string>()
@@ -322,6 +327,7 @@ export class Tokens {
     if (typeof object !== 'object' || object === null || !this.#given.has(object)) return undefined
     if (this.#lists.has(object as ListDestination)) return object as ListDestination
     if (this.#reaches.has(object as ReachDestination)) return object as ReachDestination
+    if (this.#pages.has(object as PageDestination)) return object as PageDestination
     return { to: 'object', object: object as ObjectRef }
   }
 
@@ -414,6 +420,45 @@ export class Tokens {
     this.#lists.add(list)
     this.#given.add(list)
     return list
+  }
+
+  /**
+   * A link to one of its plugin's own pages, as the door hands it to a part: only to a page among
+   * `pages` (the ids its plugin's file names), frozen, the same one each time it's said the same
+   * way (its filters in any order), and one this page's door made, so `destinationOf` opens it.
+   * Nothing past a page's share; nor for a page that isn't its plugin's, which `unknown` is told.
+   * Its filters are kept in pairs, never as an object keyed by the plugin's words.
+   */
+  pageOf(
+    said: WrittenPage,
+    pages: ReadonlySet<string>,
+    unknown: (page: string) => void = () => undefined,
+  ): PageDestination | undefined {
+    if (!pages.has(said.page)) {
+      unknown(said.page)
+      return undefined
+    }
+    const filters = Object.entries(said.filters ?? {})
+      .map(([key, values]) => [key, [...values].sort()] as const)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    const key = JSON.stringify([said.page, filters, said.search ?? null])
+    const made = this.#pagesBy.get(key)
+    if (made) return made
+    if (this.#pagesBy.size + this.#listsBy.size >= HANDED_LIMITS.destinationsAPage) {
+      return undefined
+    }
+    const page: PageDestination = Object.freeze({
+      to: 'page',
+      page: said.page,
+      filters: Object.freeze(
+        filters.map(([name, values]) => Object.freeze([name, Object.freeze(values)] as const)),
+      ),
+      ...(said.search !== undefined ? { search: said.search } : {}),
+    })
+    this.#pagesBy.set(key, page)
+    this.#pages.add(page)
+    this.#given.add(page)
+    return page
   }
 
   /** The Secret a token stands for on this page; nothing for an object's token, or one not held. */
@@ -529,6 +574,8 @@ export function swapFor(
   opens: ReadonlySet<string> = new Set(),
   links: ReadonlySet<Reach> = new Set(),
   unlinked: (at: string) => void = () => undefined,
+  pages: ReadonlySet<string> = new Set(),
+  unknownPage: (page: string) => void = () => undefined,
 ): Swap {
   const held = <T>(found: T | undefined): T | undefined => {
     if (found === undefined) stale()
@@ -542,7 +589,9 @@ export function swapFor(
     destination: (said) =>
       'object' in said
         ? tokens.reachOf(said, links, unlinked)
-        : tokens.listOf(said, kinds, unnamed, opens),
+        : 'page' in said
+          ? tokens.pageOf(said, pages, unknownPage)
+          : tokens.listOf(said, kinds, unnamed, opens),
     handler: (handle, event) => (carries) => call(handle, event, carries),
   }
 }
@@ -619,7 +668,8 @@ const ON_A_LARGER: ReadonlySet<string> = new Set<Does>(['tells', 'opens', 'chang
  * object's page, a list of Lumovi's own, or one of Lumovi's own places for an object (the list
  * or the link itself, as the door made it).
  */
-export type Destination = { to: 'object'; object: ObjectRef } | ListDestination | ReachDestination
+export type Destination =
+  { to: 'object'; object: ObjectRef } | ListDestination | ReachDestination | PageDestination
 
 /** The kinds of object each of Lumovi's own places is for, as Lumovi names them. */
 export const REACHED: Readonly<Record<Reach, ReadonlySet<string>>> = {

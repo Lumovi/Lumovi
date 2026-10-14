@@ -74,17 +74,25 @@ export const KIT_SWAP: Swap = {
   destination: (said) =>
     'object' in said
       ? kitReach(said.object, said.at as Reach, said.container, said.port)
-      : Object.freeze({
-          to: 'list',
-          kind: kindFor(
-            said.list.startsWith('/')
-              ? 'v1'
-              : `${said.list.slice(0, said.list.lastIndexOf('/'))}/v1`,
-            said.list.slice(said.list.lastIndexOf('/') + 1),
-          ),
-          ...(said.health ? { health: said.health as ListDestination['health'] } : {}),
-          ...(said.labels ? { labels: said.labels } : {}),
-        }),
+      : 'page' in said
+        ? // (Any page: this page stands for every plugin's.)
+          Object.freeze({
+            to: 'page' as const,
+            page: said.page,
+            filters: Object.freeze(Object.entries(said.filters ?? {})),
+            ...(said.search !== undefined ? { search: said.search } : {}),
+          })
+        : Object.freeze({
+            to: 'list',
+            kind: kindFor(
+              said.list.startsWith('/')
+                ? 'v1'
+                : `${said.list.slice(0, said.list.lastIndexOf('/'))}/v1`,
+              said.list.slice(said.list.lastIndexOf('/') + 1),
+            ),
+            ...(said.health ? { health: said.health as ListDestination['health'] } : {}),
+            ...(said.labels ? { labels: said.labels } : {}),
+          }),
   handler: () => undefined,
 }
 
