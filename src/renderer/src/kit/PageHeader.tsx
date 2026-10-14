@@ -29,6 +29,7 @@ import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
 import { offered, REACH_ICONS, reachTip } from '@renderer/plugins/reach'
+import { PageIdentity } from '@renderer/plugins/Surface'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
 import { fitKey, fromFitKey } from './fit-key'
@@ -172,12 +173,15 @@ const OFF: Record<Variant, string> = {
 function Action({
   button,
   held,
+  focusKey,
   variant,
   className,
   onPress,
 }: {
   button: HeaderButton
   held: string | undefined
+  /** Which button it is, the same busy or not: where the keyboard comes back to (lib/focus-back). */
+  focusKey: string
   variant: Variant
   className?: string
   onPress: () => void
@@ -193,6 +197,7 @@ function Action({
         word={busy.word}
         {...(busy.since === undefined ? {} : { since: busy.since })}
         className={className}
+        focusKey={focusKey}
       >
         {busy.text}
       </BusyButton>
@@ -208,6 +213,7 @@ function Action({
             className={className}
             aria-label={called(button)}
             aria-describedby={reason}
+            data-focus-key={focusKey}
             onClick={onPress}
           >
             {drawn(button)}
@@ -221,7 +227,13 @@ function Action({
   }
   if (!button.off) {
     return (
-      <Button variant={variant} className={className} aria-label={called(button)} onClick={onPress}>
+      <Button
+        variant={variant}
+        className={className}
+        aria-label={called(button)}
+        data-focus-key={focusKey}
+        onClick={onPress}
+      >
         {drawn(button)}
       </Button>
     )
@@ -435,6 +447,10 @@ export function PageHeader({
   // filled one, off for now or not. (One that only reads or goes never is.)
   const ordered = useMemo(() => filledLast(buttons), [buttons])
   const filled = ordered.at(-1)?.changes === true ? ordered.at(-1) : undefined
+  // (Which button it is, busy or not, for the keyboard to come back to: this header's, by its name.)
+  const page = useContext(PageIdentity)
+  const focusKeyOf = (button: HeaderButton) =>
+    `header:${page}:${spelled(header.name.their)}:${keyOf(button)}`
   const press = (button: HeaderButton) =>
     button.goes ? go?.(button.goes) : onPress?.({ button: button.key })
   // How many buttons the desktop's row has room for, measured as it's laid out and whenever its
@@ -525,6 +541,7 @@ export function PageHeader({
                 key={keyOf(button)}
                 button={button}
                 held={held}
+                focusKey={focusKeyOf(button)}
                 // (Filled only if it's the last that changes something.)
                 variant={button === filled ? 'primary' : 'secondary'}
                 className="h-11"
@@ -582,6 +599,7 @@ export function PageHeader({
             <Action
               button={button}
               held={held}
+              focusKey={focusKeyOf(button)}
               variant={variant(i)}
               onPress={() => press(button)}
             />

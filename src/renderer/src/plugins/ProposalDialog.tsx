@@ -58,6 +58,7 @@ import { useMoment } from '@renderer/lib/confirm-moment'
 import { share } from './proposal-heights'
 import { requestBase, useProposals, type ShownProposal } from './proposals'
 import { CopyButton } from '@renderer/components/CopyButton'
+import { focusBack, useOpener } from '@renderer/lib/focus-back'
 import { TheirText } from './TheirText'
 
 /** Lumovi's word for an action, where the plugin's isn't the button's. */
@@ -339,6 +340,7 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
   const [tried, setTried] = useState<{ key: string; round: number; answer: PluginChangeAnswer }>()
   const [round, setRound] = useState(0)
   const [moved, setMoved] = useState(false)
+  const opener = useOpener()
   const [making, setMaking] = useState(false)
   const [refused, setRefused] = useState<PluginChangeAnswer & { ok: false }>()
   const [typed, setTyped] = useState('')
@@ -556,6 +558,11 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
           ref={dialogRef}
           aria-describedby={undefined}
           data-plugin-proposal={by.plugin}
+          // (Closed: back to the button it was opened from, or the busy one in its place.)
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            focusBack(opener)
+          }}
           onOpenAutoFocus={(event) => {
             // Never on the button: on the first field, or on Cancel where there's none.
             event.preventDefault()

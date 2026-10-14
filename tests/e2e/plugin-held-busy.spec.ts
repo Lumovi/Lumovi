@@ -128,6 +128,10 @@ test('a button whose change was applied is busy at once, and stays so until the 
   await watch(page)
   await dialog.getByRole('button', { name: 'Polish' }).click()
   await expect(header.getByRole('button', { name: 'Polish, busy: polishing' })).toBeVisible()
+  // Applied by a pointer: the keyboard waits on the busy button, with no tooltip popped over the
+  // page for it (only a keyboard's focus shows one).
+  await expect(header.getByRole('button', { name: 'Polish, busy: polishing' })).toBeFocused()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
   const names = await seen(page)
   expect(names).not.toContain('Polish…')
   expect(names.filter((name) => name.startsWith('Polish, busy'))).toEqual(
@@ -158,9 +162,46 @@ test('held, and the plugin draws nothing more: Lumovi lets it go after ten secon
     'Sent. Nudge can be pressed again when it’s done.',
   )
   // Still held once the changed widget was read again: the plugin hasn't drawn since.
+  // The person presses elsewhere: from then, where the keyboard goes is theirs.
+  // (On a sidebar's heading, which nothing focusable holds: the keyboard is left on nothing.)
+  const blank = await page.evaluate(() => {
+    for (const each of document.querySelectorAll('nav h2, nav h3, nav [class*="uppercase"]')) {
+      if (each.closest('a, button, input, select, textarea, [tabindex]')) continue
+      const box = each.getBoundingClientRect()
+      if (box.width > 0 && box.height > 0)
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    }
+    return undefined
+  })
+  await page.mouse.click(blank!.x, blank!.y)
+  await expect(page.locator('body')).toBeFocused()
   await expect.poll(() => Date.now() - started, { timeout: 8_000 }).toBeGreaterThanOrEqual(5_000)
   await expect(held).toBeVisible()
   // Let go at ten seconds: the plugin's own button again.
   await expect(header.getByRole('button', { name: 'Nudge…' })).toBeVisible({ timeout: 15_000 })
+  await expect(header.getByRole('button', { name: 'Nudge…' })).not.toBeFocused()
   expect(Date.now() - started).toBeGreaterThanOrEqual(9_000)
+})
+
+test('applied from the keyboard, the button stays the keyboard’s: on it held, then on it busy in the plugin’s own word', async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'polisher.yaml'), FILE)
+  writeFileSync(join(folder, 'polisher.js'), CODE)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  const header = await opened(page)
+  const dialog = page.locator('[data-plugin-proposal="polisher"]')
+  await header.getByRole('button', { name: 'Polish…' }).focus()
+  await page.keyboard.press('Enter')
+  const confirm = dialog.getByRole('button', { name: 'Polish' })
+  await expect(confirm).toBeEnabled()
+  await confirm.focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  // Held, then the plugin's own: the keyboard on it throughout, never dropped to the page.
+  const busy = header.getByRole('button', { name: /^Polish, busy/ })
+  await expect(busy).toBeFocused()
+  await expect(header.getByRole('button', { name: 'Polish, busy: polishing' })).toBeFocused()
+  await expect(page.locator('body')).not.toBeFocused()
 })

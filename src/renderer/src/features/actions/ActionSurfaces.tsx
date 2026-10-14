@@ -17,6 +17,14 @@ import { actionById } from './catalog'
 import { useObjectActions, useRunAction, type AvailableAction } from './use-actions'
 
 /** Renders the dialog of the action in progress, wherever it was started from. */
+
+/**
+ * Which of an object's actions a button is, busy or not: what the keyboard comes back to once
+ * it's drawn anew (lib/focus-back.ts). The object's own, so it's never another's of the same name.
+ */
+const focusKeyOf = (action: string, object: KubeObject) =>
+  `action:${action}:${object.metadata.uid ?? `${object.metadata.namespace ?? ''}/${object.metadata.name}`}`
+
 export function ActionHost() {
   const active = useActionsUi((state) => state.active)
   const close = useActionsUi((state) => state.close)
@@ -91,6 +99,7 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
               key={action.id}
               name={nameOf(action)}
               word={busy.word}
+              focusKey={focusKeyOf(action.id, object)}
               {...(busy.since === undefined ? {} : { since: busy.since })}
               className="h-7 px-2.5 text-xs phone:h-11 phone:px-4 phone:text-[13px] [&_svg]:!size-3.5"
             />
@@ -100,6 +109,7 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
           <Button
             key={action.id}
             disabled={disabled !== undefined}
+            data-focus-key={focusKeyOf(action.id, object)}
             onClick={() => run(action, object)}
             className="h-7 px-2.5 text-xs disabled:opacity-50 phone:h-11 phone:px-4 phone:text-[13px]"
           >

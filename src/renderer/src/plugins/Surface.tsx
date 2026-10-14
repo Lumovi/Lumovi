@@ -12,6 +12,20 @@ import { TheirText } from './TheirText'
 export const PageKey = createContext('')
 
 /**
+ * Which open page a part is of, the same for as long as that page is open and another's for
+ * another (a tab on another object, say): what keeps a header's button its own page's to the
+ * keyboard (lib/focus-back.ts).
+ */
+export const PageIdentity = createContext('')
+const identities = new WeakMap<OpenPage, string>()
+let opened = 0
+const identityOf = (page: OpenPage) => {
+  let identity = identities.get(page)
+  if (identity === undefined) identities.set(page, (identity = `page-${++opened}`))
+  return identity
+}
+
+/**
  * A part or a text of the page, drawn again only when it has something new to draw: what a part
  * holds is drawn by its own, each of them likewise, so a change deep in the page draws that and
  * nothing round it.
@@ -47,7 +61,9 @@ export function PluginSurface({ page }: { page: OpenPage }) {
   return (
     <div data-testid="plugin-surface" className="flex flex-col gap-4 p-4">
       <PageKey.Provider value={key}>
-        <Drawn page={page} id={ROOT} />
+        <PageIdentity.Provider value={identityOf(page)}>
+          <Drawn page={page} id={ROOT} />
+        </PageIdentity.Provider>
       </PageKey.Provider>
     </div>
   )
