@@ -1365,11 +1365,18 @@ test('Only assistants on this computer, with Lumovi’s token, get in', async ({
     'That session has ended: start a new one.',
   ])
 
-  // Assistants that go quiet are let go.
+  // Assistants that go quiet are let go: shown as one arrives, by its name, then gone. (What the
+  // window was told as it arrived, which keeps: on a slow runner, its 1.5 s had passed before the
+  // test's first look at who's connected now.)
+  await page.evaluate(() => {
+    const heard: string[] = []
+    Object.assign(window, { heard })
+    window.lumovi!.assistants!.onStatus((s) => heard.push(...s.clients.map((c) => c.name)))
+  })
   const client = await connect(status, 'windsurf-client')
   await expect
-    .poll(() => page.evaluate(() => window.lumovi!.assistants!.status().then((s) => s.clients)))
-    .toContainEqual(expect.objectContaining({ name: 'Windsurf' }))
+    .poll(() => page.evaluate(() => (window as unknown as { heard: string[] }).heard))
+    .toContain('Windsurf')
   await expect
     .poll(() => page.evaluate(() => window.lumovi!.assistants!.status().then((s) => s.clients)), {
       timeout: 10_000,

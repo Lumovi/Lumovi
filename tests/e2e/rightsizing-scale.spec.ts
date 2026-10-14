@@ -34,10 +34,15 @@ test('right-sizing many namespaces', async ({ launch }) => {
       users: [{ name: 'admin' }],
       contexts: [{ name: 'tenants', cluster: 'tenants', user: 'admin' }],
     })
-    // Prometheus takes a moment over a week of usage; one batch (the first namespace's) longer,
-    // so that the others show first.
+    // Prometheus takes a moment over a week of usage; one batch (the first namespace's) is held
+    // until what's measured has been seen, so that the others show first. (Held, not delayed: the
+    // mock's Prometheus works a week out on this test's own thread, which Playwright waits on too,
+    // so on a busy runner a batch delayed by seconds was answered before the test could look.)
+    let seen!: () => void
     cluster.fail(/\/proxy\/api\/v1\/query$/, { delayMs: 500 })
-    cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${name(0)}\\b`), { delayMs: 4_000 })
+    cluster.fail(new RegExp(`/proxy/api/v1/query\\?.*\\b${name(0)}\\b`), {
+      until: new Promise<void>((resolve) => (seen = resolve)),
+    })
     // (The mock's Prometheus works out a week on this test's own CPU, slowly on a busy runner:
     // given the time it takes, nothing's split for it.)
     const { page } = await launch({
@@ -55,6 +60,8 @@ test('right-sizing many namespaces', async ({ launch }) => {
       { timeout: 60_000 },
     )
     await expect(page.locator('tbody tr').first()).toBeVisible()
+    // (Held until now: the first namespace's batch is let go.)
+    seen()
     await expect(measuring).toHaveCount(0, { timeout: 120_000 })
     // Every one of them answered for.
     await expect(page.getByRole('alert')).toHaveCount(0)
