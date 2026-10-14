@@ -46,7 +46,9 @@ test('every part a page may name, and everything a file can add, has the release
 test('the release’s own step says it first carries what no release did, and changes nothing else', () => {
   const text = readFileSync(SINCE_FILE, 'utf8')
   const entries = (written: string, since: string) =>
-    written.split('\n').filter((line) => new RegExp(`^\\s+\\w+: '${since}',?$`).test(line)).length
+    written
+      .split('\n')
+      .filter((line) => new RegExp(`^\\s+(\\w+|'[^']+'): '${since}',?$`).test(line)).length
   const now = entries(text, 'next')
   const done = released(text, '1.99.0')
   // Each entry that was the one being made is that release's now; every other line is as it was.
@@ -57,5 +59,9 @@ test('the release’s own step says it first carries what no release did, and ch
   expect(done).toContain(`| 'next'`)
   expect(released("  pages: '1.2.0',\n  tabs: 'next'\n", '1.3.0')).toBe(
     "  pages: '1.2.0',\n  tabs: '1.3.0'\n",
+  )
+  // A part's props are keyed by their path, quoted.
+  expect(released("    'Table.filters': 'next',\n", '1.3.0')).toBe(
+    "    'Table.filters': '1.3.0',\n",
   )
 })

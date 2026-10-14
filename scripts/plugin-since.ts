@@ -7,9 +7,12 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 export const SINCE_FILE = 'src/shared/plugin-since.ts'
 
-/** The file's text with each thing's `next` as `version`: only an entry's, never the type's. */
+/**
+ * The file's text with each thing's `next` as `version`: only an entry's, never the type's. An
+ * entry's key is a name, or quoted where it's a path (a part's props: 'Table.filters').
+ */
 export const released = (text: string, version: string): string =>
-  text.replaceAll(/^(\s+\w+: )'next'(,?)$/gm, `$1'${version}'$2`)
+  text.replaceAll(/^(\s+(?:\w+|'[^'\n]+'): )'next'(,?)$/gm, `$1'${version}'$2`)
 
 if (import.meta.main) {
   const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }
