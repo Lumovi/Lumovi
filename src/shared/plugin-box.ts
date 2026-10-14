@@ -355,24 +355,15 @@ addEventListener('message', (event) => {
 parent.postMessage({ box: 'ready' }, '*')
 `
 
-/**
- * Lumovi's first lines in a worker, before a plugin's own: what makes more code is taken away
- * (a worker, a shared one, a script by address, an address for text), and what hashes, signs
- * and verifies (`crypto.subtle`: Lumovi's, never a plugin's, and only some browsers' boxes have
- * it); and the channel is made ready as `box`: `box.then(({ post, listen }) => …)`, text up and
- * whatever Lumovi sends down.
- * A ping of Lumovi's is answered here.
- *
- * Hardening, not a wall: a plugin's code runs in the same scope after these lines and can undo
- * what they set up for itself. The box's policy is what holds; and an answered ping says a
- * worker is alive, never that it behaves.
- */
-export const WORKER_FIRST_LINES = `for (const name of ['Worker', 'SharedWorker', 'importScripts']) {
+/** Of the first lines, what's taken away: before anything else of a worker's runs. */
+const WORKER_TAKEN_AWAY = `for (const name of ['Worker', 'SharedWorker', 'importScripts']) {
   for (let at = self; at; at = Object.getPrototypeOf(at)) { try { delete at[name] } catch {} }
 }
 try { Object.defineProperty(URL, 'createObjectURL', { value: undefined, configurable: false, writable: false }) } catch {}
 try { delete Crypto.prototype.subtle } catch {}
-self.box = new Promise((ready) => {
+`
+/** Of the first lines, the channel made ready as `box`, and the answer to a ping. */
+const WORKER_CHANNEL = `self.box = new Promise((ready) => {
   self.onmessage = (event) => {
     const port = event.data && event.data.port
     if (!port) return
@@ -387,6 +378,19 @@ self.box = new Promise((ready) => {
   }
 });
 `
+/**
+ * Lumovi's first lines in a worker, before a plugin's own: what makes more code is taken away
+ * (a worker, a shared one, a script by address, an address for text), and what hashes, signs
+ * and verifies (`crypto.subtle`: Lumovi's, never a plugin's, and only some browsers' boxes have
+ * it); and the channel is made ready as `box`: `box.then(({ post, listen }) => …)`, text up and
+ * whatever Lumovi sends down.
+ * A ping of Lumovi's is answered here.
+ *
+ * Hardening, not a wall: a plugin's code runs in the same scope after these lines and can undo
+ * what they set up for itself. The box's policy is what holds; and an answered ping says a
+ * worker is alive, never that it behaves.
+ */
+export const WORKER_FIRST_LINES = `${WORKER_TAKEN_AWAY}${WORKER_CHANNEL}`
 
 /**
  * The text a worker is made from: Lumovi's first lines, then the plugin's own. (Each of Lumovi's
@@ -395,6 +399,15 @@ self.box = new Promise((ready) => {
  * before it.)
  */
 export const workerText = (plugin: string): string => `${WORKER_FIRST_LINES};\n${plugin}`
+
+/**
+ * In the tests' build alone (`main.tsx`): a worker's text with the channel and nothing taken
+ * away, for a test that tries what the first lines stop against the box's policy by itself.
+ * Its first line says so, in words a release is checked not to hold (release-build's
+ * TESTS_ONLY): were this ever kept in one, they'd be there whatever a minifier named the rest.
+ */
+export const workerTextBare = (plugin: string): string =>
+  `// lumovi: first lines taken away\n${WORKER_CHANNEL};\n${plugin}`
 
 /** A box as it's placed: its plugin, and the process its frame is in. */
 export interface BoxPlace {

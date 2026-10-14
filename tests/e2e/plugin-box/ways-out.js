@@ -1224,12 +1224,17 @@
         return wait(500).then(() => 'asked')
       },
     ],
+    // A host nothing answers at, under the name the browser's own log of its network is read
+    // for (catchers.ts's `nameFor`): a request that's let through asks for the name first, and
+    // the log says so by this try's id, with nothing for a catcher to see.
     [
       'fetch-refused-lookup',
       'request',
       false,
       (c) =>
-        fetch(`https://lookup-${c.id}.other.test/`, { mode: 'no-cors' }).then(() => 'answered'),
+        fetch(`https://${c.id.toLowerCase()}.tried.localhost/`, { mode: 'no-cors' }).then(
+          () => 'answered',
+        ),
     ],
 
     // --- Leaving by another program ---
