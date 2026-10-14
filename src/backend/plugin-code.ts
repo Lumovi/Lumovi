@@ -45,6 +45,8 @@ export type HandOverTo =
       check?: 'passed' | 'failed' | 'unfinished'
       /** Unfinished because a look couldn't be made: no use checking again in this browser. */
       unlooked?: boolean
+      /** Its last check didn't finish because Lumovi's own request didn't reach the server. */
+      unreached?: boolean
     }
 
 /** Whether a page there may be handed `plugin`'s code: yes, or why not. */
@@ -72,10 +74,13 @@ export function mayHandOver(
     : to.check === 'failed'
       ? 'check-failed'
       : to.check === 'unfinished'
-        ? // (One that couldn't look is no use running again: this browser can't look.)
-          to.unlooked === true
-          ? 'check-unlooked'
-          : 'check-unfinished'
+        ? // (One whose own request didn't arrive can't be judged at all, whatever else; one that
+          // couldn't look is no use running again: this browser can't look.)
+          to.unreached === true
+          ? 'check-unreached'
+          : to.unlooked === true
+            ? 'check-unlooked'
+            : 'check-unfinished'
         : 'not-checked'
 }
 

@@ -45,7 +45,9 @@ async function served(serve: Serve, env: Record<string, string> = {}) {
 }
 
 type Kube = {
-  boxCheckStart(): Promise<{ nonce: string; code: Record<string, string> } | undefined>
+  boxCheckStart(): Promise<
+    { nonce: string; code: Record<string, string>; control: string } | undefined
+  >
   boxCheckEnd(nonce: unknown, reports: unknown, heard: unknown): Promise<string | undefined>
   pluginHandOver(plugin: string): Promise<true | NotHanded>
   pluginCode(plugin: string): Promise<PluginCode>
@@ -147,20 +149,61 @@ test('a hand-back that isn’t a whole report fails its check, whichever way it 
       await context.close()
     }
   }
-  // (And a whole one, in a session of its own, passes: it's the shape that failed each.)
-  const context = await browser.newContext()
-  const page = await context.newPage()
-  await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
-  const { nonce } = (await calls(page).start())!
-  expect(await calls(page).end(nonce, held(nonce), [])).toBe('passed')
-  await context.close()
+  // (And a whole one, in a session of its own, passes: it's the shape that failed each. Once
+  // the check's own request reached the catcher in every shape a box's has: without that, a
+  // whole report is no pass either, for nothing says the catcher can be reached.)
+  for (const controlled of [false, true]) {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    await signIn(page, `${server.url}cluster/demo/pods`, DEMO_TOKEN)
+    const { nonce, control } = (await calls(page).start())!
+    // (Lumovi's own page asking the catcher itself is no control: it hasn't a box's shape. Only
+    // the check's sealed frame's asks are, here opened as the check opens it.)
+    await page.evaluate(async (at) => {
+      await fetch(`${at}/origin`, { method: 'POST', credentials: 'omit' })
+      await fetch(`${at}/no-origin`, { credentials: 'omit' })
+      await new Promise<void>((done) => {
+        const socket = new WebSocket(`${at.replace(/^http/, 'ws')}/socket`)
+        socket.onerror = socket.onclose = () => done()
+      })
+    }, control)
+    if (controlled) {
+      await page.evaluate(
+        ([frameAt, at]) =>
+          new Promise<void>((done) => {
+            const frame = document.createElement('iframe')
+            frame.hidden = true
+            frame.setAttribute('sandbox', 'allow-scripts')
+            frame.src = frameAt
+            addEventListener('message', (event) => {
+              if (event.source !== frame.contentWindow || event.data !== 'done') return
+              frame.remove()
+              done()
+            })
+            frame.addEventListener('load', () => frame.contentWindow!.postMessage(at, '*'))
+            document.body.append(frame)
+          }),
+        [`${server.url}plugin-box/check.html`, control] as const,
+      )
+    }
+    expect(await calls(page).end(nonce, held(nonce), [])).toBe(controlled ? 'passed' : 'unfinished')
+    expect(await calls(page).handOver()).toBe(controlled ? true : 'check-unreached')
+    await context.close()
+  }
   // Each said as a report Lumovi couldn't read, and whose: nothing is said to have got out.
   const said = audited(server, 'plugin.box-check')
   expect(said.map((event) => event.outcome)).toEqual([
     ...Object.keys(shapes).map(() => 'failure'),
+    'failure',
     'success',
   ])
-  for (const event of said.slice(0, -1)) {
+  // (The whole report with no control: said as a check Lumovi's own request never reached.)
+  expect(said.at(-2)).toMatchObject({
+    summary: 'Lumovi couldn’t check this browser: its own request didn’t reach the server',
+    error: 'The check’s own request didn’t reach the server (either way).',
+    details: { unreached: ['http-with-origin', 'http-without-origin', 'socket'] },
+  })
+  for (const event of said.slice(0, -2)) {
     expect(event.summary).toBe(
       'Lumovi’s check of this browser failed: a box’s report came back in a form it couldn’t read',
     )

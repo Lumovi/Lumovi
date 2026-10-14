@@ -3,10 +3,12 @@
  * its session, for a while; what reaches the catcher with any other let go, and of its own only
  * a way's name; what arrives after judgment still failing it; a box that finds another's failing
  * it; silence and a report that isn't whole not a pass; a result for the box's walls as they
- * are. Plain functions.
+ * are. And the control: Lumovi's own request, with a nonce no box is told, which must have
+ * arrived as a request and as a socket's upgrade for a check to be judged at all. Plain functions.
  */
 import { expect, test } from '@playwright/test'
 import {
+  BOX_CHECK_CONTROLS,
   BOX_CHECK_LIMITS,
   BOX_CHECK_LOOK,
   BOX_CHECK_WAYS,
@@ -17,13 +19,32 @@ import {
   judgeReport,
 } from '../../src/shared/box-check.ts'
 
-/** The server's checks, with a clock the test turns. */
+/**
+ * The server's checks, with a clock the test turns. `made` is them as most tests here need them:
+ * a check started with its control already arrived in every shape (what Lumovi's own sealed
+ * frame asks, where nothing stands in its way), known by its nonce; and what reaches the catcher
+ * of a box's. `real` is them as they are, for what the control is tried on.
+ */
 async function checks(policy = 'walls-1') {
   ;(globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD = true
   const { BoxChecks } = await import('../../src/server/box-check.ts')
   let now = 1_000_000
-  const made = new BoxChecks(policy, () => now)
-  return { made, BoxChecks, tick: (ms: number) => (now += ms), now: () => now }
+  const real = new BoxChecks(policy, () => now)
+  const made = {
+    start(key: string): string {
+      const { nonce, control } = real.start(key)
+      for (const shape of BOX_CHECK_CONTROLS) real.caught(control, shape, shape)
+      return nonce
+    },
+    caught: (nonce: string, way: string) => real.caught(nonce, way),
+    end: real.end.bind(real),
+    result: real.result.bind(real),
+    unlooked: real.unlooked.bind(real),
+    unreached: real.unreached.bind(real),
+    watch: real.watch.bind(real),
+    forget: real.forget.bind(real),
+  }
+  return { made, real, BoxChecks, tick: (ms: number) => (now += ms), now: () => now }
 }
 /** A side-by-side box's whole report: every way refused but those said otherwise. */
 const report = (
@@ -64,7 +85,7 @@ test('a check passes when nothing got out, no box found another’s, and every r
       reports(nonce, { beacon: 'absent', 'broadcast-channel': 'sent', caches: 'sent' }),
       [],
     ),
-  ).toEqual({ result: 'passed', out: [], first: true, unlooked: [] })
+  ).toEqual({ result: 'passed', out: [], first: true, unlooked: [], unreached: [] })
   expect(made.result('session-a')).toBe('passed')
   // Judged once: the nonce isn't judged again.
   expect(made.end('session-a', nonce, reports(nonce), [])).toBeUndefined()
@@ -80,6 +101,7 @@ test('what reaches the catcher with the check’s nonce fails it, whatever the r
     out: ['fetch', 'web-socket'],
     first: true,
     unlooked: [],
+    unreached: [],
   })
   expect(made.result('s')).toBe('failed')
   // And what a box says reached, or the page heard, fails it too.
@@ -132,7 +154,9 @@ test('what arrives after the check is judged, while its nonce lives, still fails
   tick(5_000)
   made.caught(nonce, 'beacon')
   expect(made.result('s')).toBe('failed')
-  expect(told).toEqual([{ result: 'failed', out: ['beacon'], first: true, unlooked: [] }])
+  expect(told).toEqual([
+    { result: 'failed', out: ['beacon'], first: true, unlooked: [], unreached: [] },
+  ])
   expect(pages).toBe(1)
   // More of it changes nothing that's said: it's failed already.
   made.caught(nonce, 'fetch-keepalive')
@@ -168,6 +192,7 @@ test('a browser that let something out stays failed for its session: no later pa
     out: ['beacon'],
     first: false,
     unlooked: [],
+    unreached: [],
   })
   expect(made.result('s')).toBe('failed')
   // And a check after it, too.
@@ -251,6 +276,7 @@ test('silence, a late report, or one that isn’t whole, is no pass', async () =
     out: [],
     first: true,
     unlooked: [],
+    unreached: [],
     unreadable: ['later'],
   })
   const none = made.start('none')
@@ -273,6 +299,7 @@ test('a look that couldn’t be made, the page’s or a box’s, is no pass: unf
     out: [],
     first: true,
     unlooked: ['broadcast-channel', 'caches', 'indexed-db'],
+    unreached: [],
   })
   expect(made.result('page')).toBe('unfinished')
   expect(made.unlooked('page')).toBe(true)
@@ -281,6 +308,7 @@ test('a look that couldn’t be made, the page’s or a box’s, is no pass: unf
   expect(made.end('other', other, reports(other), [], ['fetch', 'made-up'])).toMatchObject({
     result: 'passed',
     unlooked: [],
+    unreached: [],
   })
   expect(made.unlooked('other')).toBe(false)
   // A box that couldn't look where the other kept something: side by side, or after they closed.
@@ -292,6 +320,7 @@ test('a look that couldn’t be made, the page’s or a box’s, is no pass: unf
   expect(made.end('box', box, side, [])).toMatchObject({
     result: 'unfinished',
     unlooked: ['indexed-db', 'caches'],
+    unreached: [],
   })
   // Where nothing was kept (each box's store refused, as its walls refuse it), there was nothing
   // to find: a box that couldn't look there is no gap.
@@ -305,6 +334,7 @@ test('a look that couldn’t be made, the page’s or a box’s, is no pass: unf
     role: 'later',
     found: [],
     unlooked: ['caches', 'indexed-db'],
+    unreached: [],
   })
   expect(made.end('walls', walls, refused, [])).toMatchObject({ result: 'passed', unlooked: [] })
   // What got out still fails it: a look that wasn't made doesn't hide what was found.
@@ -314,6 +344,7 @@ test('a look that couldn’t be made, the page’s or a box’s, is no pass: unf
     out: ['xhr'],
     first: true,
     unlooked: [],
+    unreached: [],
   })
   expect(made.unlooked('out')).toBe(false)
   // And one that's unfinished for silence alone isn't one that couldn't look: it's asked again.
@@ -501,6 +532,7 @@ test('a box’s look that throws where the other box kept something is no pass: 
   expect(made.end('looked', nonce, said, [])).toMatchObject({
     result: 'unfinished',
     unlooked: ['caches'],
+    unreached: [],
   })
   // A listening box whose channel won't open, while the other's sent on its own: unfinished too.
   const heard = made.start('heard')
@@ -522,7 +554,233 @@ test('a box’s look that throws where the other box kept something is no pass: 
   expect(made.end('heard', heard, channel, [])).toMatchObject({
     result: 'unfinished',
     unlooked: ['broadcast-channel'],
+    unreached: [],
   })
+})
+
+test('a check whose own request didn’t arrive in every shape can’t be judged: unfinished, and said which, whatever its boxes report', async () => {
+  const { real } = await checks()
+  const ALL = [...BOX_CHECK_CONTROLS]
+  // Nothing of Lumovi's own reached the catcher: that nothing of a box's did says nothing.
+  const none = real.start('none')
+  expect(real.end('none', none.nonce, reports(none.nonce), [])).toEqual({
+    result: 'unfinished',
+    out: [],
+    first: true,
+    unlooked: [],
+    unreached: ALL,
+  })
+  expect(real.result('none')).toBe('unfinished')
+  expect(real.unreached('none')).toBe(true)
+  // Each shape alone missing is no better: a box's ways come in all three.
+  for (const missing of ALL) {
+    const one = real.start(`without ${missing}`)
+    for (const shape of ALL) if (shape !== missing) real.caught(one.control, 'x', shape)
+    expect(
+      real.end(`without ${missing}`, one.nonce, reports(one.nonce), []),
+      missing,
+    ).toMatchObject({ result: 'unfinished', unreached: [missing] })
+  }
+  // The shape is what the server read off the request, never what its address says; and one
+  // with no box's shape (Lumovi's own page asking, say) counts for none.
+  const named = real.start('named')
+  real.caught(named.control, 'socket', 'http-with-origin')
+  real.caught(named.control, 'http-without-origin', 'http-with-origin')
+  real.caught(named.control, 'socket')
+  expect(real.end('named', named.nonce, reports(named.nonce), [])).toMatchObject({
+    result: 'unfinished',
+    unreached: ['http-without-origin', 'socket'],
+  })
+  // Every shape, and nothing of a box's: only then is an empty catcher a pass.
+  const all = real.start('all')
+  for (const shape of ALL) real.caught(all.control, 'x', shape)
+  expect(real.end('all', all.nonce, reports(all.nonce), [])).toEqual({
+    result: 'passed',
+    out: [],
+    first: true,
+    unlooked: [],
+    unreached: [],
+  })
+  expect(real.unreached('all')).toBe(false)
+  // What got out fails it, with or without the control: that much is known.
+  const out = real.start('out')
+  real.caught(out.nonce, 'fetch')
+  expect(real.end('out', out.nonce, reports(out.nonce), [])).toMatchObject({
+    result: 'failed',
+    out: ['fetch'],
+    unreached: [],
+  })
+  // Said once a session, and again where it's missing in another shape.
+  const again = real.start('none')
+  expect(real.end('none', again.nonce, reports(again.nonce), [])).toMatchObject({
+    result: 'unfinished',
+    first: false,
+  })
+  const other = real.start('none')
+  real.caught(other.control, 'x', 'http-with-origin')
+  expect(real.end('none', other.nonce, reports(other.nonce), [])).toMatchObject({
+    result: 'unfinished',
+    first: true,
+    unreached: ['http-without-origin', 'socket'],
+  })
+})
+
+test('a request has a box’s shape by what it carries: no origin of its own, and never Lumovi’s own site', async () => {
+  ;(globalThis as { LUMOVI_TEST_BUILD?: boolean }).LUMOVI_TEST_BUILD = true
+  const { controlShape } = await import('../../src/server/box-check.ts')
+  // As a box's requests arrive, measured in the three engines: a request that says `Origin:
+  // null`, one that says no origin, a socket that says `Origin: null` (with or without what
+  // site it's from: one engine leaves that off a socket).
+  expect(controlShape({ origin: 'null', 'sec-fetch-site': 'cross-site' }, false)).toBe(
+    'http-with-origin',
+  )
+  expect(controlShape({ 'sec-fetch-site': 'cross-site' }, false)).toBe('http-without-origin')
+  expect(controlShape({ origin: 'null' }, true)).toBe('socket')
+  expect(controlShape({ origin: 'null', 'sec-fetch-site': 'cross-site' }, true)).toBe('socket')
+  // (A browser that says nothing of sites: by its origin alone.)
+  expect(controlShape({}, false)).toBe('http-without-origin')
+  // Lumovi's own page asking is no box: it says so itself, or by its origin. Nor is anything
+  // that says it's from the same site, or from no site (an address typed, a program's own).
+  for (const site of ['same-origin', 'same-site', 'none']) {
+    expect(controlShape({ 'sec-fetch-site': site }, false), site).toBeUndefined()
+    expect(controlShape({ origin: 'null', 'sec-fetch-site': site }, false), site).toBeUndefined()
+    expect(controlShape({ origin: 'null', 'sec-fetch-site': site }, true), site).toBeUndefined()
+  }
+  expect(controlShape({ origin: 'null', 'sec-fetch-site': 'same-origin' }, false)).toBeUndefined()
+  expect(controlShape({ origin: 'https://lumovi.example' }, false)).toBeUndefined()
+  expect(controlShape({ origin: 'https://lumovi.example' }, true)).toBeUndefined()
+  expect(
+    controlShape({ origin: 'https://lumovi.example', 'sec-fetch-site': 'same-origin' }, true),
+  ).toBeUndefined()
+  // A socket with no origin said is no browser's, and no box's.
+  expect(controlShape({}, true)).toBeUndefined()
+})
+
+test('the control’s nonce is its own: nothing of a box’s stands in for it, and it’s no way out', async () => {
+  const { real, tick } = await checks()
+  const ALL = [...BOX_CHECK_CONTROLS]
+  // A box knows its check's nonce and not its control's: what it sends under any name, the
+  // control's own among them, is a box's request, and fails the check as any is.
+  const { nonce, control } = real.start('s')
+  expect(control).toMatch(/^[A-Za-z0-9_-]{22}$/)
+  expect(control).not.toBe(nonce)
+  for (const role of ['first', 'second', 'later'] as const) {
+    expect(boxCheckCode(`https://lumovi.example/box-check/${nonce}`, nonce, role)).not.toContain(
+      control,
+    )
+  }
+  real.caught(nonce, 'origin', 'http-with-origin')
+  real.caught(nonce, 'socket', 'socket')
+  expect(real.end('s', nonce, reports(nonce), [])).toMatchObject({
+    result: 'failed',
+    out: ['other'],
+  })
+  // The control's own, under a way's name: Lumovi's frame's, never a box's. It's not out.
+  const named = real.start('named')
+  real.caught(named.control, 'fetch', 'http-with-origin')
+  real.caught(named.control, 'xhr', 'http-without-origin')
+  real.caught(named.control, 'web-socket', 'socket')
+  expect(real.end('named', named.nonce, reports(named.nonce), [])).toMatchObject({
+    result: 'passed',
+    out: [],
+  })
+  // Another check's control is no control of this one, nor one made up.
+  const mine = real.start('mine')
+  const theirs = real.start('theirs')
+  for (const shape of ALL) real.caught(theirs.control, 'x', shape)
+  for (const shape of ALL) real.caught('made-up', 'x', shape)
+  expect(real.end('mine', mine.nonce, reports(mine.nonce), [])).toMatchObject({
+    result: 'unfinished',
+    unreached: ALL,
+  })
+  // One that arrives once its check's time is over isn't counted; nor after the check was judged.
+  const late = real.start('late')
+  tick(BOX_CHECK_LIMITS.nonceLiveMs + 1)
+  for (const shape of ALL) real.caught(late.control, 'x', shape)
+  expect(real.end('late', late.nonce, reports(late.nonce), [])).toMatchObject({
+    result: 'unfinished',
+    unreached: ALL,
+  })
+  const after = real.start('after')
+  expect(real.end('after', after.nonce, reports(after.nonce), [])).toMatchObject({
+    result: 'unfinished',
+  })
+  for (const shape of ALL) real.caught(after.control, 'x', shape)
+  expect(real.result('after')).toBe('unfinished')
+  // A session's checks let go take their controls with them.
+  real.forget('named')
+  real.caught(named.control, 'x', 'socket')
+  expect(real.result('named')).toBeUndefined()
+})
+
+test('the check’s own frame is a server’s alone: on the desktop its address is no box’s', async () => {
+  const { boxOf, boxAddress } = await import('../../src/shared/plugin-box.ts')
+  const { PATHS } = await import('../../src/shared/server.ts')
+  // (The desktop has no check: its protocol answers a box's own files, and its filter lets a
+  // frame be only where a box's document is. An address for the check's frame is neither.)
+  const { origin } = boxAddress('toys')
+  expect(boxOf(`${origin}/box.html`)).toMatchObject({ plugin: 'toys' })
+  expect(boxOf(`${origin}/check.html`)).toBeUndefined()
+  expect(boxOf(`${origin}/${PATHS.boxCheckFrame}`)).toBeUndefined()
+  expect(PATHS.boxCheckFrame).toBe('plugin-box/check.html')
+  // (And its lines can be put in a sealed document whole: nothing in them ends a script.)
+  const { CHECK_FRAME_SCRIPT, sealedDocument } = await import('../../src/shared/plugin-box.ts')
+  expect(sealedDocument(CHECK_FRAME_SCRIPT)).toContain(`<script>${CHECK_FRAME_SCRIPT}</script>`)
+  expect(() => sealedDocument('1 </SCRIPT> 2')).toThrow()
+})
+
+test('text made into code is a way of its own: where it runs, the box says so, and that fails the check', async () => {
+  const { made } = await checks()
+  // A box whose scope makes text into code (no policy held it): each of the three ran.
+  const scope = () => {
+    const self: Record<string, unknown> = {
+      eval: (text: string) => (text === '1 + 1' ? 2 : undefined),
+      Function: function (this: unknown, text: string) {
+        return () => (text === 'return 1 + 1' ? 2 : undefined)
+      },
+      setTimeout: (text: unknown) => {
+        if (typeof text === 'string') self.__lumoviCheckTimer = true
+      },
+    }
+    return self
+  }
+  const nonce = made.start('runs')
+  const said = {
+    first: await ran(nonce, 'first', scope()),
+    second: await ran(nonce, 'second', scope()),
+    later: await ran(nonce, 'later', {}),
+  }
+  expect(ways(said.first)).toMatchObject({
+    eval: 'reached',
+    'new-function': 'reached',
+    'text-timer': 'reached',
+  })
+  expect(made.end('runs', nonce, said, [])).toMatchObject({
+    result: 'failed',
+    out: ['eval', 'new-function', 'text-timer'],
+  })
+  // One whose policy refuses them, by throwing or by never running the text: refused, each.
+  const refuses = () => ({
+    eval: () => {
+      throw new EvalError('refused')
+    },
+    Function: function () {
+      throw new EvalError('refused')
+    },
+    setTimeout: () => {},
+  })
+  const held = made.start('held')
+  const holds = {
+    first: await ran(held, 'first', refuses()),
+    second: await ran(held, 'second', refuses()),
+    later: await ran(held, 'later', {}),
+  }
+  expect(ways(holds.first)).toMatchObject({
+    eval: 'refused',
+    'new-function': 'refused',
+    'text-timer': 'refused',
+  })
+  expect(made.end('held', held, holds, [])).toMatchObject({ result: 'passed', out: [] })
 })
 
 test('a browser is named by what it says of itself, and nothing else of it', () => {

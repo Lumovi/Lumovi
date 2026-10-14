@@ -17,7 +17,7 @@ import {
   type Result,
   type Settings,
 } from '@shared/api'
-import { browserOf } from '@shared/box-check'
+import { browserOf, type BoxCheckControl } from '@shared/box-check'
 import { PATHS, type ClientMessage, type ServerMessage, type SessionUser } from '@shared/server'
 import type { AuditActor } from '@shared/audit'
 import { auditHandlers } from '@backend/audit/handlers'
@@ -225,11 +225,39 @@ function unlookedWords(unlooked: readonly string[]): string {
 }
 
 /**
+ * How the check's own request didn't arrive, as it's said: as a request (in either shape of one),
+ * as a socket, or neither. (Which shape is in the history's entry.)
+ */
+function unreachedWords(unreached: readonly BoxCheckControl[]): string {
+  const socket = unreached.includes('socket')
+  const http = unreached.some((shape) => shape !== 'socket')
+  return http && socket ? 'either way' : http ? 'over HTTP' : 'as a WebSocket'
+}
+
+/**
  * A check of a browser's box, said once a session: on the server's log (a failure, with the
  * browser and the ways that got out; one that didn't finish), and in the history (a failure, and
- * a pass, which every later hand-over rests on). Never its nonce.
+ * a pass, which every later hand-over rests on). Never its nonce. `under` is where the check's
+ * catcher is, as whoever runs Lumovi would name it to what stands in front of it.
  */
-function told(judged: Judged, audit: Recorder, browser: string): void {
+function told(judged: Judged, audit: Recorder, browser: string, under: string): void {
+  // Its own request didn't arrive: it can't be judged, whatever the boxes said, and whoever runs
+  // Lumovi is told what must be passed on.
+  if (judged.result === 'unfinished' && judged.unreached.length > 0) {
+    const how = unreachedWords(judged.unreached)
+    log(
+      `Lumovi’s check of a plugin’s box in ${browser} couldn’t be judged: its own request didn’t arrive ${how}. What’s in front of Lumovi must pass everything under ${under} on, as it passes the rest.`,
+    )
+    audit.record({
+      action: 'plugin.box-check',
+      outcome: 'failure',
+      target: { kind: 'Browser', name: browser },
+      summary: 'Lumovi couldn’t check this browser: its own request didn’t reach the server',
+      error: `The check’s own request didn’t reach the server (${how}).`,
+      details: { browser, unreached: judged.unreached },
+    })
+    return
+  }
   // Couldn't look: unfinished, and in the history with where (it stays so in this browser), by
   // the names a person knows them by.
   if (judged.result === 'unfinished' && judged.unlooked.length > 0) {
@@ -478,6 +506,7 @@ export class PageConnection {
         held,
         check: checks?.result(checkKey),
         unlooked: checks?.unlooked(checkKey) ?? false,
+        unreached: checks?.unreached(checkKey) ?? false,
       }),
       audit: recording,
       // (Only of a cluster the server shows this person: another's name is no key of theirs.)
@@ -522,14 +551,21 @@ export class PageConnection {
       ...(checks && config.publicUrl
         ? (() => {
             const catcher = new URL(`${config.basePath}${PATHS.boxCheck}`, config.publicUrl).href
+            const under = `${config.basePath}${PATHS.boxCheck}/`
             const browser = browserOf(userAgent)
             return {
               // A check of this browser's box: its nonce, and its code with the nonce in its aim.
               // Only for a session the second wall holds: no code is handed to any other.
               [IPC.boxCheckStart]: () => {
                 if (!held) return undefined
-                const nonce = checks.start(checkKey)
-                return { nonce, code: checkCode(`${catcher}/${nonce}`, nonce, env) }
+                const { nonce, control } = checks.start(checkKey)
+                return {
+                  nonce,
+                  code: checkCode(`${catcher}/${nonce}`, nonce, env),
+                  // (What this page hands the check's own sealed frame to ask: the same catcher,
+                  // with a nonce no box is told.)
+                  control: `${catcher}/${control}`,
+                }
               },
               [IPC.boxCheckEnd]: (
                 nonce: unknown,
@@ -548,9 +584,9 @@ export class PageConnection {
                   reports,
                   ways(heard),
                   ways(unlooked),
-                  (late) => told(late, recording, browser),
+                  (late) => told(late, recording, browser, under),
                 )
-                if (judged?.first) told(judged, recording, browser)
+                if (judged?.first) told(judged, recording, browser, under)
                 return judged?.result
               },
             }

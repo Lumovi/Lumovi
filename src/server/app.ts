@@ -6,8 +6,8 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { boxDocument, boxHeaders } from '@shared/plugin-box'
-import { BOX_SCRIPT_SOURCE } from '@backend/plugin-box-script'
+import { boxDocument, boxHeaders, CHECK_FRAME_SCRIPT, sealedDocument } from '@shared/plugin-box'
+import { BOX_SCRIPT_SOURCE, scriptSource } from '@backend/plugin-box-script'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { digestOf } from '@backend/plugins'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
@@ -23,7 +23,7 @@ import { PageConnection } from './connection'
 import { Transfers } from './file-transfers'
 import { cookies, redirect, sameOrigin, SECURITY_HEADERS, sendJson } from './http'
 import { log } from './log'
-import { BoxChecks, boxWalls } from './box-check'
+import { BoxChecks, boxWalls, controlShape } from './box-check'
 import { OidcClient } from './oidc'
 import { acceptedEncoding, contentSecurityPolicy, Pages } from './pages'
 import { Sessions } from './sessions'
@@ -91,6 +91,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     : undefined
   /** The box's headers as it's served: its walls. */
   const walls = box && boxWalls(boxHeaders(BOX_SCRIPT_SOURCE, box.page), options.env)
+  /**
+   * The check's own frame: where it is, and its headers. A box's in everything but what it may
+   * ask (the check's catcher, as a request or as a socket, and nothing else) and the script its
+   * policy names: Lumovi's lines for it, in the document, by their hash.
+   */
+  const checkFrame = config.publicUrl && {
+    document: new URL(`${base}${PATHS.boxCheckFrame}`, config.publicUrl).href,
+    headers: boxHeaders(scriptSource(CHECK_FRAME_SCRIPT), config.publicUrl.origin, [
+      new URL(`${base}${PATHS.boxCheck}/`, config.publicUrl).href,
+      new URL(`${base}${PATHS.boxCheck}/`, config.publicUrl).href.replace(/^http/, 'ws'),
+    ]),
+  }
   /**
    * Lumovi's checks of the box in people's browsers: a result holds for these walls alone (their
    * digest), and a server whose walls change checks every browser again.
@@ -240,7 +252,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // wall, which a box's request, from no origin, never passes).
     if (path.startsWith(`${PATHS.boxCheck}/`)) {
       const [nonce = '', way = ''] = path.slice(PATHS.boxCheck.length + 1).split('/')
-      checks?.caught(nonce, way)
+      checks?.caught(nonce, way, controlShape(req.headers, false))
       res.writeHead(204, { 'Cache-Control': 'no-store' })
       res.end()
       return
@@ -292,7 +304,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       res.writeHead(200, {
         ...SECURITY_HEADERS,
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': contentSecurityPolicy(box?.document),
+        'Content-Security-Policy': contentSecurityPolicy(
+          box?.document,
+          checkFrame ? checkFrame.document : undefined,
+        ),
         'Cache-Control': 'no-store',
       })
       res.end(req.method === 'HEAD' ? undefined : pages.page(cookies(req)[THEME_COOKIE]))
@@ -303,14 +318,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * A plugin's sealed box: its one document, its script in it, the same for whoever asks and
    * whatever is added to the address. Nobody is looked up, no cookie is read or set, and
    * nothing ever redirects; and nothing else is under its folder: no script by an address of
-   * its own, and the page least of all.
+   * its own, and the page least of all. Beside it, the check's own sealed frame, served the
+   * same way: Lumovi's lines alone, the same for whoever asks.
    */
   function answerBox(req: IncomingMessage, res: ServerResponse, path: string): boolean {
     if (!path.startsWith('plugin-box/') && path !== 'plugin-box') return false
-    if (!box || path !== PATHS.box) {
+    const file =
+      path === PATHS.box ? 'document' : path === PATHS.boxCheckFrame ? 'check' : undefined
+    if (!box || !checkFrame || !file) {
       sendJson(res, 404, { error: `There’s no ${path}` })
     } else if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendJson(res, 405, { error: 'Only GET' }, { Allow: 'GET, HEAD' })
+    } else if (file === 'check') {
+      res.writeHead(200, checkFrame.headers)
+      res.end(req.method === 'HEAD' ? undefined : sealedDocument(CHECK_FRAME_SCRIPT))
     } else {
       res.writeHead(200, walls!)
       res.end(req.method === 'HEAD' ? undefined : boxDocument())
@@ -426,7 +447,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const upgraded = address(req).path
     if (upgraded?.startsWith(`${PATHS.boxCheck}/`)) {
       const [nonce = '', way = ''] = upgraded.slice(PATHS.boxCheck.length + 1).split('/')
-      checks?.caught(nonce, way)
+      checks?.caught(nonce, way, controlShape(req.headers, true))
       socket.destroy()
       return
     }

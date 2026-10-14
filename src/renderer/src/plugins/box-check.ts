@@ -3,7 +3,10 @@
  * before it hands this browser any plugin's code. The check's code runs in boxes made exactly as
  * a plugin's: two side by side, then, once they're closed, a third. This page waits for what each
  * reports, listens where none should be heard, and hands it all to the server, which judges.
- * Silence is a check that didn't finish.
+ * Silence is a check that didn't finish. And this page opens one more frame, Lumovi's own, sealed
+ * as a box is and with no plugin's code in it, which asks the server's catcher in every shape a
+ * box's request has (the control): only a catcher that such a request reached can say that
+ * nothing of a box's did.
  */
 import {
   BOX_CHECK_LIMITS,
@@ -13,7 +16,9 @@ import {
   boxCheckStore,
   type BoxCheckRole,
 } from '@shared/box-check'
+import { CHECK_FRAME_DONE, CHECK_FRAME_WAIT_MS } from '@shared/plugin-box'
 import type { NotHanded, PluginCode } from '@shared/plugin-hand-over'
+import { PATHS } from '@shared/server'
 import { api } from '@renderer/lib/api'
 import { openBox, type Box } from './box'
 
@@ -29,6 +34,8 @@ export async function checkBox(): Promise<'passed' | 'failed' | 'unfinished' | u
   if (!start) return undefined
   checkedHere = true
   const { nonce, code } = start
+  // The control, asked as the boxes start: whether it arrived is the server's to say.
+  const controlled = control(start.control)
   // Where the check's boxes send: Lumovi's own page hearing it means it got out of its box. And
   // where this page couldn't look or listen: no pass rests on a look that wasn't made, whatever
   // the reason (what this page lacks, a box in its frame may still have).
@@ -55,7 +62,43 @@ export async function checkBox(): Promise<'passed' | 'failed' | 'unfinished' | u
   for (const role of ['first', 'second'] as const) {
     for (const way of await landed(boxCheckStore(nonce, role), unlooked)) heard.add(way)
   }
+  // (Judged only once the control's frame has asked, and been answered, refused or given up on.)
+  await controlled
   return api.kube.boxCheckEnd?.(nonce, reports, [...heard], [...unlooked])
+}
+
+/**
+ * The control: Lumovi's own sealed frame, opened here, handed the address to ask (`at`, the
+ * check's catcher with a nonce no box is told), and waited for until it says it's done, or for
+ * as long as it may take. It's then taken away. Nothing of what it asked is known here: the
+ * server knows which of its asks arrived, and in what shape. A frame that doesn't load, or says
+ * nothing, is a control that didn't arrive.
+ */
+async function control(at: string): Promise<void> {
+  const frame = document.createElement('iframe')
+  frame.hidden = true
+  frame.setAttribute('sandbox', 'allow-scripts')
+  frame.setAttribute('aria-hidden', 'true')
+  frame.tabIndex = -1
+  frame.src = new URL(PATHS.boxCheckFrame, document.baseURI).href
+  await new Promise<void>((done) => {
+    const over = () => {
+      clearTimeout(waiting)
+      removeEventListener('message', said)
+      frame.remove()
+      done()
+    }
+    // (Its asks' own time, and as long again for the frame to load.)
+    const waiting = setTimeout(over, CHECK_FRAME_WAIT_MS * 2)
+    const said = (event: MessageEvent) => {
+      if (event.source === frame.contentWindow && event.data === CHECK_FRAME_DONE) over()
+    }
+    addEventListener('message', said)
+    // (Sealed, its origin is nobody's, so there's none to name: what's handed is only where to
+    // ask, and its policy holds it to the catcher whatever it's handed.)
+    frame.addEventListener('load', () => frame.contentWindow?.postMessage(at, '*'), { once: true })
+    document.body.append(frame)
+  })
 }
 
 /**
@@ -135,12 +178,13 @@ async function landed(name: string, unlooked: Set<string>): Promise<string[]> {
 
 /**
  * Whether a refusal is one a check of this browser's box, run now, may change: none yet, or one
- * that didn't finish. One that couldn't look is checked again only on a page loaded since.
+ * that didn't finish. One that couldn't look, or whose own request didn't reach the server, is
+ * checked again only on a page loaded since.
  */
 const checkDue = (refused: NotHanded) =>
   refused === 'not-checked' ||
   refused === 'check-unfinished' ||
-  (refused === 'check-unlooked' && !checkedHere)
+  ((refused === 'check-unlooked' || refused === 'check-unreached') && !checkedHere)
 
 /**
  * A plugin's code, as Lumovi hands it over: where a server hasn't checked this browser's box yet
