@@ -377,7 +377,8 @@ test('the bar at the bottom, and the dock’s own keys', async ({ launch }) => {
     await ready(page)
     await page.keyboard.type('echo before-clear')
     await page.keyboard.press('Enter')
-    await expect(screen(page)).toContainText('before-clear')
+    // Its output, not only what was typed: output that comes after the clear would stay.
+    await expect(screen(page)).toContainText(/before-clear[\s\S]*before-clear/)
     await native(app, 'K', ['meta'])
     await expect(screen(page)).not.toContainText('before-clear')
     await native(app, 'N', ['meta'])
