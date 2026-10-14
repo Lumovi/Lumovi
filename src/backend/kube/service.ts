@@ -185,6 +185,27 @@ export class KubeService {
     return this.store.load()
   }
 
+  /**
+   * The credential plugin a cluster's user signs in through, where it has one: an exec plugin's
+   * command (without its folder), or an auth provider's name. Read from the kubeconfig: nothing
+   * is started to tell. (One can open a browser or ask in a terminal: what checks every cluster
+   * at once doesn't start it.)
+   */
+  credentialPlugin(context: string): string | undefined {
+    let user: unknown
+    try {
+      user = this.store.forContext(context).getCurrentUser()
+    } catch {
+      return undefined
+    }
+    const { exec, authProvider } = (user ?? {}) as {
+      exec?: { command?: string }
+      authProvider?: { name?: string }
+    }
+    if (exec?.command) return exec.command.split(/[\\/]/).pop()
+    return authProvider?.name || undefined
+  }
+
   version(context: unknown): Promise<Result<ClusterVersion>> {
     return this.#run(() =>
       this.#checks.run(async () => {
