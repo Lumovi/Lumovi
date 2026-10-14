@@ -22,9 +22,9 @@ import {
 import { ALL_CODE_ON, codeOff } from '@shared/plugin-hand-over'
 import { PLUGIN_NAME, whose } from '@shared/plugins'
 import type { KnownPlugin } from '@shared/plugins-known'
-import type { Recorder } from './audit/recorder'
 import type { KubeService } from './kube/service'
 import { runsCode, type HandOverTo } from './plugin-code'
+import type { Place, PluginHistory } from './plugin-history'
 import { REFUSED, refusalOf } from './plugin-reads'
 
 interface PluginLogReading {
@@ -33,7 +33,8 @@ interface PluginLogReading {
   known: () => Promise<readonly Readonly<KnownPlugin>[]>
   /** Where the page that asks is, now: what turns plugins' code, and their logs, off there. */
   to?: () => HandOverTo
-  audit: Recorder
+  /** The history, and an ask's place in it: taken before anything is made of the ask. */
+  audit: PluginHistory
 }
 
 /**
@@ -73,8 +74,10 @@ export function pluginLogs({ kube, known, audit, to }: PluginLogReading) {
     // (Lumovi's own page sends these: one that isn't one names no plugin, and isn't recorded.)
     const q = logsQuery(query)
     if (!q || !PLUGIN_NAME.test(q.plugin)) return { ok: false, refused: 'failed' }
+    // (Where what comes of the ask is written: until its plugin is known, nobody's read.)
+    let write: Place['record'] = (key, input) => audit.unknown(key, input)
     const refuse = (plugin: Readonly<KnownPlugin> | undefined, refused: ReadRefusal) => {
-      record(audit, q, plugin, refused)
+      record(write, q, plugin, refused)
       return { ok: false as const, refused }
     }
     const plugin = (await known()).find((p) => p.name === q.plugin)
@@ -86,6 +89,14 @@ export function pluginLogs({ kube, known, audit, to }: PluginLogReading) {
     ) {
       return refuse(undefined, 'not-in-use')
     }
+    // Its place among the different reads a while allows, before anything is made of it.
+    const place = audit.take(
+      plugin,
+      q.context,
+      JSON.stringify(['logs', q.namespace, q.pod, q.container, q.previous]),
+    )
+    if ('refused' in place) return { ok: false, ...place }
+    write = (key, input) => place.record(key, input)
     if (q.digest !== plugin.digest || q.codeDigest !== plugin.codeDigest) {
       return refuse(plugin, 'changed')
     }
@@ -117,7 +128,7 @@ export function pluginLogs({ kube, known, audit, to }: PluginLogReading) {
         tail = Math.max(1, Math.min(Math.floor(tail / 2), whole))
         continue
       }
-      record(audit, q, plugin)
+      record(write, q, plugin)
       const { lines, cut } = lastLines(sent.data)
       const fewer = tail < (q.tail ?? READ_LIMITS.logLines)
       return { ok: true, lines, ...(cut || fewer ? { cut: true as const } : {}) }
@@ -126,7 +137,7 @@ export function pluginLogs({ kube, known, audit, to }: PluginLogReading) {
 }
 
 function record(
-  audit: Recorder,
+  write: Place['record'],
   q: PluginLogsQuery,
   plugin: Readonly<KnownPlugin> | undefined,
   refused?: ReadRefusal,
@@ -139,34 +150,45 @@ function record(
         ...(plugin.codeDigest === undefined ? {} : { codeDigest: plugin.codeDigest }),
       }
     : { plugin: q.plugin }
-  // A plugin Lumovi has in use: each container's logs apart, once a while. One it hasn't (by any
-  // name a page cares to send): one entry a while, so new names can't fill the history.
-  const same = plugin
-    ? [q.context, plugin.name, q.namespace, q.pod, q.container, q.previous ?? false, refused ?? '']
-    : [q.context, refused]
-  audit.read(`plugin-logs:${JSON.stringify(same)}`, {
+  // The container is the code's own word (the pod is Lumovi's: its code names it by a token).
+  // Once its logs were read it's a container of the pod's, and in the entry: each container's
+  // logs apart, once a while. A read that was refused or failed never showed it to be one: the
+  // entry is written without it, and is one a while for the pod whatever container was named.
+  // A plugin Lumovi hasn't in use (by any name a page cares to send): one entry a while.
+  const read = refused === undefined
+  const same = !plugin
+    ? [q.context, refused]
+    : read
+      ? [q.context, plugin.name, q.namespace, q.pod, q.container, q.previous ?? false]
+      : [q.context, plugin.name, q.namespace, q.pod, q.previous ?? false, refused]
+  write(`plugin-logs:${JSON.stringify(same)}`, {
     action: 'logs.read',
-    outcome: refused === undefined ? 'success' : REFUSED.has(refused) ? 'refused' : 'failure',
-    ...(refused === undefined ? {} : { error: READ_REFUSED[refused] }),
+    outcome: read ? 'success' : REFUSED.has(refused) ? 'refused' : 'failure',
+    ...(read ? {} : { error: READ_REFUSED[refused] }),
     cluster: q.context,
     target: { kind: 'Pod', name: q.pod, namespace: q.namespace },
-    summary: `Read the logs of Pod ${q.pod} (${q.container})${q.previous ? ', from before it restarted' : ''}, for the plugin ${whose(plugin?.label ?? q.plugin)} code`,
-    command: kubectl(
-      q.context,
-      q.namespace,
-      'logs',
-      q.pod,
-      '-c',
-      q.container,
-      `--tail=${q.tail ?? READ_LIMITS.logLines}`,
-      ...(q.since === undefined ? [] : [`--since=${q.since}s`]),
-      ...(q.previous ? ['--previous'] : []),
-    ),
+    summary: `Read the logs of Pod ${q.pod}${read ? ` (${q.container})` : ''}${q.previous ? ', from before it restarted' : ''}, for the plugin ${whose(plugin?.label ?? q.plugin)} code`,
+    // The same read, as kubectl makes it: where it was made.
+    ...(read
+      ? {
+          command: kubectl(
+            q.context,
+            q.namespace,
+            'logs',
+            q.pod,
+            '-c',
+            q.container,
+            `--tail=${q.tail ?? READ_LIMITS.logLines}`,
+            ...(q.since === undefined ? [] : [`--since=${q.since}s`]),
+            ...(q.previous ? ['--previous'] : []),
+          ),
+        }
+      : {}),
     details: {
-      container: q.container,
+      ...(read ? { container: q.container } : {}),
       previous: q.previous === true,
       ...who,
-      ...(refused === undefined ? {} : { refused }),
+      ...(read ? {} : { refused }),
     },
   })
 }

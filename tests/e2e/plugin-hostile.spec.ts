@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO } from '../mock-cluster/fixtures/demo.ts'
+import { READ_LIMITS } from '../../src/shared/plugin-reads.ts'
 import { STAND_IN, type RecordedRequest } from '../mock-cluster/server.ts'
 import { holds } from '../holds.ts'
 import { placed } from '../placed.ts'
@@ -1151,4 +1152,107 @@ test('what a plugin’s code is refused tells it nothing of the cluster, and wri
   expect(JSON.stringify(history)).not.toMatch(
     /WRITTEN-BY-THE-PLUGIN|xxxxxxxx|Deployment|storefront|Application|NodePool|nowhere|Thing/,
   )
+})
+
+/**
+ * A plugin whose code reads its own kind over and over, each time picked by a label of its own:
+ * each is a read of its own, and one the cluster answers. One list at a time, ended as soon as
+ * it's answered, and unhurried: within what a page may keep and ask. Five more than a while
+ * allows; it says how many were made, how the rest ended, and what it was told.
+ */
+const READS_MANY = `box.then(({ post, listen }) => {
+  const MANY = ${READ_LIMITS.differentAWhile + 5}
+  const commit = (steps) => post(JSON.stringify({ commit: steps }))
+  let n = 0
+  let made = 0
+  let answered = 0
+  let told = ''
+  const refused = []
+  const next = () => {
+    if (n === MANY) {
+      return commit([
+        ['change', 1, { name: 'made ' + made + ', refused ' + refused.length + ' as ' + [...new Set(refused)].join(' ') + '; told … ' + told.slice(-61) }],
+      ])
+    }
+    n++
+    post(JSON.stringify({ read: n, what: 'list', kind: 'example.com/Widget', labels: ['mine=n' + n] }))
+  }
+  listen((text) => {
+    const said = JSON.parse(text)
+    if (said.open) {
+      commit([['make', 1, 'Header', { name: 'reading' }], ['put', 0, 1]])
+      next()
+    }
+    if (said.read !== n || said.read === answered) return
+    if (said.ended) {
+      answered = n
+      refused.push(said.ended)
+      told = said.said
+      return setTimeout(next, 150)
+    }
+    if (!said.objects) return
+    answered = n
+    made++
+    post(JSON.stringify({ stop: n }))
+    setTimeout(next, 220)
+  })
+})
+`
+
+test('a plugin’s page that asks to read more different things than a while allows: each read up to there is made and in the history, each new one after is refused before the cluster is asked, and the page goes on', async ({
+  launch,
+  clusters,
+}) => {
+  test.setTimeout(240_000)
+  const most = READ_LIMITS.differentAWhile
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(folder, 'tinker.yaml'), TINKER)
+  writeFileSync(join(folder, 'tinker.js'), READS_MANY)
+  const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
+  await openCluster(page)
+  await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
+  const said = body(page).locator('h2').first()
+  await expect(said).toContainText('reading', { timeout: 20_000 })
+  // Its code was told so, read by read, with Lumovi's sentence and how long is left; and it
+  // wasn't stopped for asking.
+  await expect(said).toContainText(`made ${most}, refused 5 as too-many-reads`, {
+    timeout: 200_000,
+  })
+  await expect(said).toContainText(
+    /told … Lumovi lists, so it can read nothing new for (10|9) more minutes\./,
+  )
+  await expect(page.getByTestId('plugin-ended')).toHaveCount(0)
+  // The cluster was asked for each read that had a place, as the person, and for none of the
+  // five after.
+  const asked = new Set(
+    clusters.demo.requests
+      .filter((r) => r.path.endsWith('/widgets'))
+      .flatMap((r) => /labelSelector=mine%3Dn(\d+)/.exec(r.search)?.[1] ?? []),
+  )
+  expect([...asked].map(Number).sort((a, b) => a - b)).toEqual(
+    Array.from({ length: most }, (_, n) => n + 1),
+  )
+  // In the history: every read that was made, each as it was read; then one entry of Lumovi's
+  // own, with nothing of what was asked for in it.
+  const history = await events(page, { actions: ['plugin.read'], limit: 1000 })
+  const listed = history.filter((event) => event.summary === 'Read Widgets for the plugin tinker')
+  expect(listed.map((event) => event.details?.labelSelector).sort()).toEqual(
+    Array.from({ length: most }, (_, n) => `mine=n${n + 1}`).sort(),
+  )
+  const rest = history.filter((event) => !listed.includes(event))
+  expect(rest.map((event) => [event.outcome, event.summary])).toEqual([
+    [
+      'refused',
+      expect.stringMatching(
+        /^The plugin Tinker’s page asked to read more than Lumovi lists in ten minutes: its new reads are refused for the next (10|9) minutes$/,
+      ),
+    ],
+  ])
+  expect(rest[0]!.details).toMatchObject({
+    plugin: 'tinker',
+    pluginVersion: '1.0.0',
+    refused: 'too-many-reads',
+    listed: most,
+  })
+  expect(JSON.stringify(rest)).not.toContain('mine=')
 })

@@ -112,8 +112,12 @@ test('a server reads for a plugin’s page what its file grants, and nothing it 
     ],
     [{ plugin: 'board', kind: 'example.com/Widget' }, 'not-in-use'],
     [{ plugin: 'nobody', kind: 'example.com/Widget' }, 'not-in-use'],
-    // Code, or a file, other than its page was handed: changed since.
-    [{ plugin: 'toys', kind: 'example.com/Widget', codeDigest: sha('other code') }, 'changed'],
+    // Code, or a file, other than its page was handed: changed since. (A read of its own: the
+    // same read as the first, asked again, would have the one entry that read already has.)
+    [
+      { plugin: 'toys', kind: 'example.com/Widget', namespace: 'default', codeDigest: sha('x') },
+      'changed',
+    ],
     // A name no plugin could have: no read at all, and nothing of it in the history.
     [{ plugin: 'toys\u202Eevil', kind: 'example.com/Widget' }, 'failed'],
   ] as const) {

@@ -72,7 +72,8 @@ test('a server reads a pod’s logs for a plugin’s code only where its file sa
     .poll(() => audited(served, 'logs.read').map((event) => [event.summary, event.outcome]))
     .toEqual([
       [`Read the logs of Pod ${POD} (envoy), for the plugin Toys’ code`, 'success'],
-      [`Read the logs of Pod ${POD} (envoy), for the plugin Toys’ code`, 'refused'],
+      // (Refused: written without the container, which is the code's own word until it's read.)
+      [`Read the logs of Pod ${POD}, for the plugin Toys’ code`, 'refused'],
     ])
   expect(audited(served, 'logs.read')[1]?.details).toMatchObject({
     plugin: 'shows',
