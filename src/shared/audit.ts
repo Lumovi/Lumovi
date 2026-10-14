@@ -47,6 +47,8 @@ export const AUDIT_ACTIONS = {
   'shell.close': 'access',
   'node-shell.open': 'access',
   'node-shell.close': 'access',
+  'attach.open': 'access',
+  'attach.close': 'access',
   'port-forward.open': 'access',
   'port-forward.close': 'access',
   'logs.read': 'access',

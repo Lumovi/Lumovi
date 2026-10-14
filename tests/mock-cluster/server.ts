@@ -35,7 +35,7 @@ import {
 import { jsonPatch, mergePatch, PatchError, strategicMergePatch } from './patch.ts'
 import { prometheusApi } from './prometheus.ts'
 import type { containerFiles } from './files.ts'
-import { streamingEndpoints } from './streams.ts'
+import { streamingEndpoints, type MainProcess } from './streams.ts'
 import type { ClusterFixture, Json, KubeObject } from './types.ts'
 
 export type Fault =
@@ -141,6 +141,10 @@ export interface MockCluster {
   watchNoise(bytes: number): void
   /** How many shells (exec streams) are open. */
   shells(): number
+  /** How many sessions are attached to containers' main processes. */
+  attached(): number
+  /** A container's main process, as attaching found it (none, never attached to). */
+  main(namespace: string, pod: string, container: string): MainProcess | undefined
   /** How many port-forward streams are open. */
   tunnels(): number
   /** The containers' files, as `tar` over exec reads and writes them (`kubectl cp`). */
@@ -1859,6 +1863,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       [...watchers].filter((watcher) => plural === undefined || watcher.def.plural === plural)
         .length,
     shells: streams.shells,
+    attached: streams.attached,
+    main: streams.main,
     tunnels: streams.tunnels,
     files: streams.files,
     setMetricsAvailable(available) {

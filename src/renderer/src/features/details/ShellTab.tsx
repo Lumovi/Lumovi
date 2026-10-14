@@ -1,4 +1,4 @@
-import { Bug, Play, Plug, RotateCw, SquareTerminal } from 'lucide-react'
+import { Bug, MonitorDot, Play, Plug, RotateCw, SquareTerminal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KubeObject, PluginVia } from '@shared/api'
 import { whose } from '@shared/plugins'
@@ -8,6 +8,7 @@ import { useAccess } from '@renderer/hooks/access'
 import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { useMoment } from '@renderer/lib/confirm-moment'
 import { formatRef } from '@renderer/lib/routes'
+import { cn } from '@renderer/lib/cn'
 import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { useSession } from '@renderer/state/session'
@@ -22,7 +23,13 @@ interface ContainerStatus {
   state?: { running?: unknown }
 }
 
-/** A shell in one of a pod's containers, including debug containers added to it. */
+/** What the tab opens in a container: a shell, or attached to its main process. */
+type How = 'shell' | 'attach'
+
+/**
+ * A shell in one of a pod's containers, including debug containers added to it; or attached to a
+ * container's main process (`kubectl attach -it`), as Attach asks.
+ */
 export function ShellTab({ pod }: { pod: KubeObject }) {
   const { context } = useCluster()
   const { name, namespace } = pod.metadata
@@ -42,6 +49,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
       : null
   const [container, setContainer] = useState(requested ?? containers[0]!)
   const [honored, setHonored] = useState(asked?.n)
+  const [how, setHow] = useState<How>(asked?.how ?? 'shell')
   // Brought here by a plugin's link: nothing starts until the person presses Start, each time a
   // link asks anew; and the bar says whose page it was, as long as the tab is open.
   const [from, setFrom] = useState(asked?.via?.label)
@@ -50,6 +58,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
     // (A link's ask, each time anew: its container, or the first where the pod hasn't it.)
     if (requested || asked.via) setContainer(requested ?? containers[0]!)
     if (asked.via) setFrom(asked.via.label)
+    setHow(asked.how ?? 'shell')
   }
   const waiting = asked?.via
   // (Said under the facts: the container a link named, where the pod hasn't it.)
@@ -63,10 +72,17 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   const choices = containers.includes(container) ? containers : [...containers, container]
   const [attempt, setAttempt] = useState(0)
   const { readOnly, said } = useReadOnly()
+  const attach = how === 'attach'
   const [allowed] = useAccess([
-    { verb: 'create', kind: 'Pod', namespace, name, subresource: 'exec' },
+    { verb: 'create', kind: 'Pod', namespace, name, subresource: attach ? 'attach' : 'exec' },
   ])
-  const notAllowed = useAccessHere().whyNot('shells', 'on', namespace)
+  // (Attaching is as a shell is, to Lumovi's access: what's typed goes into the container.)
+  const notAllowed = useAccessHere().whyNot(
+    'shells',
+    'on',
+    namespace,
+    attach ? 'attach to containers' : undefined,
+  )
   const statuses: ContainerStatus[] = [
     ...(pod.status?.containerStatuses ?? []),
     ...(pod.status?.ephemeralContainerStatuses ?? []),
@@ -76,27 +92,43 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   // (Where Lumovi wouldn't open a shell anyway, its own place says why, never the Start.)
   const startHere = waiting && !notAllowed && !readOnly && allowed !== false && running
   let body
+  const Icon = attach ? MonitorDot : SquareTerminal
   if (notAllowed) {
-    body = <NotAllowed title="You can’t open shells here" reason={notAllowed} />
-  } else if (readOnly) {
     body = (
-      <EmptyState icon={SquareTerminal} title="Shells are off">
+      <NotAllowed
+        title={attach ? 'You can’t attach to containers here' : 'You can’t open shells here'}
+        reason={notAllowed}
+      />
+    )
+  } else if (readOnly) {
+    body = attach ? (
+      <EmptyState icon={Icon} title="Attaching is off">
+        {said}, and what you type when attached goes to a container’s process.
+      </EmptyState>
+    ) : (
+      <EmptyState icon={Icon} title="Shells are off">
         {said}, and a shell can change a container.
       </EmptyState>
     )
   } else if (allowed === false) {
-    body = (
-      <EmptyState icon={SquareTerminal} title="No shell access">
+    body = attach ? (
+      <EmptyState icon={Icon} title="No attach access">
+        Your account can’t attach to containers in {namespace}.
+      </EmptyState>
+    ) : (
+      <EmptyState icon={Icon} title="No shell access">
         Your account can’t open shells in {namespace}.
       </EmptyState>
     )
   } else if (!running) {
     body = (
-      <EmptyState icon={SquareTerminal} title={`${container} isn’t running`}>
-        A shell can start once the container runs.
+      <EmptyState icon={Icon} title={`${container} isn’t running`}>
+        {attach
+          ? 'You can attach once the container runs.'
+          : 'A shell can start once the container runs.'}
       </EmptyState>
     )
-  } else if (startHere) {
+  } else if (startHere && !attach) {
     body = (
       <StartFromLink
         key={asked.n}
@@ -115,13 +147,14 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   } else {
     body = (
       <Session
-        key={`${container}#${attempt}`}
+        key={`${how}#${container}#${attempt}`}
+        how={how}
         request={{
           context,
           namespace: namespace!,
           pod: name,
           container,
-          ...(startedVia ? { via: startedVia } : {}),
+          ...(startedVia && !attach ? { via: startedVia } : {}),
         }}
         onReconnect={() => setAttempt(attempt + 1)}
         pod={pod}
@@ -132,6 +165,7 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-11 items-center gap-2 border-b border-line px-5 py-2 text-xs text-ink-2">
+        {!startHere && <ShellOrAttach how={how} onHow={setHow} />}
         {!startHere && (
           <select
             aria-label="Container"
@@ -275,22 +309,71 @@ function StartFromLink({
   )
 }
 
+/** Shell | Attach: what the tab opens in the container, as the charts' segmented control. */
+function ShellOrAttach({ how, onHow }: { how: How; onHow: (how: How) => void }) {
+  const choices = [
+    { id: 'shell', label: 'Shell', Icon: SquareTerminal },
+    { id: 'attach', label: 'Attach', Icon: MonitorDot },
+  ] as const
+  return (
+    <div
+      role="group"
+      aria-label="Shell or attach"
+      className="flex shrink-0 rounded-lg border border-line bg-surface-2 p-0.5"
+    >
+      {choices.map(({ id, label, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={how === id}
+          title={id === 'attach' ? 'To its main process, as kubectl attach -it' : undefined}
+          onClick={() => onHow(id)}
+          className={cn(
+            'flex h-6 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-2 transition-colors hover:text-ink-1 aria-pressed:bg-surface aria-pressed:text-ink-1 aria-pressed:shadow-[0_0_0_1px_var(--line-strong)]',
+          )}
+        >
+          <Icon aria-hidden className="size-3.5" />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function Session({
+  how,
   request,
   pod,
   onReconnect,
 }: {
+  how: How
   request: { context: string; namespace: string; pod: string; container: string }
   pod: KubeObject
   onReconnect: () => void
 }) {
-  // A new session (a new shell) when the container changes, or on reconnect: the component's key.
-  const [session] = useState(() => new TerminalSession({ target: 'container', ...request }))
+  // A new session (a new shell, or attached anew) when the container changes, or on reconnect:
+  // the component's key.
+  const [session] = useState(
+    () =>
+      new TerminalSession(
+        how === 'attach'
+          ? {
+              target: 'attach',
+              context: request.context,
+              namespace: request.namespace,
+              pod: request.pod,
+              container: request.container,
+            }
+          : { target: 'container', ...request },
+      ),
+  )
   const phase = usePhase(session)
   const start = useActionsUi((state) => state.start)
 
   const noShell =
-    phase.state === 'ended' && /executable file not found/.test(phase.exit.message ?? '')
+    how === 'shell' &&
+    phase.state === 'ended' &&
+    /executable file not found/.test(phase.exit.message ?? '')
   const ended =
     phase.state === 'failed'
       ? phase.error
@@ -305,7 +388,9 @@ function Session({
   return (
     <TerminalView
       session={session}
-      label={`Shell in ${request.container}`}
+      label={
+        how === 'attach' ? `Attached to ${request.container}` : `Shell in ${request.container}`
+      }
       focusWhenOpen
       dimmed={Boolean(ended)}
     >

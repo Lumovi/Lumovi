@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import { PassThrough, Writable } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
-import { Exec, PortForward as Forwarder, type KubeConfig } from '@kubernetes/client-node'
+import { Attach, Exec, PortForward as Forwarder, type KubeConfig } from '@kubernetes/client-node'
 import type {
+  ContainerAttachRequest,
   ContainerShellRequest,
   ForwardKind,
   KubeObject,
@@ -63,20 +64,41 @@ export function took(ms: number): string {
 /** How a shell or a forward a plugin's link brought the person to is said, after what it is. */
 const fromPage = (via: Via) => `, from the plugin ${whose(via.label)} page`
 
-function shellRecord(r: ContainerShellRequest | NodeShellRequest) {
-  return r.target === 'node'
-    ? {
-        cluster: r.context,
-        target: { kind: 'Node', name: r.node },
-        what: `a shell on Node ${r.node}${r.mode === 'node' ? ', as root' : ', in a pod with its files'}`,
-      }
-    : {
-        cluster: r.context,
-        target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
-        what: `a shell in Pod ${r.pod} (${r.container})`,
-        // Its flags before `--`: what's after it is the shell's.
-        command: `${kubectl(r.context, r.namespace, 'exec', '-it', r.pod, '-c', r.container)} -- sh`,
-      }
+/** What a terminal of a container's or a node's is, as the history says it. */
+type Audited = ContainerShellRequest | ContainerAttachRequest | NodeShellRequest
+
+function shellRecord(r: Audited, input?: boolean) {
+  if (r.target === 'node') {
+    return {
+      cluster: r.context,
+      target: { kind: 'Node', name: r.node },
+      what: `a shell on Node ${r.node}${r.mode === 'node' ? ', as root' : ', in a pod with its files'}`,
+    }
+  }
+  if (r.target === 'attach') {
+    return {
+      cluster: r.context,
+      target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
+      what: `Pod ${r.pod} (${r.container})${input === false ? ', its output only' : ''}`,
+      // (Where it takes no input, what's seen of it: its output.)
+      command: kubectl(
+        r.context,
+        r.namespace,
+        'attach',
+        ...(input === false ? [] : ['-it']),
+        r.pod,
+        '-c',
+        r.container,
+      ),
+    }
+  }
+  return {
+    cluster: r.context,
+    target: { kind: 'Pod', name: r.pod, namespace: r.namespace },
+    what: `a shell in Pod ${r.pod} (${r.container})`,
+    // Its flags before `--`: what's after it is the shell's.
+    command: `${kubectl(r.context, r.namespace, 'exec', '-it', r.pod, '-c', r.container)} -- sh`,
+  }
 }
 
 /** The part of the connection checks the WebSocket client doesn't make itself. */
@@ -109,7 +131,8 @@ class TerminalOutput extends Writable {
 }
 
 interface Session {
-  input: PassThrough
+  /** None where what's typed goes nowhere: attached to a process that takes no input. */
+  input?: PassThrough
   output: TerminalOutput
   close(): void
 }
@@ -151,10 +174,12 @@ export class Terminals {
   readonly #audited = new Map<
     string,
     {
-      request: ContainerShellRequest | NodeShellRequest
+      request: Audited
       since?: number
       pod?: string
       via?: Via
+      /** Attached: whether what's typed goes to the process. */
+      input?: boolean
     }
   >()
 
@@ -182,7 +207,7 @@ export class Terminals {
       }
       const r = assertQuery<ShellRequest>(request)
       assertString(r.context, 'context')
-      if (r.target === 'container') {
+      if (r.target === 'container' || r.target === 'attach') {
         assertString(r.namespace, 'namespace')
         assertString(r.pod, 'pod')
         assertString(r.container, 'container')
@@ -194,19 +219,32 @@ export class Terminals {
       }
       const via = r.target === 'container' ? await knownVia(this.deps.plugin, r.via) : undefined
       this.#audited.set(id, { request: r, ...(via ? { via } : {}) })
+      // (Attaching is as a shell is, to Lumovi's access: what's typed goes into the container.)
       if (r.target === 'node') {
         await this.deps.guard?.require(r.context, 'nodeShells', 'on', undefined, 'open node shells')
+      } else if (r.target === 'attach') {
+        await this.deps.guard?.require(
+          r.context,
+          'shells',
+          'on',
+          r.namespace,
+          'attach to containers',
+        )
       } else {
         await this.deps.guard?.require(r.context, 'shells', 'on', r.namespace, 'open shells')
       }
       const readOnly = this.deps.isReadOnly(r.context)
       if (readOnly) {
         const changes = r.target === 'node' ? 'nodes' : 'containers'
+        const off =
+          r.target === 'attach'
+            ? 'attaching, which sends what you type to a container’s process, is'
+            : `shells, which can change ${changes}, are`
         throw new KubeRequestError(
           'read-only',
           typeof readOnly === 'string'
-            ? `${readOnly} Shells, which can change ${changes}, are turned off.`
-            : `${r.context} is read-only in Lumovi, so shells, which can change ${changes}, are turned off.`,
+            ? `${readOnly} ${off[0]!.toUpperCase()}${off.slice(1)} turned off.`
+            : `${r.context} is read-only in Lumovi, so ${off} turned off.`,
         )
       }
       const setting = this.deps.nodeShell(r.context)
@@ -222,6 +260,7 @@ export class Terminals {
         const kc = this.deps.store.forContext(r.context)
         await prepare(kc)
         if (r.target === 'node') await this.#node(id, kc, r, setting!)
+        else if (r.target === 'attach') await this.#attach(id, kc, r)
         else await this.#exec(id, kc, r, SHELL)
       } finally {
         this.#connecting.delete(id)
@@ -246,28 +285,35 @@ export class Terminals {
       since,
       pod,
       via,
+      input,
     }: {
-      request: ContainerShellRequest | NodeShellRequest
+      request: Audited
       since?: number
       pod?: string
       via?: Via
+      input?: boolean
     },
     stage: 'open' | 'close',
     outcome: ReturnType<typeof outcomeOf>,
     exit?: ShellExit,
   ) {
-    const { what, ...where } = shellRecord(request)
+    const { what, ...where } = shellRecord(request, input)
     const ran = since === undefined ? '' : `, after ${took(Date.now() - since)}`
+    const attach = request.target === 'attach'
     this.deps.audit.record({
-      action: `${request.target === 'node' ? 'node-shell' : 'shell'}.${stage}`,
+      action: `${request.target === 'node' ? 'node-shell' : attach ? 'attach' : 'shell'}.${stage}`,
       ...outcome,
       ...where,
-      summary:
-        stage === 'open'
+      summary: attach
+        ? stage === 'open'
+          ? `${outcome.outcome === 'success' ? 'Attached' : 'Attach'} to ${what}`
+          : `Detached from ${what}${ran}`
+        : stage === 'open'
           ? `${outcome.outcome === 'success' ? 'Opened' : 'Open'} ${what}${via ? fromPage(via) : ''}`
           : `Closed ${what}${ran}${exit?.code !== undefined ? `: it exited with ${exit.code}` : ''}`,
       details: {
         ...(request.target === 'node' ? { mode: request.mode } : { container: request.container }),
+        ...(input !== undefined ? { input } : {}),
         ...via?.details,
         ...(pod ? { pod } : {}),
         ...(stage === 'close' && since !== undefined
@@ -411,8 +457,76 @@ export class Terminals {
     else this.#sessions.set(id, { input, output, close })
   }
 
+  /**
+   * Attached to a container's main process, as `kubectl attach -it` is: what it prints, and what's
+   * typed, where its stdin is open. Where its stdin closes after one session (`stdinOnce`), the
+   * process would end with this one: it's sent nothing, and what it prints is shown. Detaching
+   * (the page closing it) leaves the process running.
+   */
+  async #attach(id: string, kc: KubeConfig, r: ContainerAttachRequest): Promise<void> {
+    const say = (text: string) => this.emit.data(id, note(text))
+    const pod = JSON.parse(
+      await kubeRequest(
+        kc,
+        `/api/v1/namespaces/${encodeURIComponent(r.namespace)}/pods/${encodeURIComponent(r.pod)}`,
+        { timeoutMs: this.deps.timeoutMs },
+      ),
+    ) as KubeObject
+    const spec = (
+      [...(pod.spec?.containers ?? []), ...(pod.spec?.ephemeralContainers ?? [])] as {
+        name?: string
+        stdin?: boolean
+        stdinOnce?: boolean
+        tty?: boolean
+      }[]
+    ).find((container) => container.name === r.container)
+    if (!spec) {
+      throw new KubeRequestError('not-found', `Pod ${r.pod} has no container ${r.container}.`)
+    }
+    const takes = spec.stdin === true && spec.stdinOnce !== true
+    const tty = spec.tty === true
+    this.#audited.get(id)!.input = takes
+    if (spec.stdin !== true) {
+      say(`${r.container} takes no input (its stdin isn’t open): this shows what it prints.`)
+    } else if (spec.stdinOnce === true) {
+      say(
+        `${r.container}’s input closes when one session ends, which would end its process: this shows what it prints, and sends it nothing.`,
+      )
+    } else {
+      say(
+        `What you type goes to ${r.container}’s main process, Ctrl+C and Ctrl+D included, which can end it. To leave it running, close this.`,
+      )
+    }
+    const input = takes ? new PassThrough() : undefined
+    const output = new TerminalOutput((text) => this.emit.data(id, text))
+    let ended = false
+    const end = (exit: ShellExit) => {
+      if (ended) return
+      ended = true
+      this.#sessions.delete(id)
+      this.#ended(id, exit)
+      this.emit.exit(id, exit)
+    }
+    // (A terminal's output is one stream: with a TTY, the API server takes no stderr.)
+    const socket = await new Attach(kc).attach(
+      r.namespace,
+      r.pod,
+      r.container,
+      output,
+      tty ? null : output,
+      input ?? null,
+      tty,
+    )
+    this.#began(id)
+    socket.on('close', () => end({ message: 'The connection to the container closed.' }))
+    const close = () => socket.close()
+    // Nobody is waiting for it any more: let go of it at once.
+    if (this.#abandoned.has(id)) close()
+    else this.#sessions.set(id, { ...(input ? { input } : {}), output, close })
+  }
+
   write(id: unknown, data: unknown): void {
-    if (typeof data === 'string') this.#sessions.get(String(id))?.input.write(data)
+    if (typeof data === 'string') this.#sessions.get(String(id))?.input?.write(data)
   }
 
   resize(id: unknown, columns: unknown, rows: unknown): void {

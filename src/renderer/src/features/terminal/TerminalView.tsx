@@ -24,7 +24,11 @@ addEventListener('pointerdown', () => void (lastPressWasKey = false), true)
 function takeFocus(host: HTMLElement, session: TerminalSession) {
   const active = document.activeElement!
   const browsing = active.getAttribute('role') === 'tab' && lastPressWasKey
-  const here = active === document.body || host.closest('aside')!.contains(active)
+  // (The menu that asked for it, still closing, counts: it doesn't take the focus back.)
+  const here =
+    active === document.body ||
+    host.closest('aside')!.contains(active) ||
+    active.closest('[role="menu"]') !== null
   if (here && !browsing) session.focus()
 }
 

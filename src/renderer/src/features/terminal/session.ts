@@ -168,21 +168,30 @@ export class TerminalSession {
       this.#input.take(data)
     })
     this.#cleanup.push(() => input.dispose())
-    void api.terminal.open(id, this.request).then((result) => {
-      // Closed while connecting: the other side ends the shell. Or it ended already (a
-      // container without a shell can say so before the answer comes): it stays ended.
-      if (this.#disposed || this.#phase.state === 'ended') return
-      if (!result.ok) {
+    void api.terminal.open(id, this.request).then(
+      (result) => {
+        // Closed while connecting: the other side ends the shell. Or it ended already (a
+        // container without a shell can say so before the answer comes): it stays ended.
+        if (this.#disposed || this.#phase.state === 'ended') return
+        if (!result.ok) {
+          this.#input.over()
+          this.#set({ state: 'failed', error: result.error.message, code: result.error.code })
+          return
+        }
+        this.#set({ state: 'open' })
+        this.#input.opened()
+        this.#resize()
+        // (A shell that says nothing at first is ready a little later anyway.)
+        this.#settle(QUIET_START_MS)
+      },
+      (error: unknown) => {
+        // Refused before it began (Lumovi's own refusal, not the cluster's): said, in its words,
+        // never a terminal left waiting.
+        if (this.#disposed || this.#phase.state === 'ended') return
         this.#input.over()
-        this.#set({ state: 'failed', error: result.error.message, code: result.error.code })
-        return
-      }
-      this.#set({ state: 'open' })
-      this.#input.opened()
-      this.#resize()
-      // (A shell that says nothing at first is ready a little later anyway.)
-      this.#settle(QUIET_START_MS)
-    })
+        this.#set({ state: 'failed', error: refusal(error), code: 'server' })
+      },
+    )
   }
 
   #settle(ms: number): void {
@@ -260,4 +269,10 @@ export class TerminalSession {
     this.#phase = phase
     for (const listener of this.#listeners) listener()
   }
+}
+
+/** What a refusal of the main process says, without how it came. */
+function refusal(error: unknown): string {
+  const said = error instanceof Error ? error.message : String(error)
+  return said.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '')
 }

@@ -230,6 +230,8 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'shell.close': { label: 'Closed a shell', icon: SquareTerminal },
   'node-shell.open': { label: 'Opened a node shell', icon: Server },
   'node-shell.close': { label: 'Closed a node shell', icon: Server },
+  'attach.open': { label: 'Attached to a container', icon: SquareTerminal },
+  'attach.close': { label: 'Detached from a container', icon: SquareTerminal },
   'port-forward.open': { label: 'Forwarded a port', icon: Cable },
   'port-forward.close': { label: 'Stopped forwarding a port', icon: Cable },
   'logs.read': { label: 'Read logs', icon: ScrollText },

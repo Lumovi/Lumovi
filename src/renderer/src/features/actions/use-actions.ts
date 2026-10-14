@@ -29,6 +29,7 @@ const DENIED: Record<string, (resource: string) => string> = {
   create: (resource) => `create ${resource}`,
   'create/eviction': (resource) => `evict ${resource}`,
   'create/exec': () => 'open shells',
+  'create/attach': () => 'attach to containers',
   'create/portforward': (resource) => `forward ports to ${resource}`,
   'patch/ephemeralcontainers': (resource) => `debug ${resource}`,
   'patch/status': (resource) => `change ${resource}`,
@@ -61,6 +62,8 @@ function notAllowed(action: Action, check: AccessCheck, object: KubeObject, here
     )
   }
   if (kind === 'create/exec') return here.whyNot('shells', 'on', where)
+  // What's typed when attached goes into the container, as a shell's does.
+  if (kind === 'create/attach') return here.whyNot('shells', 'on', where, 'attach to containers')
   // Forwarding a port changes nothing.
   if (kind === 'create/portforward') return undefined
   // A Secret written whole by someone shown only its keys would lose its values.
@@ -143,7 +146,7 @@ export function useRunAction() {
       const { name, namespace } = object.metadata
       const ref = formatRef({ kind: kindOf(object), name, namespace })
       openObject(kindOf(object), name, namespace)
-      if (action.tab) showTab(ref, action.tab)
+      if (action.tab) showTab(ref, action.tab, undefined, undefined, action.how)
       else edit(ref)
     }
   }

@@ -16,19 +16,27 @@ interface ActionsState {
   editing: string | null
   /** A tab the detail panel should switch to, e.g. after choosing "Shell". */
   tab: { ref: string; tab: string } | null
+  /** When a tab was last asked for: a menu that closes just then leaves the focus to it. */
+  tabAskedAt?: number
   /**
    * The container to open a pod's shell in, like a debug container just added. Asked by a
    * plugin's link (`via`), the tab waits for the person's Start, each time it's asked anew
-   * (`n`), and a link never starts one.
+   * (`n`), and a link never starts one. Attached to a container's process, rather (`how`).
    */
-  shell: { ref: string; container?: string; via?: PluginVia; n: number } | null
+  shell: {
+    ref: string
+    container?: string
+    via?: PluginVia
+    how?: 'attach'
+    n: number
+  } | null
   /** The container to show a pod's logs from, as a plugin's link asked: each ask anew (`n`). */
   logs: { ref: string; container: string; n: number } | null
   start(id: string, object: KubeObject, asked?: { port?: number; via?: PluginVia }): void
   close(): void
   setMenu(open: boolean): void
   edit(ref: string | null): void
-  showTab(ref: string, tab: string, shell?: string, via?: PluginVia): void
+  showTab(ref: string, tab: string, shell?: string, via?: PluginVia, how?: 'attach'): void
   tabShown(): void
   /** The person pressed Start on a shell a plugin's link asked for: the tab is theirs again. */
   shellStarted(ref: string): void
@@ -45,21 +53,24 @@ export const useActionsUi = create<ActionsState>((set) => ({
   close: () => set({ active: null }),
   setMenu: (menu) => set({ menu }),
   edit: (editing) => set({ editing }),
-  showTab: (ref, tab, shell, via) =>
+  showTab: (ref, tab, shell, via, how) =>
     set((state) =>
       tab === 'logs'
         ? {
             tab: { ref, tab },
+            tabAskedAt: Date.now(),
             logs: shell ? { ref, container: shell, n: (state.logs?.n ?? 0) + 1 } : null,
           }
         : {
             tab: { ref, tab },
+            tabAskedAt: Date.now(),
             shell:
-              shell || via
+              shell || via || how
                 ? {
                     ref,
                     ...(shell ? { container: shell } : {}),
                     ...(via ? { via } : {}),
+                    ...(how ? { how } : {}),
                     n: (state.shell?.n ?? 0) + 1,
                   }
                 : null,
@@ -85,5 +96,9 @@ export const useActionsUi = create<ActionsState>((set) => ({
  * focus stays with the dialog instead of going back to what opened the menu.
  */
 export function keepFocusInActionDialog(event: Event): void {
-  if (useActionsUi.getState().active) event.preventDefault()
+  const { active, tabAskedAt } = useActionsUi.getState()
+  // (Or with the tab it asked for, as it closes: a terminal there takes the keys.)
+  if (active || (tabAskedAt !== undefined && Date.now() - tabAskedAt < 1_000)) {
+    event.preventDefault()
+  }
 }
