@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
+import { holds } from '../holds.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { demoCluster } from '../mock-cluster/fixtures/demo.ts'
 import type { KubeObject } from '../mock-cluster/types.ts'
@@ -607,15 +608,21 @@ test('Download CSV saves every row the filters let through: whole values, times 
   await saveAs(app, undefined)
   await go(page, '#/cluster/demo/pods?namespaces=data,shop')
   await expect(rows(page, 'Pods').first()).toBeVisible()
-  const said = await toasts(page)
-    .getByText(/^Saved /)
-    .count()
   await button(page).click()
   await menu(page).getByRole('button', { name: 'Download CSV' }).click()
   await expect
     .poll(() => app.evaluate(() => (globalThis as unknown as { offered: string[] }).offered))
     .toEqual([expect.stringMatching(new RegExp(`pods-demo-${today()}\\.csv$`))])
-  await expect(toasts(page).getByText(/^Saved /)).toHaveCount(said)
+  // (Nothing says this one was saved. The first's note may still be there, or have gone by now: a
+  // count of them all would say more about how long that takes than about this.)
+  await holds(
+    async () =>
+      (await toasts(page)
+        .getByText(/^Saved (?!chosen\.csv)/)
+        .count()) === 0,
+    2_000,
+    'a cancelled save says nothing',
+  )
 })
 
 test('only a file Lumovi saved is shown in the file manager, by a token: the page never learns where it is', async ({
