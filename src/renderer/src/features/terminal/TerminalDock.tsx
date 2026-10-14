@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ChevronDown,
   ChevronUp,
   Maximize2,
@@ -329,6 +330,15 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
             <Plus className="size-4 text-ink-3" />
             <span className="flex-1">New terminal like it</span>
           </ContextMenu.Item>
+          {/* (Its shell goes with it, running: one that ended has none to take.) */}
+          <ContextMenu.Item
+            className={cn(menuItem, 'data-[disabled]:opacity-45')}
+            disabled={tab.quit || phase.state !== 'open'}
+            onSelect={() => dock.moveOut(id)}
+          >
+            <AppWindow className="size-4 text-ink-3" />
+            <span className="flex-1">Move to a new window</span>
+          </ContextMenu.Item>
           <ContextMenu.Separator className="my-1 h-px bg-line" />
           <ContextMenu.Item className={menuItem} onSelect={() => dock.close(id)}>
             <X className="size-4 text-ink-3" />
@@ -393,7 +403,8 @@ function Keys({ keys }: { keys: string[] }) {
   )
 }
 
-function Panel({ tab, shown }: { tab: TerminalTab; shown: boolean }) {
+/** A terminal's tab, shown: here, or alone in a window of its own. */
+export function Panel({ tab, shown }: { tab: TerminalTab; shown: boolean }) {
   const phase = usePhase(tab.session)
   const dock = useDock.getState()
   const ended = tab.quit

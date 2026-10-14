@@ -76,6 +76,27 @@ export interface AppInfo {
   node: string
 }
 
+/**
+ * A tab below, moved into a window of its own (and back): a kept object, or a terminal, whose
+ * shell, while it runs, goes with it (its id, and what it showed).
+ */
+export type MovedTab =
+  | {
+      kind: 'kept'
+      context: string
+      object: { kind: string; name: string; namespace?: string }
+      tab: string
+      /** Not read yet: its cluster signs in through a program (see the tabs below). */
+      waiting?: true
+    }
+  | {
+      kind: 'terminal'
+      context: string
+      namespace?: string
+      title?: string
+      shell?: { id: string; lines: string }
+    }
+
 export interface WindowState {
   x: number
   y: number
@@ -86,6 +107,8 @@ export interface WindowState {
   page?: string
   /** What its page said it had below (the page's own: it reads it back, and checks it). */
   below?: unknown
+  /** A window of one tab: that tab (a terminal's shell isn't kept: it comes back ended). */
+  tab?: unknown
 }
 
 /**
@@ -1344,6 +1367,23 @@ export interface LumoviApi {
      * by itself (a cluster that signs in through a program waits for a press).
      */
     restored(): Promise<{ page?: string; below?: unknown }>
+    /** Moves a tab below into a window of its own, over this one. */
+    moveToWindow(tab: MovedTab): Promise<void>
+    /**
+     * A window of one tab: its tab (checked by the page: it's only data), and whether it's opened
+     * again as Lumovi did (`restored`) rather than just moved.
+     */
+    movedTab(): Promise<{ tab?: unknown; restored?: true }>
+    /** A shell handed to this page listens now: what it said meanwhile comes, then as it goes. */
+    adoptShell(id: string): void
+    /**
+     * Puts a window's one tab back below: in the window it came from, else the one in front on its
+     * cluster, else the one in front. This window then closes, the tab gone from it, not ended.
+     * Where there's no other (`here`), this window becomes Lumovi's own, the tab below in it.
+     */
+    putBack(tab: MovedTab): Promise<{ here?: true }>
+    /** A tab put back below here, from a window of its own. */
+    onTabReturned(listener: (tab: unknown) => void): () => void
   }
   app: {
     info(): Promise<AppInfo>
@@ -1809,6 +1849,11 @@ export const IPC = {
   newWindow: 'app:new-window',
   keepBelow: 'window:keep-below',
   restored: 'window:restored',
+  moveToWindow: 'window:move-tab',
+  movedTab: 'window:moved-tab',
+  putBack: 'window:put-back',
+  tabReturned: 'window:tab-returned',
+  adoptShell: 'window:adopt-shell',
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',

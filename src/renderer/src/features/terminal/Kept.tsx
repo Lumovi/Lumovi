@@ -3,7 +3,7 @@
  * below. It's read in its own cluster, whichever the window shows, and keeps its own tab as it's
  * shown; its first row is its tabs, then its status, its actions and "Open in the panel".
  */
-import { ArrowUpRight, X } from 'lucide-react'
+import { AppWindow, ArrowUpRight, X } from 'lucide-react'
 import { ContextMenu } from 'radix-ui'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
@@ -139,6 +139,10 @@ export function KeptTabButton({ kept, selected }: { kept: KeptTab; selected: boo
       <ContextMenu.Portal>
         <ContextMenu.Content className={menuContent}>
           <OpenInPanelItem kept={kept} />
+          <ContextMenu.Item className={menuItem} onSelect={() => dock.moveOut(kept.id)}>
+            <AppWindow className="size-4 text-ink-3" />
+            <span className="flex-1">Move to a new window</span>
+          </ContextMenu.Item>
           <ContextMenu.Separator className="my-1 h-px bg-line" />
           <ContextMenu.Item className={menuItem} onSelect={() => dock.close(kept.id)}>
             <X className="size-4 text-ink-3" />
@@ -178,8 +182,19 @@ function OpenInPanelItem({ kept }: { kept: KeptTab }) {
   )
 }
 
-/** A kept object, at the size of the tabs below: read in its own cluster. */
-export function KeptPanel({ kept, shown }: { kept: KeptTab; shown: boolean }) {
+/**
+ * A kept object, at the size of the tabs below: read in its own cluster. `alone`, in a window of
+ * its own: no panel there to open it in.
+ */
+export function KeptPanel({
+  kept,
+  shown,
+  alone = false,
+}: {
+  kept: KeptTab
+  shown: boolean
+  alone?: boolean
+}) {
   const open = useOpenInPanel(kept)
   // Waiting (its cluster signs in through a program): read once it's picked (see `dock.select`),
   // asked for here, or its cluster's opened in this window, which asks what the cluster's pages
@@ -209,7 +224,7 @@ export function KeptPanel({ kept, shown }: { kept: KeptTab; shown: boolean }) {
         <NotReadYet kept={kept} />
       ) : (
         <ClusterContext.Provider value={scope}>
-          <KeptDetail kept={kept} onOpen={open} />
+          <KeptDetail kept={kept} onOpen={alone ? undefined : open} />
         </ClusterContext.Provider>
       )}
     </div>
@@ -255,7 +270,7 @@ export function NotReadYet({ kept, focused = false }: { kept: KeptTab; focused?:
 const clock = (at: number) =>
   new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 
-function KeptDetail({ kept, onOpen }: { kept: KeptTab; onOpen: () => void }) {
+function KeptDetail({ kept, onOpen }: { kept: KeptTab; onOpen?: () => void }) {
   const { kind, name, namespace } = kept.object
   const object = useObject(kind, name, namespace)
   const clusterName = useClusterName()
@@ -387,7 +402,7 @@ function useStillThereOwner(object: KubeObject): ObjectRef | undefined {
 }
 
 /** The row's end: the object's status, what can be done to it, and the way to the panel. */
-function Aside({ object, onOpen }: { object: KubeObject; onOpen: () => void }) {
+function Aside({ object, onOpen }: { object: KubeObject; onOpen?: () => void }) {
   const status = statusFor(kindOf(object), object)
   return (
     <>
@@ -397,9 +412,11 @@ function Aside({ object, onOpen }: { object: KubeObject; onOpen: () => void }) {
         </div>
       )}
       {actionsFor(object).length > 0 && <ActionBar object={object} />}
-      <IconButton label="Open in the panel" className="size-7" onClick={onOpen}>
-        <ArrowUpRight />
-      </IconButton>
+      {onOpen && (
+        <IconButton label="Open in the panel" className="size-7" onClick={onOpen}>
+          <ArrowUpRight />
+        </IconButton>
+      )}
     </>
   )
 }

@@ -10,8 +10,16 @@ import {
   session,
   shell,
   type BrowserWindow,
+  type WebContents,
 } from 'electron'
-import { developerModeLocked, IPC, type ShellExit, type WindowState } from '@shared/api'
+import {
+  developerModeLocked,
+  IPC,
+  type MovedTab,
+  type ShellExit,
+  type WindowState,
+} from '@shared/api'
+import { movedTabOf } from '@shared/moved-tab'
 import { folderOf } from '@shared/plugin-loading'
 import { parsePlugin } from '@shared/plugins'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
@@ -68,8 +76,8 @@ import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import SHIPPED from 'virtual:lumovi-plugins'
 import { WarningNotices } from './warning-notices'
-import { cascaded, createMainWindow, rendererUrl, windowState } from './window'
-import { Windows } from './windows'
+import { asMainWindow, cascaded, createMainWindow, rendererUrl, windowState } from './window'
+import { Windows, withoutShell } from './windows'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
 // single instance, which the app's (if it's running) is.
@@ -253,8 +261,16 @@ if (stdio) {
     // them; each window's own events are listened to once all there is to tell them is (wire).
     const windows = new Windows()
     let quitting = false
-    /** Where a window is and what it shows: its place, its page's address, what it has below. */
+    /**
+     * Where a window is and what it shows: its place, its page's address, what it has below; or,
+     * a window of one tab, that tab as its page last said it (its shell's never kept).
+     */
     const keptOf = (win: BrowserWindow): WindowState => {
+      const held = windows.tabOf(win)
+      if (held) {
+        const said = (windows.belowOf(win) as { tabs?: unknown[] } | undefined)?.tabs?.[0]
+        return { ...windowState(win), tab: movedTabOf(said, false) ?? withoutShell(held.tab) }
+      }
       const page = new URL(win.webContents.getURL()).hash
       const below = windows.belowOf(win)
       return {
@@ -263,7 +279,30 @@ if (stdio) {
         ...(below !== undefined ? { below } : {}),
       }
     }
+    /**
+     * The windows, as they're kept: windows of one tab alone open again as Lumovi's own, each on
+     * its tab's cluster with the tab below (there's no start screen, else, to go anywhere from).
+     * (Its page goes there as any window's does: not to a cluster that signs in through a program.)
+     */
+    const keptAll = (open: BrowserWindow[]): WindowState[] => {
+      const states = open.map(keptOf)
+      if (states.some((state) => state.tab === undefined)) return states
+      return states.map(({ tab, ...state }) => {
+        const context = (tab as MovedTab).context
+        return {
+          ...state,
+          page: `#/cluster/${encodeURIComponent(context)}`,
+          below: { open: true, maximized: false, shown: 0, tabs: [tab] },
+        }
+      })
+    }
+    /** As a window closes: quitting, every window is kept, below; else the last keeps itself. */
+    const keepLast = (win: BrowserWindow) => {
+      if (!quitting && windows.all().length === 1) settings.update({ windows: keptAll([win]) })
+    }
     const makeWindow = (saved?: WindowState) => {
+      const tab = movedTabOf(saved?.tab, false)
+      if (saved && tab) return makeTabWindow(tab, 'restored', saved)
       // (Where its page was, an address of the app's own, never another page, is handed to the
       // page: it opens on the start screen and goes there itself, unless that would read a
       // cluster that signs in through a program before anyone asks.)
@@ -271,12 +310,26 @@ if (stdio) {
         typeof saved?.page === 'string' && /^#\/[^#]{0,2047}$/.test(saved.page)
           ? saved.page
           : undefined
-      const win = createMainWindow(url, saved, () => {
-        // (Quitting, every window is kept, below; else the last closing keeps itself alone.)
-        if (!quitting && windows.all().length === 1) settings.update({ windows: [keptOf(win)] })
-      })
+      const win = createMainWindow(url, saved, () => keepLast(win))
       windows.add(win)
       windows.restore(win, { page, below: saved?.below })
+      return win
+    }
+    /**
+     * A window of one tab below: over the window it came from, a little smaller; or where it was,
+     * opened again as Lumovi did.
+     */
+    const makeTabWindow = (
+      tab: MovedTab,
+      from: BrowserWindow | 'restored',
+      saved?: WindowState,
+    ) => {
+      const win = createMainWindow(`${url}#/tab`, saved, () => keepLast(win), {
+        ...TAB_WINDOW,
+        ...(from === 'restored' ? {} : { over: from.getBounds() }),
+      })
+      windows.add(win)
+      windows.holdTab(win, tab, from)
       return win
     }
     const saved = settings.get().windows ?? []
@@ -284,7 +337,7 @@ if (stdio) {
     app.on('before-quit', () => {
       quitting = true
       const open = windows.all()
-      if (open.length) settings.update({ windows: open.map(keptOf) })
+      if (open.length) settings.update({ windows: keptAll(open) })
     })
     /** What every window hears: what's the app's own, not one page's stream. */
     const send = (channel: string, ...args: unknown[]) => windows.toAll(channel, ...args)
@@ -661,6 +714,45 @@ if (stdio) {
       const at = front && windowState(front)
       wire(makeWindow(at && cascaded(at, NEW_WINDOW_OFFSET)))
     }
+    /** A tab below moved into a window of its own, over the window it was in. */
+    const moveTab = (page: WebContents, given: unknown) => {
+      const from = windows.windowOf(page)
+      const tab = movedTabOf(given)
+      if (!from || windows.tabOf(from) || !tab) {
+        throw new Error('A tab below moves to a window of its own: a kept object or a terminal')
+      }
+      wire(makeTabWindow(tab, from))
+    }
+    /**
+     * A window's one tab put back below: in the window it came from, else the one in front on its
+     * cluster, else the one in front; its shell handed there, still running. With no other of
+     * Lumovi's own windows, this one becomes one (`here`), its tab below in it.
+     */
+    const putBack = (page: WebContents, given: unknown): { here?: true } => {
+      const win = windows.windowOf(page)
+      const held = win && windows.tabOf(win)
+      const tab = movedTabOf(given)
+      if (!win || !held || !tab) throw new Error('A window of one tab puts its tab back below')
+      const others = windows.byRecency().filter((each) => each !== win && !windows.tabOf(each))
+      if (others.length === 0) {
+        // (Its terminal's taken on again here, as it was let go of: what it says meanwhile kept.)
+        if (tab.kind === 'terminal' && tab.shell) windows.hold(tab.shell.id, page)
+        windows.untab(win)
+        asMainWindow(win)
+        return { here: true }
+      }
+      const to =
+        (held.from && others.includes(held.from) ? held.from : undefined) ??
+        others.find((each) => clusterOf(each.webContents.getURL()) === tab.context) ??
+        others[0]!
+      const handed =
+        tab.kind !== 'terminal' || !tab.shell || windows.hand(tab.shell.id, page, to.webContents)
+      to.webContents.send(IPC.tabReturned, handed ? tab : withoutShell(tab))
+      to.focus()
+      // (Once its page has its answer: it's gone with its window.)
+      setImmediate(() => win.close())
+      return {}
+    }
     registerIpc({
       problems: () => envReady.then(() => problems),
       kubeconfigFiles,
@@ -720,6 +812,8 @@ if (stdio) {
       send,
       windows,
       newWindow,
+      moveTab,
+      putBack,
       warningNotices: (context) => warnings.state(context),
       openMenu: (x, y) => popupMenu(windows.front()!, x, y),
     })
@@ -757,6 +851,18 @@ if (stdio) {
 
 /** How far a new window opens from the one in front, down and to the right. */
 const NEW_WINDOW_OFFSET = 24
+/** A window of one tab below: smaller than Lumovi's own, and as small as a tab below goes. */
+const TAB_WINDOW = { width: 980, height: 560, minWidth: 560, minHeight: 360 }
+
+/** The cluster a window's page is on, by its address; none on the start screen and the like. */
+function clusterOf(address: string): string | undefined {
+  const at = /#\/cluster\/([^/?#]+)/.exec(address)?.[1]
+  try {
+    return at && decodeURIComponent(at)
+  } catch {
+    return undefined
+  }
+}
 
 /** After starting, so the sponsor card's first read doesn't compete with loading a cluster. */
 const SPONSOR_FIRST_MS = 3_000

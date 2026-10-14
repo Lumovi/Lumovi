@@ -86,8 +86,18 @@ function watchTheme() {
   })
 }
 
+/** A shell that's running already, handed over from another window: its id, and what it showed. */
+export interface HandedShell {
+  id: string
+  /** Its last lines, as text, to show first: the shell itself goes on from where it is. */
+  lines: string
+}
+
+/** The most lines a terminal takes with it to another window. */
+const HANDED_LINES = 2_000
+
 export class TerminalSession {
-  readonly id = crypto.randomUUID()
+  readonly id: string
   readonly term: Terminal
   /** What xterm draws into; moved from place to place, never redrawn. */
   readonly element = document.createElement('div')
@@ -107,8 +117,15 @@ export class TerminalSession {
   readonly #input = new ShellInput((data) => api.terminal.write(this.id, data))
   #ending: ReturnType<typeof setTimeout> | undefined
 
-  /** Nothing starts yet: React may make one and throw it away. */
-  constructor(readonly request: ShellRequest) {
+  /**
+   * Nothing starts yet: React may make one and throw it away. `handed`, a shell running already
+   * (moved here from another window): started, it goes on with that one, never a new one.
+   */
+  constructor(
+    readonly request: ShellRequest,
+    readonly handed?: HandedShell,
+  ) {
+    this.id = handed?.id ?? crypto.randomUUID()
     this.element.className = 'h-full w-full'
     this.term = new Terminal({
       cursorBlink: true,
@@ -161,6 +178,15 @@ export class TerminalSession {
         this.#set({ state: 'ended', exit })
       }),
     )
+    if (this.handed) {
+      // (What it showed where it was, then the shell itself, as it goes on: what it said since
+      // it was handed over comes first.)
+      this.term.write(this.handed.lines)
+      api.desktop?.adoptShell(id)
+      this.#set({ state: 'open' })
+      this.#input.opened()
+      this.#settle(QUIET_START_MS)
+    }
     const input = this.term.onData((data) => {
       // (Not only typing: the terminal's own answer to a shell that asks it something as it
       // starts comes this way too, and is never dropped. See `ShellInput`.)
@@ -168,6 +194,7 @@ export class TerminalSession {
       this.#input.take(data)
     })
     this.#cleanup.push(() => input.dispose())
+    if (this.handed) return
     void api.terminal.open(id, this.request).then(
       (result) => {
         // Closed while connecting: the other side ends the shell. Or it ended already (a
@@ -245,6 +272,27 @@ export class TerminalSession {
     return () => {
       this.#ending = setTimeout(() => this.dispose())
     }
+  }
+
+  /**
+   * Lets the shell go to another window, still running: what it showed, and its id. This
+   * terminal is forgotten here, and the shell isn't ended.
+   */
+  handOver(): HandedShell {
+    const buffer = this.term.buffer.active
+    const lines: string[] = []
+    for (let at = Math.max(0, buffer.length - HANDED_LINES); at < buffer.length; at++) {
+      lines.push(buffer.getLine(at)?.translateToString(true) ?? '')
+    }
+    while (lines.length && !lines.at(-1)) lines.pop()
+    this.#disposed = true
+    this.#input.over()
+    clearTimeout(this.#settling)
+    clearTimeout(this.#ending)
+    live.delete(this)
+    for (const off of this.#cleanup) off()
+    this.term.dispose()
+    return { id: this.id, lines: lines.length ? `${lines.join('\r\n')}\r\n` : '' }
   }
 
   /** Ends the shell and forgets the terminal. */
