@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { BOX_SCRIPT } from '../../src/shared/plugin-box.ts'
+import { literal } from '../../src/shared/code-literal.ts'
 import { expect, test, type LaunchOptions, type Lumovi } from './fixtures.ts'
 import {
   notStopped,
@@ -196,7 +197,7 @@ async function onPage(
     page,
     app,
     as,
-    `${WAYS}\n;(() => { const c = ${JSON.stringify(context)}; c.post = () => undefined; return self.runAttempt(${JSON.stringify(id)}, c) })()`,
+    `${WAYS}\n;(() => { const c = ${literal(context)}; c.post = () => undefined; return self.runAttempt(${literal(id)}, c) })()`,
   )
 }
 
