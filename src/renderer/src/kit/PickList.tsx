@@ -54,16 +54,23 @@ export function standing(list: PickListSaid): Pick[] {
 export function PickList({
   list,
   picked,
+  cameFrom,
   onPick,
 }: {
   list: PickListSaid
   /** The picked row's key; none on a phone, where the list is the page. */
   picked?: string
+  /**
+   * On a phone, the row whose page was left with Back to come here: the keyboard goes on from
+   * it, where it was.
+   */
+  cameFrom?: string
   onPick: (key: string) => void
 }) {
   const id = useId()
   const phone = useLayout() === 'phone'
   const scroll = useRef<HTMLDivElement>(null)
+  const cards = useRef<HTMLUListElement>(null)
   const [filter, setFilter] = useState('')
   const [activeKey, setActiveKey] = useState<string>()
   const rows = useMemo(() => standing(list), [list])
@@ -120,6 +127,15 @@ export function PickList({
     scroll.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
   }, [picked, shown])
 
+  // On a phone, back from a row's page: the keyboard is on that row again, in view. (Once, as the
+  // list comes back: not again as it's filtered, or the field being typed in would lose it.)
+  useEffect(() => {
+    if (cameFrom === undefined) return
+    const at = rows.findIndex((row) => keyOf(row) === cameFrom)
+    cards.current?.querySelectorAll<HTMLElement>(':scope > li > button')[at]?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- (As it arrives, with the rows it has then.)
+  }, [cameFrom])
+
   const find = (
     <SearchInput
       value={filter}
@@ -151,7 +167,7 @@ export function PickList({
         </p>
         {filtered && <div className="pb-2.5">{find}</div>}
         {nothing ?? (
-          <ul className="-mx-4 border-t border-line">
+          <ul ref={cards} className="-mx-4 border-t border-line">
             {shown.map((row) => (
               <li key={keyOf(row)} className="border-b border-line">
                 <button

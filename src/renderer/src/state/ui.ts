@@ -11,9 +11,11 @@ interface UiState {
   sidebar: boolean
   /**
    * A page of its own inside the page, on a phone (what a list's picked row opens): the top bar
-   * names it and has Back in the menu's place.
+   * has Back in the menu's place. That's all it's given: the bar's title stays the page's own,
+   * which Lumovi wrote. A row's name is its plugin's text, and no plugin's text is drawn in
+   * Lumovi's bar; it has no field to come by.
    */
-  inside?: { title: string; back: () => void }
+  inside?: { back: () => void }
   setPalette: (open: boolean) => void
   setShortcuts: (open: boolean) => void
   setCreate: (open: boolean) => void

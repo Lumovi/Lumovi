@@ -1,5 +1,6 @@
 /** A page's frame from the kit on a phone: the list is the page; what's picked is a page of its own. */
 import type { Locator } from '@playwright/test'
+import { placed } from '../placed.ts'
 import { DEMO_TOKEN, expect, signIn, test } from './fixtures.ts'
 import { expectFingerSized, expectNoSidewaysScroll, PHONE, signInNarrow } from './phone.ts'
 
@@ -28,16 +29,42 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
   await expectNoSidewaysScroll(page, 'a pick list, on a phone')
   await expectFingerSized(page, 'a pick list, on a phone')
 
-  // A tap opens what's picked as a page of its own: Back where the menu was, its name in the
-  // top bar (cut in its middle), its status on a line of its own.
+  // A tap opens what's picked as a page of its own: Back where the menu was, with the keyboard
+  // on it, and the top bar's title as it was. The bar is Lumovi's: the picked one's name is
+  // nowhere in it.
+  // (Lumovi's top bar: the one header with the page's title in it.)
+  const bar = page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) })
+  const title = await bar.getByRole('heading', { level: 1 }).innerText()
   await first.getByRole('button').tap()
-  await expect(page.getByRole('button', { name: 'Back' })).toBeVisible()
+  const back = page.getByRole('button', { name: 'Back to the list', exact: true })
+  await expect(back).toBeVisible()
+  await expect(back).toBeFocused()
   await expect(page.getByRole('button', { name: 'Menu' })).toHaveCount(0)
-  await expect(page.getByRole('heading', { level: 1 }).locator('[aria-hidden]')).toHaveText(
-    /…ain-db$/,
-  )
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveText(title, { useInnerText: true })
+  await expect(bar).not.toContainText('checkout')
+  await expect(bar).not.toContainText('main-db')
+  // Its name is the page's first line, one heading below the bar's: whole, on as many lines as
+  // it takes (the list cut it in its middle), as a header's name is set on a phone.
+  const name = page.getByRole('heading', { level: 2, name: LONGEST, exact: true })
+  await expect(name).toHaveText(LONGEST)
+  await expect(name).toHaveCSS('font-size', '17px')
+  await expect(name).toHaveCSS('line-height', '24px')
+  await expect(name).toHaveCSS('font-weight', '600')
+  const lines = await name.evaluate((heading) => {
+    const text = heading.querySelector('[data-their-text]')!
+    return {
+      rows: Math.round(text.getBoundingClientRect().height / 24),
+      runsOff: text.scrollWidth > text.clientWidth,
+      within: heading.getBoundingClientRect().right <= window.innerWidth,
+    }
+  })
+  expect(lines.rows).toBeGreaterThan(1)
+  expect(lines).toMatchObject({ runsOff: false, within: true })
+  // What follows starts 12 px under it; and a header there doesn't say the name again.
   const header = page.getByRole('group', { name: LONGEST })
   await expect(header.getByRole('heading')).toHaveCount(0)
+  const [nameBox, headerBox] = [await placed(name), await placed(header)]
+  expect(Math.round(headerBox.y - (nameBox.y + nameBox.height))).toBe(12)
   await expect(header).toContainText('Unrecoverable')
   // Why, under its status pill.
   const why = header.getByRole('paragraph').filter({ hasText: 'No instance can be promoted' })
@@ -79,16 +106,21 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
   await expectNoSidewaysScroll(page, 'what’s picked, on a phone')
   await expectFingerSized(page, 'what’s picked, on a phone')
 
-  // Back returns to the list, with the menu again.
-  await page.getByRole('button', { name: 'Back' }).tap()
+  // Back returns to the list, with the menu again, and the keyboard on the row that was opened.
+  await page.getByRole('button', { name: 'Back to the list', exact: true }).tap()
   await expect(list.getByRole('listitem')).toHaveCount(38)
   await expect(page.getByRole('button', { name: 'Menu' })).toBeVisible()
+  await expect(first.getByRole('button')).toBeFocused()
+  // (Once, as the list comes back: typed in, its filter keeps the keyboard.)
+  await list.getByPlaceholder('Filter clusters').fill('db')
+  await expect(list.getByPlaceholder('Filter clusters')).toBeFocused()
+  await list.getByPlaceholder('Filter clusters').fill('')
   // One button that changes, and two: the line names them as they're written, without "…".
   await list.getByRole('listitem').filter({ hasText: 'reports-db' }).getByRole('button').tap()
   await expect(page.getByRole('group', { name: 'reports-db' }).getByRole('paragraph')).toHaveText(
     'Open Lumovi on a larger screen to use Back up now.',
   )
-  await page.getByRole('button', { name: 'Back' }).tap()
+  await page.getByRole('button', { name: 'Back to the list', exact: true }).tap()
   // What its buttons do, under Lumovi's line where they give way: none of them is here to be off.
   await list.getByRole('listitem').filter({ hasText: 'orders-db' }).getByRole('button').tap()
   const orders = page.getByRole('group', { name: 'orders-db' })
@@ -99,14 +131,14 @@ test('a split on a phone: the list, then what’s picked with Back; changes are 
     'Back up now: Writes a base backup of every database to the object store now, besides those its schedule takes, kept like the rest.',
   ])
   await expect(orders.getByRole('button', { name: /^Back up now/ })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Back' }).tap()
+  await page.getByRole('button', { name: 'Back to the list', exact: true }).tap()
   await list.getByRole('listitem').filter({ hasText: 'payments-db' }).getByRole('button').tap()
   await expect(page.getByRole('group', { name: 'payments-db' }).getByRole('paragraph')).toHaveText(
     'Open Lumovi on a larger screen to use Switch over and Back up now.',
   )
   // Six that change: the first four named, and how many more. The one that only reads stays, and
   // is never filled: only one that changes is.
-  await page.getByRole('button', { name: 'Back' }).tap()
+  await page.getByRole('button', { name: 'Back to the list', exact: true }).tap()
   await list.getByRole('listitem').filter({ hasText: 'sessions-db' }).getByRole('button').tap()
   const sessions = page.getByRole('group', { name: 'sessions-db' })
   await expect(sessions.getByRole('paragraph')).toHaveText(
