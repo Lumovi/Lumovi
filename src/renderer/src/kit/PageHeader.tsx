@@ -18,6 +18,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { ListDestination, ReachDestination } from '@shared/kit/declare'
@@ -134,6 +135,28 @@ function fitting(
 
 type Variant = 'primary' | 'secondary' | 'ghost'
 
+/**
+ * Lumovi's word for a button it holds busy: the change its press led to was sent, and the plugin
+ * hasn't drawn since. True of any change, whatever the tool then does.
+ */
+export const SENT = 'Sent'
+
+/** A button at work, as it's drawn: the plugin's word and time, or Lumovi's while it holds it. */
+function busyOf(
+  button: HeaderButton,
+  held: string | undefined,
+): { word: string; text: ReactNode; since?: number } | undefined {
+  if (button.busy) {
+    const since = button.busy.since === undefined ? NaN : Date.parse(button.busy.since)
+    return {
+      word: spelled(button.busy.word.their),
+      text: <TheirText text={button.busy.word} inline />,
+      ...(Number.isFinite(since) ? { since } : {}),
+    }
+  }
+  return keyOf(button) === held ? { word: SENT, text: SENT } : undefined
+}
+
 /** A button that's off: as a disabled one looks, its fill, border and text kept, and still. */
 const OFF: Record<Variant, string> = {
   primary: 'cursor-default opacity-50 hover:bg-accent active:translate-y-0',
@@ -148,11 +171,13 @@ const OFF: Record<Variant, string> = {
  */
 function Action({
   button,
+  held,
   variant,
   className,
   onPress,
 }: {
   button: HeaderButton
+  held: string | undefined
   variant: Variant
   className?: string
   onPress: () => void
@@ -160,16 +185,16 @@ function Action({
   const reason = useId()
   const tip = goesTip(button)
   // At work: where it was, busy, and a press of it goes nowhere.
-  if (button.busy) {
-    const since = button.busy.since === undefined ? NaN : Date.parse(button.busy.since)
+  const busy = busyOf(button, held)
+  if (busy) {
     return (
       <BusyButton
         name={spelled(button.name.their)}
-        word={spelled(button.busy.word.their)}
-        {...(Number.isFinite(since) ? { since } : {})}
+        word={busy.word}
+        {...(busy.since === undefined ? {} : { since: busy.since })}
         className={className}
       >
-        <TheirText text={button.busy.word} inline />
+        {busy.text}
       </BusyButton>
     )
   }
@@ -227,25 +252,31 @@ function Action({
  * keys' order, said off, with why on a line under its name (two lines at most, whole in its
  * tooltip): on screen, where nothing needs a pointer to find it. Choosing it does nothing.
  */
-function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void }) {
+function Folded({
+  button,
+  held,
+  onPress,
+}: {
+  button: HeaderButton
+  held: string | undefined
+  onPress: () => void
+}) {
   const reason = useId()
-  if (button.busy) {
-    const since = button.busy.since === undefined ? NaN : Date.parse(button.busy.since)
+  const busy = busyOf(button, held)
+  if (busy) {
     return (
       <DropdownMenu.Item
         className={cn(menuItem, 'text-ink-2')}
         data-busy=""
-        aria-label={`${called(button)}, busy: ${spelled(button.busy.word.their).toLowerCase()}`}
+        aria-label={`${called(button)}, busy: ${busy.word.toLowerCase()}`}
         aria-disabled="true"
         onSelect={(event) => event.preventDefault()}
       >
         <LoaderCircle aria-hidden className="animate-spin text-ink-3" />
-        <span className="flex-1">
-          <TheirText text={button.busy.word} inline />
-        </span>
-        {Number.isFinite(since) && (
+        <span className="flex-1">{busy.text}</span>
+        {busy.since !== undefined && (
           <span className="text-xs text-ink-3 tabular-nums">
-            <Elapsed since={since} />
+            <Elapsed since={busy.since} />
           </span>
         )}
       </DropdownMenu.Item>
@@ -372,10 +403,13 @@ function OnALargerScreen({ buttons }: { buttons: readonly HeaderButton[] }) {
 
 export function PageHeader({
   header,
+  held,
   onPress,
   go,
 }: {
   header: HeaderProps
+  /** The key of a button Lumovi holds busy, the change its press led to sent. */
+  held?: string
   onPress?: HeaderProps['onPress']
   /** Lumovi's own open of where a button goes: never told to the plugin. */
   go?: (to: ListDestination | ReachDestination) => void
@@ -411,11 +445,12 @@ export function PageHeader({
   const drawnAs = fitKey(
     spelled(header.name.their),
     `${header.status?.word.their ?? ''} ${header.secondStatus?.word.their ?? ''}`,
-    ordered.map((button) =>
-      button.busy
-        ? `${spelled(button.busy.word.their)}${button.busy.since ? ' 00m 00s' : ''}`
-        : `${spelled(button.name.their)}${button.asks ? '…' : ''}`,
-    ),
+    ordered.map((button) => {
+      const busy = busyOf(button, held)
+      return busy
+        ? `${busy.word}${busy.since === undefined ? '' : ' 00m 00s'}`
+        : `${spelled(button.name.their)}${button.asks ? '…' : ''}`
+    }),
   )
   useLayoutEffect(() => {
     const group = groupRef.current
@@ -467,7 +502,11 @@ export function PageHeader({
 
   if (phone) {
     const here = buttons.filter((button) => !button.changes && !elsewhereHere(button))
-    const elsewhere = buttons.filter((button) => button.changes || elsewhereHere(button))
+    // (A button that changes and is busy is neither here nor elsewhere: nothing could be started
+    // with it on a larger screen either, and the header's statuses say what's happening.)
+    const elsewhere = buttons.filter(
+      (button) => (button.changes && !busyOf(button, held)) || elsewhereHere(button),
+    )
     return (
       <div role="group" aria-label={named} className="flex flex-col items-start gap-3">
         {!namedAbove && (
@@ -485,6 +524,7 @@ export function PageHeader({
               <Action
                 key={keyOf(button)}
                 button={button}
+                held={held}
                 // (Filled only if it's the last that changes something.)
                 variant={button === filled ? 'primary' : 'secondary'}
                 className="h-11"
@@ -528,13 +568,23 @@ export function PageHeader({
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="end" sideOffset={6} className={menuContent}>
                     {folded.map((more) => (
-                      <Folded key={keyOf(more)} button={more} onPress={() => press(more)} />
+                      <Folded
+                        key={keyOf(more)}
+                        button={more}
+                        held={held}
+                        onPress={() => press(more)}
+                      />
                     ))}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
             )}
-            <Action button={button} variant={variant(i)} onPress={() => press(button)} />
+            <Action
+              button={button}
+              held={held}
+              variant={variant(i)}
+              onPress={() => press(button)}
+            />
           </Fragment>
         ))}
       </div>

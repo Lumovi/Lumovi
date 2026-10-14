@@ -536,6 +536,8 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
     setMaking(false)
     if (made.ok) {
       refreshAfterChange(queryClient, by.context, kind)
+      // (Before the dialog goes: the button pressed for it is busy in the same moment.)
+      proposal.applied?.()
       settle('applied')
     } else if (made.refused === 'conflict') {
       // Moved since it was shown: said, and asked again; never made onto what's there now.

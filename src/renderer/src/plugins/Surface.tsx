@@ -19,7 +19,8 @@ export const PageKey = createContext('')
 const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) {
   useSyncExternalStore(
     useCallback((changed: () => void) => page.subscribeTo(id, changed), [page, id]),
-    () => page.tree.changedAt(id),
+    // (What Lumovi holds of it beside: a button held busy, which the plugin didn't draw.)
+    () => `${page.tree.changedAt(id)}:${page.heldAt(id)}`,
   )
   const node = page.tree.node(id)
   if (!node) return null
@@ -30,7 +31,7 @@ const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) 
   const { draw: Part } = page.parts[node.part]!
   return (
     <Part
-      props={page.handed(node.part, node.props)}
+      props={page.handed(node.part, node.props, id)}
       go={page.go}
       {...(page.by ? { by: page.by } : {})}
       {...(page.code ? { code: page.code } : {})}

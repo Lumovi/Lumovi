@@ -14,14 +14,17 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${two(minutes % 60)}m`
 }
 
-/** The same, as it's spoken: "1 minute 5 seconds". */
+/**
+ * The same, as it's spoken, in whole minutes: "1 minute", "less than a minute". (A name that
+ * changed every second would be said every second to whoever has it in focus: the seconds are on
+ * screen and in the tooltip.)
+ */
 export function spokenElapsed(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.max(0, Math.floor(ms / 60_000))
   const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-  const [h, m, s] = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+  const [h, m] = [Math.floor(minutes / 60), minutes % 60]
   if (h > 0) return [unit(h, 'hour'), m > 0 && unit(m, 'minute')].filter(Boolean).join(' ')
-  if (m > 0) return [unit(m, 'minute'), s > 0 && unit(s, 'second')].filter(Boolean).join(' ')
-  return unit(s, 'second')
+  return m > 0 ? unit(m, 'minute') : 'less than a minute'
 }
 
 /** The time now, again each second while `on`: for what counts how long something has run. */

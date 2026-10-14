@@ -2,6 +2,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import type { ChangeRequest, KubeObject, Result } from '@shared/api'
 import { changeProblem } from '@shared/plugins'
 import { api } from '@renderer/lib/api'
+import { objectChanged } from '@renderer/plugins/reads'
 import { useActivity } from '@renderer/state/activity'
 import { useCluster } from '@renderer/state/cluster'
 import { toast } from '@renderer/state/toasts'
@@ -124,6 +125,14 @@ export function useChange() {
     }
     finish(id, 'done')
     refreshAfterChange(queryClient, context, request.kind)
+    // (A plugin's page that reads it reads it again now, so what it draws catches up at once.)
+    if (request.name) {
+      objectChanged(context, {
+        kind: request.kind,
+        name: request.name,
+        ...(request.namespace === undefined ? {} : { namespace: request.namespace }),
+      })
+    }
     if (!meta.silent) {
       const { undo } = meta
       toast({

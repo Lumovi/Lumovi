@@ -182,6 +182,11 @@ export interface PageProposal {
   target?: ObjectRef
   /** A create's: the object whose namespace it's made in, where the page named one. */
   within?: ObjectRef
+  /**
+   * Told the moment the change is made, before Lumovi's dialog closes: the page holds the button
+   * pressed for it busy from then. (The page's own, on its side: never sent anywhere.)
+   */
+  applied?: () => void
 }
 
 /** What became of a proposal, as the page is told: never the values typed, nor the object. */
@@ -664,8 +669,12 @@ export interface PluginChangeRequest {
   /** The patch or the object, with the person's values in; a scale's count. */
   body?: unknown
   replicas?: number
-  /** For `make`: the object as the last try saw it, so a change is never made to one that moved. */
-  seen?: { resourceVersion?: string; uid?: string }
+  /**
+   * For `make`: the object as the last try saw it, and what the change did to it there
+   * (`effect`, the backend's own word for it): a change is made to that object, or to the object
+   * as it is now only where it does the very same there.
+   */
+  seen?: { resourceVersion?: string; uid?: string; effect?: string }
   /** For `make` and `cancelled`: the fields the person changed from where they started. */
   fields?: string[]
 }
@@ -717,8 +726,8 @@ export type PluginChangeAnswer =
       takesOver?: { field: string; manager: string }[]
       /** A deletion's: what the cluster waits for before it's gone. */
       finalizers?: string[]
-      /** What `make` and the next try must name: the object as this try saw it. */
-      seen?: { resourceVersion?: string; uid?: string }
+      /** What `make` and the next try must name: the object as this try saw it, and the change's effect. */
+      seen?: { resourceVersion?: string; uid?: string; effect?: string }
     }
   | {
       ok: false

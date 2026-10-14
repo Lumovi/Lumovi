@@ -9,6 +9,7 @@
  * What a plugin may propose is its file's to say (`spec.changes`), of its own kinds only; and on
  * a server only a browser Lumovi hands a plugin's code to proposes anything (`mayHandOver`).
  */
+import { createHash } from 'node:crypto'
 import { stringify } from 'yaml'
 import type { Change, ChangeRequest, KubeError, KubeObject, Result } from '@shared/api'
 import { kubectl, objectArg } from '@shared/kubectl'
@@ -247,23 +248,49 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
       if (!got.ok) return refusalOf(got.error)
       before = got.data
     }
-    const seen =
-      r.step === 'make'
-        ? r.seen
-        : {
-            ...(before?.metadata.resourceVersion && {
-              resourceVersion: before.metadata.resourceVersion,
-            }),
-            ...(before?.metadata.uid && { uid: before.metadata.uid }),
-          }
-    const request = changeOf(r, resource, where, name, seen)
+    const now: { resourceVersion?: string; uid?: string; effect?: string } = {
+      ...(before?.metadata.resourceVersion && {
+        resourceVersion: before.metadata.resourceVersion,
+      }),
+      ...(before?.metadata.uid && { uid: before.metadata.uid }),
+    }
+    const seen = r.step === 'make' ? r.seen : now
+    let request = changeOf(r, resource, where, name, seen)
     if (typeof request === 'string') return { ok: false, refused: 'failed', said: request }
+
+    // Moved since the try the person saw (its tool rewrote its status, say): judged again, on the
+    // object as it is now. Sent with its version only where it does the very same there as they
+    // were shown; anything else (a value it was built from changed, or another object by the
+    // name) is refused, never sent onto what's there now, and the dialog asks again.
+    if (
+      r.step === 'make' &&
+      before &&
+      (r.action === 'patch' || r.action === 'scale') &&
+      r.seen?.effect !== undefined &&
+      r.seen.resourceVersion !== undefined &&
+      now.resourceVersion !== r.seen.resourceVersion
+    ) {
+      const again = changeOf(r, resource, where, name, now)
+      if (typeof again === 'string') return { ok: false, refused: 'failed', said: again }
+      const tried =
+        now.uid === r.seen.uid ? await kube.change({ ...again, dryRun: true }) : undefined
+      if (tried && !tried.ok) return refusalOf(tried.error)
+      if (!tried || effectOf(before, tried.data, writesStatus(r.body)) !== r.seen.effect) {
+        recorded('refused', 'it changed since it was shown')
+        return { ok: false, refused: 'conflict' }
+      }
+      request = again
+    }
 
     if (r.step === 'try') {
       // (What the cluster waits for before an object it deletes is gone.)
       const finalizers = (before?.metadata as { finalizers?: string[] } | undefined)?.finalizers
       const tried = await kube.change({ ...request, dryRun: true })
       if (!tried.ok) return refusalOf(tried.error)
+      // (What it does, for `make` to judge it by again: a patch's and a scale's.)
+      if (before && (r.action === 'patch' || r.action === 'scale')) {
+        now.effect = effectOf(before, tried.data, writesStatus(r.body))
+      }
       return {
         ok: true,
         before,
@@ -328,6 +355,63 @@ export function pluginChanges({ kube, known, to, audit }: PluginChanging) {
     const taken = takenFrom(tried.error.message)
     return taken.length > 0 ? { takesOver: taken } : {}
   }
+}
+
+/**
+ * Whether what's sent writes an object's status: what a change does to it is judged with it then.
+ * A merge patch's `status`, or a JSON patch's op at `/status` or under it (by its path, or the
+ * `from` a move or a copy takes it from), as the file's check counts a view action's.
+ */
+export const writesStatus = (body: unknown) =>
+  Array.isArray(body)
+    ? body.some((op) =>
+        [(op as { path?: unknown })?.path, (op as { from?: unknown })?.from].some(
+          (path) => typeof path === 'string' && /^\/status(\/|$)/.test(path),
+        ),
+      )
+    : typeof body === 'object' && body !== null && Object.hasOwn(body, 'status')
+
+/** What the cluster rewrites of an object as it pleases: never part of what a change does. */
+const BOOKKEEPING = new Set([
+  'resourceVersion',
+  'managedFields',
+  'generation',
+  'uid',
+  'creationTimestamp',
+])
+
+/**
+ * What a change does to an object, as one word: each field it sets, from what to what, its
+ * metadata's bookkeeping left out, and its status too unless the change writes status itself
+ * (`writesStatus`: the cluster and its controllers rewrite those as they please). Two changes
+ * that do the same to an object have the same word. (Today a page's change never writes status,
+ * as the door's `writtenProblem` refuses it; should that change, the status it writes is judged
+ * here like any field, never passed over.)
+ */
+export function effectOf(before: unknown, after: unknown, writesStatus = false): string {
+  const done: [string, unknown, unknown][] = []
+  const walk = (path: string[], was: unknown, is: unknown) => {
+    if (!writesStatus && path.length === 1 && path[0] === 'status') return
+    if (path.length === 2 && path[0] === 'metadata' && BOOKKEEPING.has(path[1]!)) return
+    const objects = [was, is].every(
+      (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
+    )
+    if (objects) {
+      const keys = new Set([...Object.keys(was as object), ...Object.keys(is as object)])
+      for (const key of [...keys].sort()) {
+        walk(
+          [...path, key],
+          (was as Record<string, unknown>)[key],
+          (is as Record<string, unknown>)[key],
+        )
+      }
+      return
+    }
+    if (JSON.stringify(was) !== JSON.stringify(is))
+      done.push([path.join('.'), was ?? null, is ?? null])
+  }
+  walk([], before, after)
+  return createHash('sha256').update(JSON.stringify(done)).digest('hex')
 }
 
 /**
