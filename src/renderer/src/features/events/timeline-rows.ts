@@ -145,10 +145,33 @@ export const within = (one: Happened, start: number, end: number) =>
  * those that overlap in the last lane are one pile over their joined span, with how many.
  */
 export type Mark =
-  | { is: 'bar'; from: number; to: number; one: Happened; lane: number; lanes: number }
+  | {
+      is: 'bar'
+      from: number
+      to: number
+      one: Happened
+      lane: number
+      lanes: number
+      count: CountAt
+    }
   | { is: 'point'; at: number; one: Happened }
   | { is: 'together'; at: number; ones: Happened[] }
-  | { is: 'pile'; from: number; to: number; ones: Happened[]; lane: number; lanes: number }
+  | {
+      is: 'pile'
+      from: number
+      to: number
+      ones: Happened[]
+      lane: number
+      lanes: number
+      count: CountAt
+    }
+
+/**
+ * Where a bar's count (or a pile's how many) is drawn: inside it by its start, just after it,
+ * before its first mark, or, where none of those has room, not at all: its card and its name
+ * still say it.
+ */
+export type CountAt = 'inside' | 'after' | 'before' | 'none'
 
 /** Marks closer than this, in pixels, are drawn as one, with how many. */
 export const TOGETHER = 8
@@ -156,6 +179,17 @@ export const TOGETHER = 8
 const LANES = 3
 /** The room after a bar its count takes, before the next bar in its lane may start. */
 const COUNT_ROOM = 44
+/** A count inside its bar is this far from its start; after it, this far from its end. */
+export const COUNT_INSIDE = 10
+export const COUNT_GAP = 6
+/** A count before its bar ends this far before its first mark. */
+export const COUNT_BEFORE = 4
+/** A count's box: its width, a character at a time (the small figures), and 4 px more. */
+const COUNT_CHAR = 7
+const COUNT_CLEAR = 4
+/** A mark's half width, and close marks' pill's. */
+export const HALF_MARK = 5
+const HALF_TOGETHER = 9
 
 /**
  * A row's marks in a window of `width` pixels: a repeated event (more than once, over a while) a
@@ -197,15 +231,17 @@ export function marksOf(
     else left.push(one)
   }
   const used = lanes.filter((bars) => bars.length > 0).length
-  const bar = (one: Happened, lane: number, of: number): Mark => ({
+  type Stacked = Extract<Mark, { is: 'bar' | 'pile' }>
+  const bar = (one: Happened, lane: number, of: number): Stacked => ({
     is: 'bar',
     from: one.first,
     to: one.last,
     one,
     lane,
     lanes: of,
+    count: 'inside',
   })
-  const bars: Mark[] = []
+  const bars: Stacked[] = []
   if (left.length === 0) {
     lanes.forEach((ones, lane) => bars.push(...ones.map((one) => bar(one, lane, used))))
   } else {
@@ -227,6 +263,7 @@ export function marksOf(
           ones: pile,
           lane: LANES - 1,
           lanes: LANES,
+          count: 'inside',
         })
       }
       pile = []
@@ -256,7 +293,65 @@ export function marksOf(
     group.push(point)
   }
   close()
+  placeCounts(bars, marks, x, width)
   return [...bars, ...marks]
+}
+
+/**
+ * Where each bar's count goes, the first of these with room: inside it by its start, just after
+ * it, before its first mark, or nowhere. A place has room where the count's box is inside the plot
+ * (never over the names, never past now) and over no mark or bar but its own: marks are in the
+ * row's middle, so they're kept clear in every lane; bars and counts, in their own.
+ */
+function placeCounts(
+  bars: Extract<Mark, { is: 'bar' | 'pile' }>[],
+  marks: readonly Mark[],
+  x: (time: number) => number,
+  width: number,
+): void {
+  type Box = { from: number; to: number; lane?: number; of?: Mark }
+  const taken: Box[] = marks.map((mark) => {
+    const at = x((mark as { at: number }).at)
+    const half = mark.is === 'together' ? HALF_TOGETHER : HALF_MARK
+    // (A repeated event too close to be a bar has its count after its mark.)
+    const after =
+      mark.is === 'point' && mark.one.count > 1
+        ? 4 + `×${mark.one.count}`.length * COUNT_CHAR + COUNT_CLEAR
+        : 0
+    return { from: at - half, to: at + half + after }
+  })
+  const span = (mark: Mark & { from: number; to: number }) => ({
+    from: Math.max(0, x(mark.from)),
+    to: Math.min(width, x(mark.to)),
+  })
+  for (const mark of bars) {
+    const { from, to } = span(mark)
+    taken.push({ from: from - HALF_MARK, to, lane: mark.lane, of: mark })
+  }
+  for (const mark of [...bars].sort((a, b) => a.from - b.from)) {
+    const { from, to } = span(mark)
+    const text = mark.is === 'bar' ? `×${mark.one.count}` : `+${mark.ones.length}`
+    const room = text.length * COUNT_CHAR + COUNT_CLEAR
+    const before = from - HALF_MARK - COUNT_BEFORE
+    const places: [CountAt, Box][] = [
+      ['inside', { from: from + COUNT_INSIDE, to: from + COUNT_INSIDE + room }],
+      ['after', { from: to + COUNT_GAP, to: to + COUNT_GAP + room }],
+      ['before', { from: before - room, to: before }],
+    ]
+    const fits = ([at, box]: [CountAt, Box]) =>
+      box.from >= 0 &&
+      box.to <= (at === 'inside' ? to : width) &&
+      taken.every(
+        (t) =>
+          t.of === mark ||
+          (t.lane !== undefined && t.lane !== mark.lane) ||
+          t.to <= box.from ||
+          box.to <= t.from,
+      )
+    const place = places.find(fits)
+    mark.count = place?.[0] ?? 'none'
+    if (place) taken.push({ ...place[1], lane: mark.lane, of: mark })
+  }
 }
 
 /** A row's events in the order the arrow keys step through them: by when each began. */
