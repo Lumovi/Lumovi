@@ -43,6 +43,7 @@ import type { Recorder } from '../audit/recorder'
 import type { KubeService } from '../kube/service'
 import { addsSecretReads, NamespaceLabels } from './access'
 import { APPROVAL_TIMEOUT_MS, approvalTime, WAIT_SLICE_MS, type Approvals } from './approvals'
+import { fitted, LEVELS, linesOf } from './log-lines'
 import { errorLines, findProblems, MAX_PROBLEMS, type Failing, type Problems } from './problems'
 import { age, changesOf, describeStatus, involved, readable, row, statusOf, yaml } from './present'
 
@@ -112,6 +113,8 @@ export const FIELD_MANAGER = 'lumovi'
 const MAX_ITEMS = 500
 const MAX_LOG_LINES = 2_000
 const MAX_LOG_BYTES = 256 * 1024
+/** The most of a log an answer holds, in characters: past it, its first and last lines. */
+const ANSWER_CHARS = 48_000
 /** Failing containers whose last run find_problems reads the last error lines of. */
 const MAX_LAST_RUNS = 10
 const WAIT = approvalTime()
@@ -690,7 +693,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     {
       title: 'Get logs',
       description:
-        'A pod’s container’s latest log lines, as kubectl logs shows them; its run before the last restart with previous (what a crash-looping container said before it died). Only where the person’s AI permissions let assistants read logs.',
+        'A pod’s container’s latest log lines, as kubectl logs shows them; its run before the last restart with previous (what a crash-looping container said before it died). Only the lines with a text in them (match), or of a level and above (level, where the log says levels). Never more than an answer holds: where the lines would be more, their first and last, with how many were left out between and the from that asks for them. Only where the person’s AI permissions let assistants read logs.',
       inputSchema: {
         cluster,
         namespace: z.string().min(1),
@@ -705,10 +708,41 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
           .describe(`The last so many lines: 200 unless given, ${MAX_LOG_LINES} at most.`),
         previous: z.boolean().optional(),
         sinceSeconds: z.number().int().min(1).optional().describe('Only lines this recent.'),
+        match: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe('Only the lines with this text in them, in any case.'),
+        level: z
+          .enum(LEVELS)
+          .optional()
+          .describe(
+            'Only lines of this level and above, as the log says it (a JSON or logfmt level or severity, or a word at a line’s start); a line that says none goes with the one before it, as a stack’s lines do.',
+          ),
+        from: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            'Its lines from this one on: an answer that left lines out says which to ask for.',
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ cluster, namespace, pod, container, tailLines = 200, previous, sinceSeconds }) => {
+    async ({
+      cluster,
+      namespace,
+      pod,
+      container,
+      tailLines = 200,
+      previous,
+      sinceSeconds,
+      match,
+      level,
+      from,
+    }) => {
       knownCluster(cluster)
       const decision = await inNamespace(cluster, namespace, `pods "${pod}" not found`)
       if (decision.logs.value === 'off') {
@@ -729,7 +763,15 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
         }),
       )
       logsRead(cluster, namespace, pod, container, tailLines, previous === true)
-      return text(logs || '(No log lines.)')
+      if (!logs) return text('(No log lines.)')
+      const lines = linesOf(logs, { match, level })
+      if (lines.length === 0) {
+        const read = linesOf(logs).length
+        return text(
+          `(None of its last ${read} lines ${[match ? `has “${match}” in it` : '', level ? `is ${level} or above` : ''].filter(Boolean).join(' and ')}.)`,
+        )
+      }
+      return text(fitted(lines, ANSWER_CHARS, from))
     },
   )
 
