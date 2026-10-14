@@ -247,22 +247,39 @@ export function Split({
     if (key !== picked) onPick?.({ row: pressed?.key ?? NOTHING_WRITTEN })
   }
 
-  // On a phone, what's picked is a page of its own: named in the top bar, with Back to the list.
+  // On a phone, what's picked is a page of its own, with Back to the list in the top bar. The
+  // bar is Lumovi's, and is handed only Back: the picked one's name is its plugin's text, and
+  // is drawn here, in the plugin's page, as that page's first line.
   const inside = phone && opened && row !== undefined
-  const name = row?.lead.name.their
+  // (Back from it, the list has the keyboard on the row that was opened.)
+  const [cameFrom, setCameFrom] = useState<string>()
   useEffect(() => {
-    if (!inside || name === undefined) return
-    setInside({ title: spelled(name), back: () => setOpened(false) })
+    if (!inside) return
+    setInside({
+      back: () => {
+        setCameFrom(picked)
+        setOpened(false)
+      },
+    })
     return () => setInside(undefined)
-  }, [inside, name, setInside])
+  }, [inside, picked, setInside])
 
   if (phone) {
     return inside ? (
       <NamedAbove value>
-        <Stack>{children}</Stack>
+        <div className="min-w-0">
+          {/* Whole, wrapping where it must, on as many lines as it takes: the list cut it in its
+              middle, and this is where a finger reads it. Set as a header's name is on a phone;
+              what follows starts as far under it as a header's status does. (A line's end in
+              it is a space: a name can't push the page down.) */}
+          <h2 className="mb-3 min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
+            <TheirText text={row.lead.name} />
+          </h2>
+          <Stack>{children}</Stack>
+        </div>
       </NamedAbove>
     ) : (
-      <PickList list={list} onPick={pick} />
+      <PickList list={list} onPick={pick} {...(cameFrom === undefined ? {} : { cameFrom })} />
     )
   }
   // Narrow, one page or the other: the list, or Back above what's picked. (Each in its own place

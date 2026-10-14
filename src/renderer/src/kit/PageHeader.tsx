@@ -33,7 +33,10 @@ import { fitKey, fromFitKey } from './fit-key'
 import { MiddleCut } from './MiddleCut'
 import { keyOf, Pill } from './Table'
 
-/** Whether the page's top bar already names what's picked (a split's second page, on a phone). */
+/**
+ * Whether what's picked is named already, as the first line of its page (a split's second page,
+ * on a phone): a header there doesn't say the name again.
+ */
 export const NamedAbove = createContext(false)
 
 /** A button's name as a screen reader says it: spelled, and "…" where it asks first. */

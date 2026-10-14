@@ -14,7 +14,7 @@ import {
   ShipWheel,
   type LucideIcon,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiKindOf, resourceByPlural } from '@shared/resources'
 import { IconButton } from '@renderer/components/Button'
@@ -86,6 +86,8 @@ export function Header() {
   const setCreate = useUi((ui) => ui.setCreate)
   const setSidebar = useUi((ui) => ui.setSidebar)
   const inside = useUi((ui) => ui.inside)
+  // (Back, as it comes into the bar: the page it leads back from has just been opened.)
+  const toBack = useCallback((back: HTMLButtonElement | null) => back?.focus(), [])
   const layout = useLayout()
   const short = useShort()
   const [refreshing, setRefreshing] = useState(false)
@@ -136,9 +138,16 @@ export function Header() {
     return (
       <>
         <header className="flex h-[52px] shrink-0 items-center border-b border-line bg-surface px-1">
-          {/* A page inside the page has Back where the menu is, and its own name. */}
+          {/* A page inside the page has Back where the menu is; the bar's title stays the
+              page's own. (On arriving there, the keyboard is on Back.) */}
           {inside ? (
-            <button type="button" aria-label="Back" onClick={inside.back} className={barButton}>
+            <button
+              ref={toBack}
+              type="button"
+              aria-label="Back to the list"
+              onClick={inside.back}
+              className={barButton}
+            >
               <ArrowLeft />
             </button>
           ) : (
@@ -153,7 +162,7 @@ export function Header() {
             </button>
           )}
           <h1 className="min-w-0 flex-1 px-1 text-[15px] leading-5 font-semibold tracking-[-0.01em] [view-transition-name:page-title]">
-            <MiddleTruncate text={inside?.title ?? title} />
+            <MiddleTruncate text={title} />
           </h1>
           <button
             type="button"
