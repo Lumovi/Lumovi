@@ -1583,6 +1583,19 @@ export interface LumoviApi {
     /** A stream ended: its container stopped, the connection closed, or it failed. */
     onEnd(listener: (id: string, error?: KubeError) => void): () => void
   }
+  /**
+   * Lists watched, so a change shows at once: each told when it changed (never how), for the
+   * page to read it again.
+   */
+  watches: {
+    /** Watches what a list reads (as `kube.list` takes it); the page picks its id. */
+    start(id: string, query: ListQuery): Promise<Result<null>>
+    stop(id: string): void
+    /** What it watches changed: read it again. */
+    onChanged(listener: (id: string) => void): () => void
+    /** It can't go on (refused, or its kind gone): the list is polled, as it was. */
+    onEnded(listener: (id: string, error?: KubeError) => void): () => void
+  }
   /** Files copied out of a container and into one, as `kubectl cp` does it. */
   files: {
     /**
@@ -1874,6 +1887,10 @@ export const IPC = {
   logsStop: 'logs:stop',
   logsLines: 'logs:lines',
   logsEnd: 'logs:end',
+  watchStart: 'watch:start',
+  watchStop: 'watch:stop',
+  watchChanged: 'watch:changed',
+  watchEnded: 'watch:ended',
   filesPick: 'files:pick',
   filesDownload: 'files:download',
   filesUpload: 'files:upload',

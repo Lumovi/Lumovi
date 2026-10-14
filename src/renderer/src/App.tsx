@@ -33,6 +33,7 @@ import { FleetPage } from './features/fleet/FleetPage'
 import { WelcomePage } from './features/welcome/WelcomePage'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
 import { api } from './lib/api'
+import { watchQueries } from './lib/watches'
 import { clusterPath } from './lib/routes'
 import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
@@ -51,6 +52,8 @@ const queryClient = new QueryClient({
     },
   },
 })
+// What the page shows, read again as it changes in the cluster.
+watchQueries(queryClient, api.watches)
 
 /** The start: the desktop app's clusters to choose from, or the one a server shows. */
 function Home() {

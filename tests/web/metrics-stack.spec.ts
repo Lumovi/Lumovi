@@ -49,9 +49,14 @@ test('only Lumovi’s admins install it and remove it, as themselves', async ({
   // Nothing is asked of the cluster for them that only matters to who may install: neither what
   // it would let them do, nor how many nodes and pods it has (more than their access may show).
   expect(await status(page)).not.toHaveProperty('large')
+  // (Where a list the page shows is watched from: one object's metadata, not a count.)
+  const watchedFrom = (request: { headers: { accept?: string } }) =>
+    (request.headers.accept ?? '').includes('PartialObjectMetadataList')
   expect(
     clusters.demo.requests.filter(
-      (request) => request.search === 'limit=1' || /selfsubjectaccessreviews/.test(request.path),
+      (request) =>
+        (request.search === 'limit=1' && !watchedFrom(request)) ||
+        /selfsubjectaccessreviews/.test(request.path),
     ),
   ).toEqual([])
   for (const refused of [await install(page, true), await install(page), await uninstall(page)]) {

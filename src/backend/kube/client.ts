@@ -116,17 +116,20 @@ export interface KubeStream {
 }
 
 /**
- * GETs a path whose response keeps coming (followed pod logs): resolves once
- * the API server accepts the request, with its body as it arrives. Only the
- * wait for that answer can time out; a stream may then be quiet for hours.
+ * GETs a path whose response keeps coming (followed pod logs, a watched list): resolves once
+ * the API server accepts the request, with its body as it arrives. Only the wait for that answer
+ * can time out; a stream may then be quiet for hours.
  */
 export async function kubeStream(
   kc: KubeConfig,
   path: string,
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; accept?: string },
 ): Promise<KubeStream> {
   const url = serverUrl(kc, path)
-  const request: https.RequestOptions = { method: 'GET', headers: { Accept: '*/*' } }
+  const request: https.RequestOptions = {
+    method: 'GET',
+    headers: { Accept: options.accept ?? '*/*' },
+  }
   await authorize(kc, request)
   const transport = url.protocol === 'http:' ? http : https
   return new Promise((resolve, reject) => {

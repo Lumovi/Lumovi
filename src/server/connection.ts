@@ -29,6 +29,7 @@ import { MetricsStackService } from '@backend/helm/metrics-stack'
 import { plugins } from '@backend/plugins-known'
 import { HelmService } from '@backend/helm/service'
 import { LogStreams } from '@backend/kube/logs'
+import { ListWatches, MOST_WATCHED, WatchAllowance } from '@backend/kube/watches'
 import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import type { ClusterConfigs } from '@backend/kube/kubeconfig'
@@ -440,6 +441,15 @@ export class PageConnection {
         end: (id, error) => this.emit(IPC.logsEnd, id, error),
       },
     )
+    // The lists the page shows, watched as its person: it's told when one changed.
+    const watches = new ListWatches(
+      kube,
+      {
+        changed: (id) => this.emit(IPC.watchChanged, id),
+        ended: (id, error) => this.emit(IPC.watchEnded, id, error),
+      },
+      allowanceOf(identity.user.name, env),
+    )
     // Lumovi's metrics stack makes cluster roles, and is everyone's once it's there: its admins'
     // to install and remove, and nobody's where it names none (as connecting clusters is).
     const metricsStack = new MetricsStackService(kube, helm, {
@@ -494,6 +504,7 @@ export class PageConnection {
       settings: preferences,
       terminals,
       logs,
+      watches,
       files,
       pluginsDirectory: { path: config.pluginsDir, shown: config.pluginsDir },
       knownPlugins,
@@ -683,6 +694,7 @@ export class PageConnection {
         accessing.stop()
         assistants.detach()
         logs.stopAll()
+        watches.stopAll()
         void files.cancelAll()
         void terminals.closeAll().then(resolve)
       })
@@ -736,4 +748,17 @@ export class PageConnection {
     // A page that went away isn't told any more.
     if (this.socket.readyState === this.socket.OPEN) this.socket.send(JSON.stringify(message))
   }
+}
+
+/** Each person's watches, on every page of theirs together (`LUMOVI_WATCHES_PER_PERSON`). */
+const allowances = new Map<string, WatchAllowance>()
+
+function allowanceOf(person: string, env: NodeJS.ProcessEnv): WatchAllowance {
+  let allowance = allowances.get(person)
+  if (!allowance) {
+    const most = Number(env.LUMOVI_WATCHES_PER_PERSON)
+    allowance = new WatchAllowance(Number.isInteger(most) && most > 0 ? most : MOST_WATCHED)
+    allowances.set(person, allowance)
+  }
+  return allowance
 }

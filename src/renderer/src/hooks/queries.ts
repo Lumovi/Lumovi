@@ -4,6 +4,7 @@ import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { api, unwrap } from '@renderer/lib/api'
 import { AT_ONCE, settledAtMost, whyUnread, type PickedList } from '@renderer/lib/namespaces'
 import { useCluster } from '@renderer/state/cluster'
+import { watched, WATCHED_POLL_MS } from '@renderer/lib/watches'
 
 /** How often lists and metrics refresh while the window is visible. */
 export const POLL_INTERVAL = 5_000
@@ -30,7 +31,10 @@ interface ListOptions {
   enabled?: boolean
 }
 
-/** Big lists are heavier to fetch, so they refresh less often. */
+/**
+ * Big lists are heavier to fetch, so they refresh less often. (A list watched is read again as
+ * it changes, and on this timer only now and then: `lib/watches`.)
+ */
 export function listPollInterval(items: number): number {
   if (items > 2_000) return 30_000
   return items > 500 ? 10_000 : POLL_INTERVAL
@@ -97,8 +101,11 @@ function listQuery<T>(
       return { ...joinLists(read), ...(unread.length ? { unread } : {}) }
     },
     select,
-    refetchInterval: (query: { state: { data?: KubeList } }) =>
-      listPollInterval(query.state.data?.items.length ?? 0),
+    // (One whose last read failed is read again as often as it was: it's back as soon as it can.)
+    refetchInterval: (query: { queryHash: string; state: { data?: KubeList; status: string } }) =>
+      watched(query.queryHash) && query.state.status !== 'error'
+        ? WATCHED_POLL_MS
+        : listPollInterval(query.state.data?.items.length ?? 0),
     placeholderData: keepPreviousData,
     enabled,
   }
@@ -187,7 +194,8 @@ export function useObject(kind: ResourceKind, name: string, namespace?: string) 
   return useQuery<KubeObject>({
     queryKey: ['object', context, kind, namespace, name],
     queryFn: () => unwrap(api.kube.get({ context, kind, name, namespace })),
-    refetchInterval: POLL_INTERVAL,
+    refetchInterval: (query) =>
+      watched(query.queryHash) && query.state.status !== 'error' ? WATCHED_POLL_MS : POLL_INTERVAL,
   })
 }
 

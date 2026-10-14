@@ -160,6 +160,11 @@ export interface ClusterConfigs {
   load(): ContextsResult
   /** A KubeConfig whose current context is `name`, with the credentials to use. */
   forContext(name: string): KubeConfig
+  /**
+   * Whether `name`'s lists may be watched, where that's not all of them: a fleet's cluster
+   * reached through its agent isn't (what its tunnel carries has nothing to slow it).
+   */
+  watches?(name: string): boolean
 }
 
 /** Where a context, its cluster or its user is taken from: the file, and its text as read. */

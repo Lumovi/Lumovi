@@ -135,6 +135,10 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'logs.stop': 'reads',
   'logs.onLines': 'listens',
   'logs.onEnd': 'listens',
+  'watches.start': 'reads',
+  'watches.stop': 'reads',
+  'watches.onChanged': 'listens',
+  'watches.onEnded': 'listens',
 }
 
 /** Every function the page has to call, by its path. */

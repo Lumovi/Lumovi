@@ -26,6 +26,7 @@ import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
 import { KubeconfigWatcher } from '@backend/kube/watch'
 import { LogStreams } from '@backend/kube/logs'
+import { ListWatches } from '@backend/kube/watches'
 import { KubeService } from '@backend/kube/service'
 import { Forwards, Terminals } from '@backend/kube/streams'
 import { UsageHistory } from '@backend/kube/usage'
@@ -416,6 +417,11 @@ if (stdio) {
         end: (id, error) => toOwner(IPC.logsEnd, id, error),
       },
     )
+    // The lists a window's page shows, watched: it's told when one changed, and reads it again.
+    const watches = new ListWatches(kube, {
+      changed: (id) => toOwner(IPC.watchChanged, id),
+      ended: (id, error) => toOwner(IPC.watchEnded, id, error),
+    })
     const updates = new Updates(
       (event) => send(IPC.updateChanged, event),
       settings.get().autoUpdate!,
@@ -583,6 +589,7 @@ if (stdio) {
         local.close(id)
         forwards.stop(id)
         logs.stop(id)
+        watches.stop(id)
         files.cancel(id)
       }
     }
@@ -660,6 +667,7 @@ if (stdio) {
       terminalKeys,
       forwards,
       logs,
+      watches,
       files,
       localFiles,
       updates,
@@ -715,6 +723,7 @@ if (stdio) {
       local.closeAll()
       forwards.stopAll()
       logs.stopAll()
+      watches.stopAll()
       void files.cancelAll()
       pluginsWatch.set(false)
       void assistants.stop()

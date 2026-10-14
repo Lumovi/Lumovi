@@ -34,7 +34,14 @@ import {
 } from '@shared/resources'
 import type { AccessGuard, Levels } from '@shared/access'
 import { SERVER_LIMITS } from '@shared/plugin-server'
-import { kubeProxyGet, kubeRequest, type ProxyAnswer, type RequestOptions } from './client'
+import {
+  kubeProxyGet,
+  kubeRequest,
+  kubeStream,
+  type KubeStream,
+  type ProxyAnswer,
+  type RequestOptions,
+} from './client'
 import { discover } from './discovery'
 import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -84,6 +91,13 @@ const CONCURRENT_CHECKS = 4
 const CONCURRENT_DISCOVERY = 8
 /** A kind that isn't known looks again at most this often: it may have just been installed. */
 const REDISCOVER_AFTER_MS = 5_000
+/** What a watch, and the read of where it starts, ask for: the objects' metadata alone. */
+const METADATA_ACCEPT = {
+  list: 'application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1,application/json',
+  watch: 'application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1,application/json',
+}
+/** How long the API server holds a watch before ending it, when it's begun again. */
+const WATCH_SECONDS = 300
 /** Lists of kinds without built-in columns come as Tables, with the server's columns. */
 const TABLE_ACCEPT = [
   'application/json;as=Table;v=v1;g=meta.k8s.io',
@@ -318,6 +332,59 @@ export class KubeService {
         ),
       }
     })
+  }
+
+  /**
+   * A list's changes as they happen: a watch of its kind where `list` reads it, with its
+   * selectors, of the objects' metadata alone, from `from` (a resourceVersion) or else from now.
+   * What it tells is only that the list changed: the page reads it again, as `list` reads it.
+   * Not of Secrets where Lumovi decides who sees them, nor of a cluster that isn't watched.
+   */
+  async watch(query: unknown, from?: string): Promise<KubeStream & { from: string }> {
+    const q = assertQuery<ListQuery>(query)
+    assertString(q.context, 'context')
+    assertKind(q.kind)
+    optionalString(q.namespace, 'namespace')
+    optionalString(q.labelSelector, 'labelSelector')
+    optionalString(q.fieldSelector, 'fieldSelector')
+    if (this.store.watches?.(q.context) === false) {
+      throw new KubeRequestError('forbidden', 'Lumovi doesn’t watch this cluster’s lists')
+    }
+    const resource = await this.#resource(q.context, q.kind)
+    if (this.guard && resource.kind === 'Secret') {
+      throw new KubeRequestError('forbidden', 'Lumovi doesn’t watch Secrets on a server')
+    }
+    const path = resourcePath(resource, q.namespace)
+    const selectors = new URLSearchParams()
+    for (const key of ['labelSelector', 'fieldSelector'] as const) {
+      if (q[key]) selectors.set(key, q[key])
+    }
+    let version = from
+    if (!version) {
+      // Where it is now: an object of it, with the list's version.
+      const now = new URLSearchParams(selectors)
+      now.set('limit', '1')
+      const { metadata } = await this.#getJson<{ metadata?: { resourceVersion?: string } }>(
+        q.context,
+        `${path}?${now}`,
+        METADATA_ACCEPT.list,
+      )
+      version = metadata?.resourceVersion
+      if (!version)
+        throw new KubeRequestError('server', 'The cluster said no version to watch from')
+    }
+    const params = new URLSearchParams(selectors)
+    params.set('watch', '1')
+    params.set('allowWatchBookmarks', 'true')
+    params.set('resourceVersion', version)
+    params.set('timeoutSeconds', String(WATCH_SECONDS))
+    await this.envReady
+    const kc = this.store.forContext(q.context)
+    const stream = await kubeStream(kc, `${path}?${params}`, {
+      timeoutMs: this.timeoutMs,
+      accept: METADATA_ACCEPT.watch,
+    })
+    return { ...stream, from: version }
   }
 
   /**

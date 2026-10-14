@@ -305,19 +305,22 @@ test('several namespaces are read five at a time, the rest waiting their turn', 
 }) => {
   const team = /^\/api\/v1\/namespaces\/team-\d+\/pods$/
   clusters.demo.fail(team, { delayMs: 400 })
+  // (Reads of the lists: not their watches, nor where those begin.)
+  const read = (r: { path: string; query: Record<string, string> }) =>
+    team.test(r.path) && r.query.watch === undefined && r.query.limit !== '1'
   await openCluster(page)
   const names = Array.from({ length: 12 }, (_, i) => `team-${String(i + 1).padStart(2, '0')}`)
   const before = clusters.demo.requests.length
   await go(page, `#/cluster/demo/pods?namespaces=${names.join(',')}`)
   await expect(picker(page)).toHaveText('12 namespaces')
   await expect
-    .poll(() => clusters.demo.requests.slice(before).filter((r) => team.test(r.path)).length)
+    .poll(() => clusters.demo.requests.slice(before).filter(read).length)
     .toBeGreaterThanOrEqual(12)
   // When each of the first twelve arrived. (By arrivals alone: when an answer is counted as
   // sent, on a slow runner, can be later than the client had it and asked again.)
   const arrived = clusters.demo.requests
     .slice(before)
-    .filter((request) => team.test(request.path))
+    .filter(read)
     .slice(0, 12)
     .map((request) => request.at!)
     .sort((a, b) => a - b)
