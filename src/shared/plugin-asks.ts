@@ -25,6 +25,16 @@ export interface AskedAction {
   status?: true
   /** Its patch is a list of JSON patch operations, not a merge. */
   json?: true
+  /**
+   * The fields of the object's status it writes on the object itself (not through the status
+   * subresource, where a tool's kind has none): each one's path, `status.operationState.phase`.
+   */
+  writesStatus?: string[]
+  /** What must still be as the person saw it when it's sent: each path, as the file writes it. */
+  same?: string[]
+  /** Its dialog's own question and button, as the file writes them. */
+  confirmTitle?: string
+  confirmButton?: string
 }
 
 export interface Asks {
@@ -126,7 +136,34 @@ function asked(view: View, action: ViewAction): AskedAction {
     ...(action.undo !== undefined ? { undo: written(action.undo, merge) } : {}),
     ...(action.subresource === 'status' ? { status: true } : {}),
     ...(action.type === 'json' && action.patch !== undefined ? { json: true } : {}),
+    ...(statusWritten(action).length > 0 ? { writesStatus: statusWritten(action) } : {}),
+    ...(action.same !== undefined ? { same: [...action.same] } : {}),
+    ...(action.confirmTitle !== undefined ? { confirmTitle: action.confirmTitle } : {}),
+    ...(action.confirmButton !== undefined ? { confirmButton: action.confirmButton } : {}),
   }
+}
+
+/**
+ * The status fields an action's patch writes on the object itself: a merge patch's leaves under
+ * `status`, a JSON patch's paths there. (Through the status subresource, it's said as that.)
+ */
+function statusWritten(action: ViewAction): string[] {
+  if (action.subresource === 'status' || action.patch === undefined) return []
+  if (Array.isArray(action.patch)) {
+    return unique(
+      action.patch.flatMap(({ path }) =>
+        typeof path === 'string' && /^\/status(\/|$)/.test(path)
+          ? [path.slice(1).split('/').join('.')]
+          : [],
+      ),
+    )
+  }
+  const leaves = (value: unknown, at: string): string[] =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Object.entries(value).flatMap(([key, item]) => leaves(item, `${at}.${key}`))
+      : [at]
+  const status = (action.patch as Record<string, unknown>).status
+  return status === undefined ? [] : leaves(status, 'status')
 }
 
 /** The same action on several of a plugin's views is one action, on all their kinds. */

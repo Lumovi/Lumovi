@@ -1,7 +1,8 @@
-import { Ellipsis, Lock, LockOpen } from 'lucide-react'
+import { Ellipsis, LoaderCircle, Lock, LockOpen } from 'lucide-react'
 import { ContextMenu, DropdownMenu, Popover } from 'radix-ui'
 import { useEffect, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
+import { BusyButton, formatElapsed, spokenElapsed, useTicking } from '@renderer/components/Busy'
 import { Button } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { Tooltip } from '@renderer/components/Tooltip'
@@ -44,7 +45,11 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
   // Actions that depend on the object's state (Resume, Uncordon…) come first.
   const headline = available
     .filter(({ action }) => action.primary)
-    .sort((a, b) => Number(Boolean(b.action.when)) - Number(Boolean(a.action.when)))
+    .sort(
+      (a, b) =>
+        Number(Boolean(b.action.when ?? b.action.busy)) -
+        Number(Boolean(a.action.when ?? a.action.busy)),
+    )
   const primary = (
     headline.length ? headline : available.filter(({ action }) => action.editor)
   ).slice(0, 2)
@@ -78,6 +83,19 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
     <div className="flex items-center gap-1.5 phone:flex-wrap phone:gap-2">
       {readOnly && <ReadOnlyBadge />}
       {primary.map(({ action, disabled }) => {
+        // At work on the object: there, busy, until what it started is done.
+        const busy = action.busy?.(object)
+        if (busy) {
+          return (
+            <BusyButton
+              key={action.id}
+              name={nameOf(action)}
+              word={busy.word}
+              {...(busy.since === undefined ? {} : { since: busy.since })}
+              className="h-7 px-2.5 text-xs phone:h-11 phone:px-4 phone:text-[13px] [&_svg]:!size-3.5"
+            />
+          )
+        }
         const button = (
           <Button
             key={action.id}
@@ -162,7 +180,15 @@ function ActionItems({
   const run = useRunAction()
   const safe = available.filter(({ action }) => !action.danger)
   const danger = available.filter(({ action }) => action.danger)
-  const item = ({ action, disabled }: AvailableAction) => (
+  const item = ({ action, disabled }: AvailableAction) => {
+    const busy = action.busy?.(object)
+    return busy ? (
+      <BusyItem key={action.id} name={nameOf(action)} busy={busy} Item={Item} />
+    ) : (
+      offered({ action, disabled })
+    )
+  }
+  const offered = ({ action, disabled }: AvailableAction) => (
     <Item
       key={action.id}
       disabled={disabled !== undefined}
@@ -194,6 +220,37 @@ function ActionItems({
         <p className="max-w-64 px-2 pt-1.5 pb-1 text-xs leading-snug text-ink-3">{reason}</p>
       )}
     </>
+  )
+}
+
+/** An action's own name, as its dialog and its busy state say it: "Sync", not "Sync…". */
+const nameOf = (action: { label: string }) => action.label.replace(/…$/, '')
+
+/** A menu's action at work: where it was, busy, with how long; it can't be chosen. */
+function BusyItem({
+  name,
+  busy,
+  Item,
+}: {
+  name: string
+  busy: { word: string; since?: number }
+  Item: typeof DropdownMenu.Item
+}) {
+  const now = useTicking(busy.since !== undefined)
+  const elapsed = busy.since === undefined ? undefined : now - busy.since
+  return (
+    <Item
+      disabled
+      data-busy=""
+      aria-label={`${name}, busy: ${busy.word.toLowerCase()}${elapsed === undefined ? '' : `, ${spokenElapsed(elapsed)}`}`}
+      className={cn(menuItem, 'text-ink-2')}
+    >
+      <LoaderCircle aria-hidden className="size-4 animate-spin text-ink-3" />
+      <span className="flex-1">{busy.word}</span>
+      {elapsed !== undefined && (
+        <span className="text-xs text-ink-3 tabular-nums">{formatElapsed(elapsed)}</span>
+      )}
+    </Item>
   )
 }
 

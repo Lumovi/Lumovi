@@ -70,6 +70,7 @@ export const VIEW_ICON_NAMES = [
   'server-cog',
   'shield-check',
   'signpost',
+  'square',
   'timer',
   'waves',
   'waypoints',
@@ -161,10 +162,38 @@ export interface ViewInput {
   default?: string
 }
 
+/**
+ * An action at work on its object, said where the action is instead of the action: while `when`
+ * holds, with Lumovi's turning mark, `word`, and how long since the date at `since` where that's
+ * given.
+ */
+export interface ActionBusy {
+  when: Condition
+  /** What's happening, in a word or two: "Syncing". */
+  word: string
+  /** A path to a date: when what's happening started. */
+  since?: string
+}
+
 export interface ViewAction {
   name: string
   icon?: ViewIconName
+  /**
+   * Offered while this holds, and hidden while it doesn't; and where it holds, what the action
+   * changes goes with the object's version it was judged on, so if the object has changed since,
+   * nothing changes.
+   */
   when?: Condition
+  /**
+   * Busy instead of hidden while one of these holds (the first that does): drawn where it was,
+   * and it can't be pressed.
+   */
+  busy?: ActionBusy[]
+  /**
+   * Paths (up to four) that must hold, when it's sent, what they held in the object the person
+   * was shown: else nothing is sent. (What tells this operation from the next, say.)
+   */
+  same?: string[]
   /** What it asks for first; it always asks when it has inputs. */
   inputs?: ViewInput[]
   /** The change it makes: a patch of the object, or another object to create. */
@@ -179,6 +208,12 @@ export interface ViewAction {
   undo?: Record<string, unknown> | Record<string, unknown>[]
   /** Asks first, with this text; otherwise it runs at once. */
   confirm?: string
+  /**
+   * Where it asks first: its dialog's question, in place of Lumovi's "{name} {object}?", and its
+   * button, in place of its name. Templates, one line each.
+   */
+  confirmTitle?: string
+  confirmButton?: string
   /** What happened, for the notification: "Suspended {{ .metadata.name }}". */
   done?: string
   primary?: boolean
@@ -572,7 +607,14 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
     return 'patches are an object for type merge, and a list for type json'
   }
   const inputs = new Set(((a.inputs ?? []) as { name: string }[]).map((input) => input.name))
-  const used = JSON.stringify([a.patch, a.create, a.confirm, a.done]).matchAll(INPUT_PLACEHOLDER)
+  const used = JSON.stringify([
+    a.patch,
+    a.create,
+    a.confirm,
+    a.confirmTitle,
+    a.confirmButton,
+    a.done,
+  ]).matchAll(INPUT_PLACEHOLDER)
   const unknown = [...used].find(([, name]) => !inputs.has(name!))
   if (unknown) return `{{ input.${unknown[1]} }} isn’t one of its inputs`
   const guarded =
@@ -580,11 +622,46 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
     metadataProblem(a.undo, GUARDED_IN_A_PATCH) ??
     metadataProblem(a.create, GUARDED_IN_A_CREATE)
   if (guarded) return guarded
+  // Its dialog's own question and button: only where it asks first, and each a line.
+  const said = a.confirm !== undefined || a.inputs !== undefined
+  // Writing an object's status on the object itself (a tool's kind with no status of its own to
+  // ask) is what no plugin otherwise does: only one that asks first may. (Through the status
+  // subresource it's another permission, said as that.)
+  const patch = a.patch as Record<string, unknown> | { path?: unknown }[] | undefined
+  const writesStatus =
+    a.subresource !== 'status' &&
+    (Array.isArray(patch)
+      ? patch.some((op) => typeof op.path === 'string' && /^\/status(\/|$)/.test(op.path))
+      : patch !== undefined && 'status' in patch)
+  if (writesStatus && !said) {
+    return 'writes the object’s status, so it has to ask first: give it confirm'
+  }
+  for (const [field, most] of [
+    ['confirmTitle', CONFIRM_TITLE_LENGTH],
+    ['confirmButton', CONFIRM_BUTTON_LENGTH],
+  ] as const) {
+    const text = a[field] as string | undefined
+    if (text === undefined) continue
+    if (!said) return `${field}: only an action that asks first (with confirm or inputs) has one`
+    if (/[\r\n]/.test(text)) return `${field}: should be one line`
+    if (text.length > most) return `${field}: is longer than ${most} characters`
+  }
+  for (const [i, busy] of ((a.busy ?? []) as { word: string }[]).entries()) {
+    if (/[\r\n]/.test(busy.word)) return `busy[${i}].word: should be one line`
+    if (busy.word.length > BUSY_WORD_LENGTH) {
+      return `busy[${i}].word: is longer than ${BUSY_WORD_LENGTH} characters`
+    }
+  }
   // An action that asks nothing first says so, where a reviewer sees it; and only such a one.
   const asks = a.confirm !== undefined || a.inputs !== undefined || a.create !== undefined
   if (!asks && a.runs === undefined) return 'runs at once, so it has to say so: runs: at-once'
   return asks && a.runs !== undefined ? 'asks first, so it can’t say runs: at-once' : undefined
 }
+
+/** How long an action's dialog's own question and button can be, and its busy word. */
+const CONFIRM_TITLE_LENGTH = 80
+const CONFIRM_BUTTON_LENGTH = 24
+const BUSY_WORD_LENGTH = 24
 
 /** A label's or an annotation's key, as Kubernetes has them: a name, after a DNS prefix and a / where it has one. */
 const QUALIFIED_KEY =
@@ -672,6 +749,18 @@ const VIEW_SHAPE: Shape = {
           name: { shape: 'string', required: true },
           icon: { oneOf: VIEW_ICON_NAMES },
           when: conditionShape,
+          busy: {
+            list: {
+              fields: {
+                when: { shape: conditionShape, required: true },
+                word: { shape: 'string', required: true },
+                since: 'path',
+              },
+            },
+            nonEmpty: true,
+            most: 4,
+          },
+          same: { list: 'path', nonEmpty: true, most: 4 },
           inputs: { list: inputShape, nonEmpty: true },
           patch: 'patch',
           create: 'patch',
@@ -680,6 +769,8 @@ const VIEW_SHAPE: Shape = {
           runs: { oneOf: ['at-once'] },
           undo: 'patch',
           confirm: 'template',
+          confirmTitle: 'template',
+          confirmButton: 'template',
           done: 'template',
           primary: 'boolean',
           danger: 'boolean',

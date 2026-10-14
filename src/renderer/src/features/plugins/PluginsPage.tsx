@@ -1211,6 +1211,29 @@ function WhatItAsks({
                       >
                         {action.runs === 'asks' ? 'asks first' : 'runs at once'}
                       </span>
+                      {action.same !== undefined && (
+                        <p className="mt-1 text-xs text-ink-3">
+                          Sent only if{' '}
+                          {action.same.map((path, j) => (
+                            <Fragment key={path}>
+                              {j > 0 && (j === action.same!.length - 1 ? ' and ' : ', ')}
+                              <code className="font-mono">{path}</code>
+                            </Fragment>
+                          ))}{' '}
+                          {action.same.length === 1 ? 'is' : 'are'} as you saw{' '}
+                          {action.same.length === 1 ? 'it' : 'them'}
+                        </p>
+                      )}
+                      {action.confirmTitle !== undefined && (
+                        <p className="mt-1 text-xs text-ink-3">
+                          Its question: “{action.confirmTitle}”
+                        </p>
+                      )}
+                      {action.confirmButton !== undefined && (
+                        <p className="mt-0.5 text-xs text-ink-3">
+                          Its button: {action.confirmButton}
+                        </p>
+                      )}
                     </div>
                     <div className="min-w-0">
                       {action.creates !== undefined && (
@@ -1267,6 +1290,23 @@ function MayChange({ asked, names }: { asked: Asks; names: Names }) {
           Creates: {listed(asked.creates.map(names.bare))},{' '}
           {asked.creates.length === 1 ? 'one' : 'each one'} of its own kinds.
         </p>
+      )}
+      {/* (The one exception to what no plugin can: a tool's kind with no status of its own to ask.) */}
+      {asked.actions.map(
+        (action, i) =>
+          action.writesStatus && (
+            <p key={i} data-plugin-writes-status="">
+              Writes {listed(action.kinds.map(names.plural))}’ status, in{' '}
+              {action.writesStatus.length === 1 ? 'one place' : 'these places'}:{' '}
+              {action.writesStatus.map((path, j) => (
+                <Fragment key={path}>
+                  {j > 0 && ', '}
+                  <code className="font-mono text-xs text-ink-1">{path}</code>
+                </Fragment>
+              ))}
+              , by {action.name}…, which asks you first.
+            </p>
+          ),
       )}
       <p className="flex gap-2">
         <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" />

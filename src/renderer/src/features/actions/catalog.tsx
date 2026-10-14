@@ -27,7 +27,7 @@ import { isBuiltinKind, kindFor, type ResourceKind } from '@shared/resources'
 import type { ChangeMeta, ClusterChange } from '@renderer/hooks/change'
 import { resourceFor } from '@renderer/hooks/resources'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
-import { holds, viewFor } from '@renderer/lib/plugins'
+import { actionBusy, holds, viewFor } from '@renderer/lib/plugins'
 import { api } from '@renderer/lib/api'
 import { kindOf, target, type ActionProps } from './common'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
@@ -40,7 +40,13 @@ import { RollbackDialog } from './RollbackDialog'
 import { ScaleDialog } from './ScaleDialog'
 import { SetImageDialog } from './SetImageDialog'
 import { DebugDialog, PortForwardDialog } from './StreamDialogs'
-import { viewActionIcon, ViewActionDialog, viewChange } from './view-actions'
+import {
+  judgedAtSend,
+  judgedNow,
+  viewActionIcon,
+  ViewActionDialog,
+  viewChange,
+} from './view-actions'
 
 /** A change that runs at once, with its undo, instead of opening a dialog. */
 export interface InstantChange {
@@ -56,13 +62,30 @@ export interface Action {
   kinds: readonly ResourceKind[] | ((kind: ResourceKind) => boolean)
   /** Hidden when false, e.g. "Uncordon" on a node that isn't cordoned. */
   when?: (object: KubeObject) => boolean
+  /**
+   * What it's busy with on the object, where it is: drawn there, busy, instead of offered or
+   * hidden; it can't be pressed. (A view's action, while what it started goes on.)
+   */
+  busy?: (object: KubeObject) => { word: string; since?: number } | undefined
+  /** Sent with the object's version it was judged on: refused, and said so, if that changed. */
+  judged?: boolean
+  /**
+   * Judged again just before it's sent, on the object as it is then: the version it goes with,
+   * or why nothing's sent. (An action offered while a condition held.)
+   */
+  again?: (
+    object: KubeObject,
+    context: string,
+    now: number,
+  ) => Promise<{ ok: true; version: string } | { ok: false; message: string }>
   /** What the user must be allowed to do, checked with a SelfSubjectAccessReview. */
   access: (object: KubeObject) => AccessCheck
   /** Shown as a button in the detail panel, not only in the menu. */
   primary?: boolean
   danger?: boolean
   dialog?: ComponentType<ActionProps>
-  instant?: (object: KubeObject, context: string) => InstantChange
+  /** Its change; for one judged as it's sent, with the version read then and the time it was pressed. */
+  instant?: (object: KubeObject, context: string, now?: number, version?: string) => InstantChange
   /** Opens the object in the detail panel's YAML editor instead of a dialog. */
   editor?: boolean
   /** Opens this tab of the detail panel instead of a dialog. */
@@ -449,6 +472,14 @@ function viewActions(kind: ResourceKind): Action[] {
       icon: viewActionIcon(action),
       kinds: [kind],
       when: action.when && ((object: KubeObject) => holds(action.when!, object)),
+      ...(action.busy ? { busy: (object: KubeObject) => actionBusy(action, object) } : {}),
+      ...(judgedAtSend(action)
+        ? {
+            judged: true,
+            again: (object: KubeObject, context: string, now: number) =>
+              judgedNow(action, object, context, {}, now),
+          }
+        : {}),
       access: action.create
         ? can(
             'create',
@@ -461,7 +492,8 @@ function viewActions(kind: ResourceKind): Action[] {
       ...(asks
         ? { dialog: ViewActionDialog }
         : {
-            instant: (object: KubeObject, context: string) => viewChange(action, object, context),
+            instant: (object: KubeObject, context: string, now?: number, version?: string) =>
+              viewChange(action, object, context, {}, now, version),
           }),
     }
   })
@@ -470,11 +502,13 @@ function viewActions(kind: ResourceKind): Action[] {
 const appliesTo = (action: Action, kind: ResourceKind) =>
   typeof action.kinds === 'function' ? action.kinds(kind) : action.kinds.includes(kind)
 
-/** The actions that apply to `object`, in menu order: its view's first. */
+/** The actions that apply to `object`, in menu order: its view's first. A busy one is there too. */
 export function actionsFor(object: KubeObject): Action[] {
   const kind = kindOf(object)
   return [...viewActions(kind), ...ACTIONS].filter(
-    (action) => appliesTo(action, kind) && (action.when?.(object) ?? true),
+    (action) =>
+      appliesTo(action, kind) &&
+      (action.busy?.(object) !== undefined || (action.when?.(object) ?? true)),
   )
 }
 
