@@ -460,7 +460,7 @@ test('what a table is refused for, where its kinds can’t say it', async ({ pag
     'Row 1, cell 1 is a number, and its column takes text.',
     'Row 1’s rest starts at column 3, and the table has 2 columns.',
     'Table.rows[0].rest.from: should be from 0 to 7',
-    'Table.rows[0].cells[0].kind: should be one of text, number, age, status, meter, none',
+    'Table.rows[0].cells[0].kind: should be one of text, number, age, status, meter, button, none',
     'In row 2, inner row 2 has 1 cell, and the table has 2 columns.',
   ])
 })

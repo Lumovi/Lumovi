@@ -58,7 +58,12 @@ export const FRAME_LIMITS = {
   about: 240,
   /** Groups of counts, and the values in one. */
   counts: { groups: 6, rows: 50 },
+  /** A run's steps: fewer than two is no run of steps, more than twelve don't fit a line. */
+  steps: { least: 2, most: 12 },
 } as const
+
+/** How a step of a run stands: done, running now, still to come, or failed. */
+export const STEP_STATES = ['done', 'running', 'next', 'failed'] as const
 
 /** Past this many rows a pick list scrolls inside its side, with a filter above it. */
 export const PICKS_BEFORE_FILTER = 12
@@ -203,6 +208,7 @@ export const header = {
   events: { press: { button: key } },
   also: (props) => headerProblem((props.buttons ?? []) as Keyed[]),
   heeds: (props, event, carries) => event !== 'press' || pressable(props.buttons, carries),
+  changes: (props, event, carries) => event === 'press' && pressChanges(props.buttons, carries),
 } as const satisfies Part
 
 /** A row of a pick list: a Table's lead with a status at its right. */
@@ -292,7 +298,7 @@ export const secretShown = {
 
 export const card = {
   name: 'Card',
-  holds: ['Table', 'Graph', 'Counts'],
+  holds: ['Table', 'Graph', 'Counts', 'Steps'],
   holdsMost: 1,
   props: {
     title: name,
@@ -347,11 +353,47 @@ export const counts = {
   required: ['groups'],
 } as const satisfies Part
 
+/** A step of a run, in its order: its name, how it stands, and a few words under. */
+const step = record(
+  {
+    /** Its own among the run's steps. */
+    key,
+    /** What it is ("PreSync", "Wave 1"): cut at its end where it doesn't fit. */
+    name,
+    state: oneOf(STEP_STATES),
+    /** A few words under it ("1 of 3 Pods ready"), two lines at most, whole in its tooltip. */
+    detail: line,
+  },
+  ['key', 'name', 'state'],
+)
+
+/**
+ * Where a run is: its steps in order on one line, each done, running, to come or failed, joined
+ * where one leads to the next; and, under them, what the step running now waits on, a thing
+ * with its lead (as a Table's row) and what it says, which Lumovi opens where the plugin read
+ * it. On a phone, a sentence: which step it is, between which.
+ */
+export const steps = {
+  name: 'Steps',
+  holds: 'nothing',
+  props: {
+    steps: list(step, FRAME_LIMITS.steps.most),
+    /**
+     * What it waits on: its lead, what it says (two lines, then cut at its end, whole in its
+     * tooltip), and the object it opens, pressed: Lumovi's own to open, and the plugin isn't
+     * told.
+     */
+    waiting: record({ lead, said: line, opens: object }, ['lead', 'said']),
+  },
+  required: ['steps'],
+  also: (props) => stepsProblem(props.steps as Keyed[]),
+} as const satisfies Part
+
 /** One under another, 16 px apart: what a page is when nothing else is said. */
 export const stack = {
   name: 'Stack',
   // (Every part but a split, which nothing holds.)
-  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts', 'Logs', 'Secret'],
+  holds: ['Tiles', 'Header', 'Card', 'Pair', 'Table', 'Graph', 'Counts', 'Steps', 'Logs', 'Secret'],
   props: {},
 } as const satisfies Part
 
@@ -367,6 +409,8 @@ export type CardProps = PropsOf<typeof card>
 export type PairProps = PropsOf<typeof pair>
 export type CountsProps = PropsOf<typeof counts>
 export type CountsGroup = NonNullable<CountsProps['groups']>[number]
+export type StepsProps = PropsOf<typeof steps>
+export type Step = NonNullable<StepsProps['steps']>[number]
 
 /** The same, as a plugin writes them, before the door hands them over. */
 export type WrittenTiles = WrittenProps<typeof tiles>
@@ -417,6 +461,16 @@ export function tilesProblem(tiles: readonly Keyed[]): string | undefined {
   }
   const same = clash(tiles.map((each) => each.key))
   return same && `Tiles ${same[0]} and ${same[1]} of a row have the same key.`
+}
+
+/** A run's steps: two to twelve, each with a key of its own. */
+export function stepsProblem(steps: readonly Keyed[]): string | undefined {
+  const { least, most } = FRAME_LIMITS.steps
+  if (steps.length < least || steps.length > most) {
+    return `A run has ${steps.length} step${steps.length === 1 ? '' : 's'}; it takes ${least} to ${most}.`
+  }
+  const same = clash(steps.map((each) => each.key))
+  return same && `Steps ${same[0]} and ${same[1]} have the same key.`
 }
 
 /**

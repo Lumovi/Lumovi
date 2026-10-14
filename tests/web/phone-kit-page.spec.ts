@@ -329,3 +329,46 @@ test.describe('under a finger at a desktop’s width', () => {
     }
   })
 })
+
+test('on a phone, a run’s steps are a sentence and what it waits on a card; a row’s button that changes isn’t drawn, one that reads is', async ({
+  page,
+  serve,
+}) => {
+  const served = await serve()
+  await signInNarrow(page, `${served.url}cluster/demo/kit/frame`, DEMO_TOKEN)
+  const argo = page.getByRole('region', { name: 'Argo CD’s application' })
+  await expect(argo).toBeVisible()
+  // Which step it is, between which; and one that failed says so. No line of dots.
+  await expect(
+    argo.getByText('Step 3 of 5, Wave 1, running: after Wave 0, before Wave 2.'),
+  ).toBeVisible()
+  await expect(
+    argo.getByText('Step 2 of 4, Wave 0, failed: after PreSync, before Wave 1.'),
+  ).toBeVisible()
+  await expect(argo.getByRole('list', { name: 'Steps' })).toHaveCount(0)
+  // What it waits on: a card a finger opens, Lumovi's own to open.
+  const waiting = argo.getByRole('button', { name: /^Waiting on storefront: / })
+  await waiting.scrollIntoViewIfNeeded()
+  await expect
+    .poll(async () => (await waiting.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(44)
+  await waiting.tap()
+  await expect(page.getByRole('list', { name: 'What was pressed' })).toContainText(
+    'go {"kind":"Deployment","name":"storefront","namespace":"shop"}',
+  )
+  // History: no Roll back, as a phone changes nothing; the current entry's word is a fact.
+  const history = page.getByRole('region', { name: 'History', exact: true })
+  await expect(history).toContainText('Current')
+  await expect(history.getByRole('button', { name: /^Roll back/ })).toHaveCount(0)
+  // A button that only reads is drawn, a finger's size, and pressed alone.
+  const show = page
+    .getByRole('region', { name: 'Manifests', exact: true })
+    .getByRole('button', { name: 'Show', exact: true })
+  await expect.poll(async () => (await show.boundingBox())?.height ?? 0).toBe(44)
+  await show.tap()
+  await expect(page.getByRole('list', { name: 'What was pressed' })).toContainText(
+    'row press {"row":"a","button":"show"}',
+  )
+  await expectNoSidewaysScroll(page, 'a run’s steps and a row’s buttons, on a phone')
+  await expectFingerSized(page, 'a run’s steps and a row’s buttons, on a phone')
+})

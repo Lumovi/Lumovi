@@ -66,6 +66,7 @@ export const PLUGIN_SINCE = {
     Card: 'next',
     Pair: 'next',
     Counts: 'next',
+    Steps: 'next',
     Stack: 'next',
     Logs: 'next',
     Secret: 'next',
@@ -94,5 +95,8 @@ export const PLUGIN_SINCE = {
     'Table.rows[].cells[].full': 'next',
     'Table.rows[].rows[].cells[].mono': 'next',
     'Table.rows[].rows[].cells[].full': 'next',
+    /** A row's button, and its press. */
+    'Table.rows[].cells[].kind=button': 'next',
+    'Table.onPress': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

@@ -78,7 +78,7 @@ test('a table is checked as the door checks one, and refused where it says more 
     [{ headings: 'yes' }, 'Table.headings: should be true or false'],
     [
       { columns: [{ name: 'Graph', kind: 'graph' }] },
-      'Table.columns[0].kind: should be one of text, number, age, status, meter',
+      'Table.columns[0].kind: should be one of text, number, age, status, meter, button',
     ],
     [
       { columns: [{ name: 'Status', kind: 'status', width: '12px' }] },
@@ -104,7 +104,7 @@ test('a table is checked as the door checks one, and refused where it says more 
     ],
     [
       { rows: [{ ...row, cells: [{ kind: 'html', html: '<b>x</b>' }, row.cells[1]] }] },
-      'Table.rows[0].cells[0].kind: should be one of text, number, age, status, meter, none',
+      'Table.rows[0].cells[0].kind: should be one of text, number, age, status, meter, button, none',
     ],
     [
       { rows: [{ ...row, cells: [row.cells[0], { kind: 'age', time: '3 hours ago' }] }] },
@@ -219,4 +219,69 @@ test('what the kinds can’t say, said where a person counts, quoting nothing of
   ] as const) {
     expect(tableProblem({ ...PODS, rows }), problem).toBe(problem)
   }
+})
+
+test('a row’s button: in a table’s one button column, on a table’s own row that opens nothing; a word where a row has none', () => {
+  const button = { kind: 'button', key: 'back', name: 'Roll back', changes: true, asks: true }
+  const HISTORY = {
+    title: 'History',
+    headings: true,
+    columns: [
+      { name: 'When', kind: 'age' },
+      { name: 'Roll back', kind: 'button', width: 'text' },
+    ],
+    rows: [
+      {
+        key: '14',
+        lead: { name: '14' },
+        cells: [
+          { kind: 'age', time: '2026-10-12T08:30:00Z' },
+          { kind: 'text', text: 'Current' },
+        ],
+      },
+      {
+        key: '13',
+        lead: { name: '13' },
+        cells: [{ kind: 'age', time: '2026-10-11T08:30:00Z' }, button],
+      },
+      { key: '12', lead: { name: '12' }, cells: [{ kind: 'none' }, { kind: 'none' }] },
+    ],
+  }
+  expect(said(HISTORY)).toBeUndefined()
+  // Off, with why: as long as a header button's why may be.
+  const off = (why: string) => ({
+    ...HISTORY,
+    rows: [{ ...HISTORY.rows[1]!, cells: [HISTORY.rows[1]!.cells[0]!, { ...button, off: why }] }],
+  })
+  expect(said(off('x'.repeat(80)))).toBeUndefined()
+  expect(said(off('x'.repeat(81)))).toMatch(/^Table\.rows\[0\]\.cells\[1\]\.off: /)
+  // Two button columns; a button in another column; on a row that opens; inside a row.
+  expect(
+    said({
+      ...HISTORY,
+      columns: [...HISTORY.columns, { name: 'Again', kind: 'button' }],
+      rows: [],
+    }),
+  ).toBe('Columns 2 and 3 both hold buttons: a table has one such column.')
+  expect(said({ ...HISTORY, rows: [{ ...HISTORY.rows[1]!, cells: [button, button] }] })).toBe(
+    'Row 1, cell 1 is a button, and its column takes an age.',
+  )
+  expect(said({ ...HISTORY, rows: [{ ...HISTORY.rows[1]!, opens: 'object-1' }] })).toBe(
+    'Row 1 has a button and opens something: a row with a button opens nothing.',
+  )
+  expect(said({ ...HISTORY, rows: [{ ...HISTORY.rows[0]!, rows: [HISTORY.rows[1]!] }] })).toBe(
+    'In row 1, inner row 1 has a button: only a table’s own rows have them.',
+  )
+  // A word only in a button's column: a status there is refused, as in any column.
+  expect(
+    said({
+      ...HISTORY,
+      rows: [
+        {
+          ...HISTORY.rows[0]!,
+          cells: [HISTORY.rows[0]!.cells[0]!, { kind: 'status', level: 'healthy', word: 'Now' }],
+        },
+      ],
+    }),
+  ).toBe('Row 1, cell 2 is a status, and its column takes a button.')
 })

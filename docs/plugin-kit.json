@@ -9,6 +9,7 @@
         "leadHeading",
         "nameSorts",
         "onOpen",
+        "onPress",
         "onRetry",
         "rows",
         "shows",
@@ -16,7 +17,7 @@
         "title"
       ],
       "required": ["columns", "headings", "rows", "title"],
-      "events": ["open", "retry"]
+      "events": ["open", "press", "retry"]
     },
     "Graph": {
       "holds": "nothing",
@@ -45,7 +46,7 @@
       "most": 1
     },
     "Card": {
-      "holds": ["Table", "Graph", "Counts"],
+      "holds": ["Table", "Graph", "Counts", "Steps"],
       "props": ["about", "note", "title"],
       "required": ["title"],
       "events": [],
@@ -60,8 +61,25 @@
       "holdsLeast": 2
     },
     "Counts": { "holds": "nothing", "props": ["groups"], "required": ["groups"], "events": [] },
+    "Steps": {
+      "holds": "nothing",
+      "props": ["steps", "waiting"],
+      "required": ["steps"],
+      "events": []
+    },
     "Stack": {
-      "holds": ["Tiles", "Header", "Card", "Pair", "Table", "Graph", "Counts", "Logs", "Secret"],
+      "holds": [
+        "Tiles",
+        "Header",
+        "Card",
+        "Pair",
+        "Table",
+        "Graph",
+        "Counts",
+        "Steps",
+        "Logs",
+        "Secret"
+      ],
       "props": [],
       "required": [],
       "events": []
@@ -90,7 +108,10 @@
             "kind": "record",
             "fields": {
               "name": { "kind": "text", "max": 253 },
-              "kind": { "kind": "one-of", "values": ["text", "number", "age", "status", "meter"] },
+              "kind": {
+                "kind": "one-of",
+                "values": ["text", "number", "age", "status", "meter", "button"]
+              },
               "width": { "kind": "one-of", "values": ["narrow", "normal", "wide", "text"] },
               "sorts": { "kind": "yes-or-no" }
             },
@@ -153,9 +174,21 @@
                       "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
                       "text": { "kind": "text", "max": 253 }
                     },
+                    "button": {
+                      "key": { "kind": "text", "max": 253 },
+                      "name": { "kind": "text", "max": 253 },
+                      "changes": { "kind": "yes-or-no" },
+                      "asks": { "kind": "yes-or-no" },
+                      "off": { "kind": "text", "max": 80 }
+                    },
                     "none": {}
                   },
-                  "optional": { "text": ["mono", "full"], "number": ["text"], "meter": ["of"] }
+                  "optional": {
+                    "text": ["mono", "full"],
+                    "number": ["text"],
+                    "meter": ["of"],
+                    "button": ["changes", "asks", "off"]
+                  }
                 },
                 "max": 8
               },
@@ -224,12 +257,20 @@
                             "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
                             "text": { "kind": "text", "max": 253 }
                           },
+                          "button": {
+                            "key": { "kind": "text", "max": 253 },
+                            "name": { "kind": "text", "max": 253 },
+                            "changes": { "kind": "yes-or-no" },
+                            "asks": { "kind": "yes-or-no" },
+                            "off": { "kind": "text", "max": 80 }
+                          },
                           "none": {}
                         },
                         "optional": {
                           "text": ["mono", "full"],
                           "number": ["text"],
-                          "meter": ["of"]
+                          "meter": ["of"],
+                          "button": ["changes", "asks", "off"]
                         }
                       },
                       "max": 8
@@ -276,9 +317,14 @@
           "optional": { "empty": ["line"], "quiet": ["good"] }
         },
         "onOpen": { "kind": "handler", "event": "open" },
-        "onRetry": { "kind": "handler", "event": "retry" }
+        "onRetry": { "kind": "handler", "event": "retry" },
+        "onPress": { "kind": "handler", "event": "press" }
       },
-      "events": { "open": { "row": { "kind": "text", "max": 253 } }, "retry": {} }
+      "events": {
+        "open": { "row": { "kind": "text", "max": 253 } },
+        "retry": {},
+        "press": { "row": { "kind": "text", "max": 253 }, "button": { "kind": "text", "max": 253 } }
+      }
     },
     "Graph": {
       "props": {
@@ -297,7 +343,10 @@
             "kind": "record",
             "fields": {
               "name": { "kind": "text", "max": 253 },
-              "kind": { "kind": "one-of", "values": ["text", "number", "age", "status", "meter"] },
+              "kind": {
+                "kind": "one-of",
+                "values": ["text", "number", "age", "status", "meter", "button"]
+              },
               "width": { "kind": "one-of", "values": ["narrow", "normal", "wide", "text"] },
               "sorts": { "kind": "yes-or-no" }
             },
@@ -400,9 +449,21 @@
                       "of": { "kind": "number", "min": 0, "max": 9007199254740991 },
                       "text": { "kind": "text", "max": 253 }
                     },
+                    "button": {
+                      "key": { "kind": "text", "max": 253 },
+                      "name": { "kind": "text", "max": 253 },
+                      "changes": { "kind": "yes-or-no" },
+                      "asks": { "kind": "yes-or-no" },
+                      "off": { "kind": "text", "max": 80 }
+                    },
                     "none": {}
                   },
-                  "optional": { "text": ["mono", "full"], "number": ["text"], "meter": ["of"] }
+                  "optional": {
+                    "text": ["mono", "full"],
+                    "number": ["text"],
+                    "meter": ["of"],
+                    "button": ["changes", "asks", "off"]
+                  }
                 },
                 "max": 8
               },
@@ -682,6 +743,45 @@
         }
       }
     },
+    "Steps": {
+      "props": {
+        "steps": {
+          "kind": "list",
+          "of": {
+            "kind": "record",
+            "fields": {
+              "key": { "kind": "text", "max": 253 },
+              "name": { "kind": "text", "max": 253 },
+              "state": { "kind": "one-of", "values": ["done", "running", "next", "failed"] },
+              "detail": { "kind": "text", "max": 500 }
+            },
+            "required": ["key", "name", "state"]
+          },
+          "max": 12
+        },
+        "waiting": {
+          "kind": "record",
+          "fields": {
+            "lead": {
+              "kind": "record",
+              "fields": {
+                "level": {
+                  "kind": "one-of",
+                  "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+                },
+                "name": { "kind": "text", "max": 253 },
+                "beside": { "kind": "text", "max": 253 },
+                "under": { "kind": "text", "max": 500 }
+              },
+              "required": ["name"]
+            },
+            "said": { "kind": "text", "max": 500 },
+            "opens": { "kind": "object" }
+          },
+          "required": ["lead", "said"]
+        }
+      }
+    },
     "Stack": { "props": {} },
     "Logs": {
       "props": {
@@ -737,7 +837,8 @@
       "note": 120,
       "off": 80,
       "about": 240,
-      "counts": { "groups": 6, "rows": 50 }
+      "counts": { "groups": 6, "rows": 50 },
+      "steps": { "least": 2, "most": 12 }
     },
     "table": {
       "rows": 5000,
@@ -746,7 +847,8 @@
       "text": 253,
       "line": 500,
       "depth": 1,
-      "leadHeading": 40
+      "leadHeading": 40,
+      "off": 80
     },
     "graph": {
       "drawn": { "cards": 300, "lines": 600 },

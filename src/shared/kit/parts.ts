@@ -7,7 +7,7 @@
  */
 import type { Part } from './declare'
 import { graph } from './graph'
-import { card, counts, header, logs, pair, secretShown, split, stack, tiles } from './page'
+import { card, counts, header, logs, pair, secretShown, split, stack, steps, tiles } from './page'
 import { table } from './table'
 
 export const DECLARED = {
@@ -19,6 +19,7 @@ export const DECLARED = {
   Card: card,
   Pair: pair,
   Counts: counts,
+  Steps: steps,
   Stack: stack,
   Logs: logs,
   Secret: secretShown,

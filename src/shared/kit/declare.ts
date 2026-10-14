@@ -97,6 +97,12 @@ export interface Part {
    */
   heeds?: (props: Readonly<Record<string, unknown>>, event: string, carries: unknown) => boolean
   /**
+   * Whether a press is of something that declares, as it was drawn, that it changes the cluster
+   * (a button's `changes`): only such a press has a token a proposal that follows it can spend.
+   * Without it, no press of the part has one.
+   */
+  changes?: (props: Readonly<Record<string, unknown>>, event: string, carries: unknown) => boolean
+  /**
    * How many of it one page may have, made and not yet taken away, where that's fewer than any
    * part may: one that's heavy to draw, or reads something of its own for each.
    */

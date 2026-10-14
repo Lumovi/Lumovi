@@ -11,6 +11,7 @@ import type {
   HeaderProps,
   PairProps,
   SplitProps,
+  StepsProps,
   TilesProps,
 } from '@shared/kit/page'
 import { DECLARED } from '@shared/kit/parts'
@@ -23,6 +24,7 @@ import { Counts } from '@renderer/kit/Counts'
 import { Graph } from '@renderer/kit/Graph'
 import { PageHeader } from '@renderer/kit/PageHeader'
 import { LogsShown, SecretShown } from '@renderer/kit/Shown'
+import { Steps } from '@renderer/kit/Steps'
 import { useSettings } from '@renderer/hooks/settings'
 import { useLogSlot, toldOnce } from './log-slots'
 import { PageKey } from './Surface'
@@ -138,6 +140,8 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
   Card: ({ props, children }) => <Card {...(props as CardProps)}>{children}</Card>,
   Pair: ({ props, children }) => <Pair {...(props as PairProps)}>{children}</Pair>,
   Counts: ({ props }) => <Counts {...(props as CountsProps)} />,
+  // (What it waits on, Lumovi opens: `go`.)
+  Steps: ({ props, go }) => <Steps {...(props as StepsProps)} {...(go ? { go } : {})} />,
   Stack: ({ children }) => <Stack>{children}</Stack>,
 }
 

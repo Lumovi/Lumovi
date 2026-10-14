@@ -51,6 +51,8 @@ export const TABLE_LIMITS = {
   depth: 1,
   /** Characters of the lead column's heading: a column's heading, short. */
   leadHeading: 40,
+  /** Characters of why a row's button can't be pressed now, as a header's button says it. */
+  off: 80,
 } as const
 
 export const HEALTHS = [
@@ -67,8 +69,12 @@ export const HEALTHS = [
  * Lumovi measures over all the rows it was given. A status brings its own width.
  */
 export const COLUMN_WIDTHS = ['narrow', 'normal', 'wide', 'text'] as const
-/** The kind of thing a column's cells hold: one of these, and nothing free-form. */
-export const COLUMN_KINDS = ['text', 'number', 'age', 'status', 'meter'] as const
+/**
+ * The kind of thing a column's cells hold: one of these, and nothing free-form. A `button`
+ * column holds a button a row's own (or a word where a row has none: "Current"), and a table
+ * has one at most.
+ */
+export const COLUMN_KINDS = ['text', 'number', 'age', 'status', 'meter', 'button'] as const
 
 const name = text(TABLE_LIMITS.text)
 const line = text(TABLE_LIMITS.line)
@@ -102,10 +108,29 @@ export const cell = choice(
     status: { level: oneOf(HEALTHS), word: name },
     /** `used` of `of` (no `of`: there's no limit); `text` says it ("24 of 64 cores"). */
     meter: { label: name, used: number(0, LARGEST), of: number(0, LARGEST), text: name },
+    /**
+     * Something a person can do with this row alone (Roll back… on a history's entry), as a
+     * header's button is: `key` its own in its column, `changes` that it changes the cluster
+     * (a phone doesn't draw it; only its press can propose a change), `asks` that it asks
+     * first (its name ends in "…"), and `off` why it can't be pressed now (its tooltip). A row
+     * with one is never pressed whole: it opens nothing.
+     */
+    button: {
+      key: name,
+      name,
+      changes: yesOrNo,
+      asks: yesOrNo,
+      off: text(TABLE_LIMITS.off),
+    },
     /** Nothing to say here: drawn as a dash. */
     none: {},
   },
-  { text: ['mono', 'full'], number: ['text'], meter: ['of'] },
+  {
+    text: ['mono', 'full'],
+    number: ['text'],
+    meter: ['of'],
+    button: ['changes', 'asks', 'off'],
+  },
 )
 
 /** What a row is called: a dot in its level, its name, a quiet word beside, a line under. */
@@ -203,10 +228,15 @@ export const table = {
     onOpen: handler('open'),
     /** Pressed "Try again" of a table that failed. */
     onRetry: handler('retry'),
+    /** Pressed a row's button: the row's key, and the button's. */
+    onPress: handler('press'),
   },
   required: ['title', 'columns', 'headings', 'rows'],
-  events: { open: { row: name }, retry: {} },
+  events: { open: { row: name }, retry: {}, press: { row: name, button: name } },
   also: (props) => tableProblem(props),
+  heeds: (props, event, carries) => event !== 'press' || rowButton(props, carries) !== undefined,
+  changes: (props, event, carries) =>
+    event === 'press' && rowButton(props, carries)?.changes === true,
 } as const satisfies Part
 
 /** The Table's properties, as its component takes them: worked out from `table`. */
@@ -227,6 +257,25 @@ export type WrittenTable = WrittenProps<typeof table>
 export type WrittenTableLead = NonNullable<NonNullable<WrittenTable['rows']>[number]['lead']>
 export type WrittenTableState = NonNullable<WrittenTable['state']>
 
+/**
+ * The button a row's press names, as the table was drawn: one that's there, in a row that's
+ * there, and not off. Nothing for any other press, however it came about: it tells the plugin
+ * nothing.
+ */
+export function rowButton(
+  props: Readonly<Record<string, unknown>>,
+  carries: unknown,
+): { changes?: boolean } | undefined {
+  const { row, button } = (carries ?? {}) as { row?: unknown; button?: unknown }
+  const rows = props.rows as
+    readonly { key?: unknown; cells?: readonly Record<string, unknown>[] }[] | undefined
+  const found = rows?.find((each) => each.key === row)
+  const cell = found?.cells?.find(
+    (each) => each.kind === 'button' && each.key === button && each.off === undefined,
+  )
+  return cell as { changes?: boolean } | undefined
+}
+
 /** A count with its noun: "1 cell", "6 columns". */
 const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
@@ -237,6 +286,7 @@ const A_KIND: Record<string, string> = {
   age: 'an age',
   status: 'a status',
   meter: 'a meter',
+  button: 'a button',
 }
 
 /**
@@ -281,6 +331,10 @@ interface WrittenRow {
  */
 export function tableProblem(written: Readonly<Record<string, unknown>>): string | undefined {
   const { columns, rows } = written as unknown as Written
+  const buttons = columns.flatMap((column, c) => (column.kind === 'button' ? [c + 1] : []))
+  if (buttons.length > 1) {
+    return `Columns ${buttons[0]} and ${buttons[1]} both hold buttons: a table has one such column.`
+  }
   const keys = new Map<string, number>()
   for (const [r, row] of rows.entries()) {
     const first = keys.get(row.key)
@@ -302,6 +356,12 @@ export function tableProblem(written: Readonly<Record<string, unknown>>): string
       if (each.opens !== undefined && each.goes !== undefined) {
         return `${here} opens an object and goes to a list: a row is pressed for one of them.`
       }
+      if (each.cells.some((cell) => cell.kind === 'button')) {
+        if (i > 0) return `${here} has a button: only a table’s own rows have them.`
+        if (each.opens !== undefined || each.goes !== undefined) {
+          return `${here} has a button and opens something: a row with a button opens nothing.`
+        }
+      }
     }
   }
   return undefined
@@ -322,7 +382,9 @@ export function cellsProblem(
   }
   for (const [c, cell] of row.cells.entries()) {
     const takes = columns[c]!.kind
-    if (cell.kind !== 'none' && cell.kind !== takes) {
+    // (A button's column says a word where its row has no button: "Current".)
+    const word = takes === 'button' && cell.kind === 'text'
+    if (cell.kind !== 'none' && cell.kind !== takes && !word) {
       // (By its own words only: a kind that isn't one of them is said to be none, whatever was
       // checked before this.)
       if (!Object.hasOwn(A_KIND, cell.kind) || !Object.hasOwn(A_KIND, takes)) {
