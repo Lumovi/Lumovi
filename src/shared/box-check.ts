@@ -10,6 +10,7 @@
  * control arrived in each shape, nothing of the boxes' reached the catcher, no box found
  * another's, every report came in time, and each names every way here, each refused.
  */
+import { literal } from './code-literal'
 
 /**
  * Every way out the check tries, from a worker. Fixed here: a report that leaves one out
@@ -140,23 +141,23 @@ const HELPERS = `const has = (name) => typeof self[name] !== 'undefined'
  * what it saw. The later one only looks.
  */
 export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole): string {
-  const channel = JSON.stringify(boxCheckChannel(nonce))
-  const check = JSON.stringify(nonce)
+  const channel = literal(boxCheckChannel(nonce))
+  const check = literal(nonce)
   if (role === 'later') {
-    const first = JSON.stringify(boxCheckStore(nonce, 'first'))
-    const second = JSON.stringify(boxCheckStore(nonce, 'second'))
+    const first = literal(boxCheckStore(nonce, 'first'))
+    const second = literal(boxCheckStore(nonce, 'second'))
     return `box.then(async ({ post }) => {
   ${HELPERS}
   const found = [...new Set([...(await look(${first})), ...(await look(${second}))])]
   post(JSON.stringify({ check: ${check}, role: 'later', found, unlooked: [...unlooked] }))
 })`
   }
-  const http = JSON.stringify(catcher)
-  const ws = JSON.stringify(catcher.replace(/^http/, 'ws'))
-  const mine = JSON.stringify(boxCheckStore(nonce, role))
-  const other = JSON.stringify(boxCheckStore(nonce, role === 'first' ? 'second' : 'first'))
-  const me = JSON.stringify(role)
-  const kept = JSON.stringify(boxCheckKept(nonce, role))
+  const http = literal(catcher)
+  const ws = literal(catcher.replace(/^http/, 'ws'))
+  const mine = literal(boxCheckStore(nonce, role))
+  const other = literal(boxCheckStore(nonce, role === 'first' ? 'second' : 'first'))
+  const me = literal(role)
+  const kept = literal(boxCheckKept(nonce, role))
   return `box.then(async ({ post, listen }) => {
   ${HELPERS}
   const at = (way) => ${http} + '/' + way
@@ -198,7 +199,7 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
     try { ways[way] = await (stores.includes(way) ? Promise.resolve().then(attempt) : within(Promise.resolve().then(attempt))) } catch { ways[way] = 'refused' }
   }
   // Once both boxes have kept, and said, what they can: what of the other's is seen here?
-  const both = new Promise((done) => listen((data) => { if (data === ${JSON.stringify(BOX_CHECK_LOOK)}) done() }))
+  const both = new Promise((done) => listen((data) => { if (data === ${literal(BOX_CHECK_LOOK)}) done() }))
   post(${kept})
   await both
   try { channel && channel.postMessage(${me}) } catch {}

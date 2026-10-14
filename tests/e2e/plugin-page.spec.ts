@@ -6,6 +6,7 @@
  */
 import type { Page } from '@playwright/test'
 import { BOX_LIMITS } from '../../src/shared/plugin-box.ts'
+import { literal } from '../../src/shared/code-literal.ts'
 import { DOOR_LIMITS } from '../../src/shared/plugin-door.ts'
 import { expect, test } from './fixtures.ts'
 import { holds } from '../holds.ts'
@@ -32,7 +33,7 @@ async function show(page: Page, shown: Partial<Shown> & { code: string }) {
 
 /** A plugin's code that sends these commits, one after another. */
 const sends = (...commits: unknown[][]) =>
-  `box.then(({ post }) => { for (const commit of ${JSON.stringify(commits)}) post(JSON.stringify({ commit })) })`
+  `box.then(({ post }) => { for (const commit of ${literal(commits)}) post(JSON.stringify({ commit })) })`
 
 const stage = (page: Page) => page.getByTestId('plugin-stage')
 const surface = (page: Page) => page.getByTestId('plugin-surface')

@@ -18,6 +18,7 @@ import {
   type Page,
 } from '@playwright/test'
 import { BOX_LIMITS, workerText } from '../../src/shared/plugin-box.ts'
+import { literal } from '../../src/shared/code-literal.ts'
 import {
   notStopped,
   THE_FIRST_LINES_STOP,
@@ -418,7 +419,7 @@ async function onPage(page: Page, as: string, id: string, context: object): Prom
   return Promise.race([
     frame
       .evaluate(
-        `${WAYS}\n;(() => { const c = ${JSON.stringify(context)}; c.post = () => undefined; return self.runAttempt(${JSON.stringify(id)}, c) })()`,
+        `${WAYS}\n;(() => { const c = ${literal(context)}; c.post = () => undefined; return self.runAttempt(${literal(id)}, c) })()`,
       )
       .then(String, (error: Error) => `the frame went: ${error.message.slice(0, 80)}`),
     pause(3200).then(() => 'no word back'),

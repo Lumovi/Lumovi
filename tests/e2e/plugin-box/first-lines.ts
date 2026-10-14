@@ -5,6 +5,7 @@
  * could find a way round; the box's policy is the wall, so it has to stop each of these by
  * itself. Shared by the desktop's ways-out spec and the browsers'.
  */
+import { literal } from '../../../src/shared/code-literal.ts'
 
 /**
  * The ways that reach for what the first lines take away, and that the policy must stop: a
@@ -89,7 +90,7 @@ postMessage('ready')`
 export const trierByItsChild = (ways: string): string => `box.then(({ post, listen }) => {
   let made
   try {
-    made = new Worker(URL.createObjectURL(new Blob([${JSON.stringify(child(ways))}], { type: 'text/javascript' })))
+    made = new Worker(URL.createObjectURL(new Blob([${literal(child(ways))}], { type: 'text/javascript' })))
   } catch (error) {
     return post('no child: ' + error.name)
   }
