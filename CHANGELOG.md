@@ -8,7 +8,7 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
-## [1.22.0] - 2026-10-14
+## [1.22.0] - 2026-10-15
 
 Add-ons are now **plugins**: a page lists them all, the desktop app installs and updates them from
 Lumovi-plugins, and Argo CD's, CloudNativePG's, Karpenter's and Prometheus Operator's draw pages of
