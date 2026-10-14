@@ -29,10 +29,11 @@ spec:
           bulk: true
           when: { path: .status.phase, notEquals: Growing }
           busy: [{ when: { path: .status.phase, equals: Growing }, word: Growing }]
-          patch: { spec: { size: '{{ input.size }}', loud: '{{ input.loud }}', style: '{{ input.style }}' } }
+          patch: { spec: { size: '{{ input.size }}', loud: '{{ input.loud }}', style: '{{ input.style }}', rehearse: '{{ input.rehearse }}' } }
           inputs:
             - { name: size, label: Size, type: number, default: '5' }
             - { name: loud, label: Loud, type: switch, default: 'false' }
+            - { name: rehearse, label: Rehearse, type: switch, default: 'false' }
             - name: style
               label: Style
               type: choice
@@ -43,10 +44,25 @@ spec:
               - { value: Grown, word: Grown, level: healthy }
               - { value: Broken, word: Broken, level: critical }
             message: .status.message
+        - name: Refresh
+          primary: true
+          runs: at-once
+          bulk: true
+          patch: { metadata: { annotations: { example.com/refresh: '{{ input.how }}' } } }
+          inputs:
+            - name: how
+              label: How
+              type: choice
+              choices: [{ label: Normal, value: normal }, { label: Hard, value: hard }]
         - name: Keep
           bulk: true
           runs: at-once
           patch: { spec: { kept: '{{ .spec.size }}' } }
+  changes:
+    - group: example.com
+      kind: Widget
+      actions: [patch]
+      harm: [{ path: spec.loud, is: true, says: Wakes the whole street., verb: shout, unless: { path: spec.rehearse, is: true } }]
 `
 
 /** Its code: its widgets in a table whose rows tick, each opening its widget. It's told nothing else. */
@@ -117,7 +133,7 @@ test('ticked rows: Lumovi’s own bar and dialog do the file’s action to each,
   // Asked once for both: a switch, and a choice of labelled values.
   await dialog.getByRole('switch', { name: 'Loud' }).click()
   await dialog.getByRole('radio', { name: 'Fancy' }).check()
-  await dialog.getByRole('button', { name: 'Grow 2 Widgets' }).click()
+  await dialog.getByRole('button', { name: 'Grow and shout 2 Widgets' }).click()
   // Each sent with what's chosen, as values, and the version read as it went.
   const patches = () =>
     clusters.demo.requests.filter((r) => r.method === 'PATCH' && /\/widgets\/w-[ab]$/.test(r.path))
@@ -238,4 +254,89 @@ test('ticked rows: a patch that reads nothing of its object says nothing of whos
     'patch widget.example.com/w-a widget.example.com/w-b --type=merge',
   )
   await expect(dialog).not.toContainText('Shown for')
+})
+
+test('one done to several with inputs: pressed for one it runs at once with their defaults; for several, they’re asked once', async ({
+  serve,
+  page,
+  clusters,
+}) => {
+  clusters.demo.upsert(widget('w-a'))
+  clusters.demo.upsert(widget('w-b'))
+  const server = await served(serve)
+  await signIn(page, `${server.url}cluster/demo/plugins/tinker/widgets`, DEMO_TOKEN)
+  const body = page.locator('[data-plugin-body]')
+  const refreshed = (name: string) =>
+    clusters.demo.requests
+      .filter((r) => r.method === 'PATCH' && r.path.endsWith(`/widgets/${name}`))
+      .map(
+        (r) =>
+          (r.body as { metadata?: { annotations?: Record<string, string> } }).metadata
+            ?.annotations?.['example.com/refresh'],
+      )
+  // For one: its own bar's button runs at once, with the default (the first choice).
+  await body.getByRole('gridcell', { name: 'w-a', exact: true }).click({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect.poll(() => refreshed('w-a')).toEqual(['normal'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // For several: asked once.
+  await page.keyboard.press('Escape')
+  for (const name of ['w-a', 'w-b']) {
+    await body.getByRole('checkbox', { name: `Select ${name}`, exact: true }).check()
+  }
+  await page
+    .getByRole('toolbar', { name: 'Selected rows' })
+    .getByRole('button', { name: 'Refresh…' })
+    .click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('radio', { name: 'Hard' }).check()
+  await dialog.getByRole('button', { name: 'Refresh 2 Widgets' }).click()
+  await expect.poll(() => refreshed('w-b')).toEqual(['hard'])
+  expect(refreshed('w-a')).toEqual(['normal', 'hard'])
+})
+
+test('what a file’s action harms, as its kind’s file says: drawn in red and named on the button, for one and for several; a rehearsal the person asks for is quiet', async ({
+  serve,
+  page,
+  clusters,
+}) => {
+  const names = Array.from({ length: 12 }, (_, i) => `w-${String(i + 1).padStart(2, '0')}`)
+  for (const name of names) clusters.demo.upsert(widget(name))
+  const server = await served(serve)
+  await signIn(page, `${server.url}cluster/demo/plugins/tinker/widgets`, DEMO_TOKEN)
+  const body = page.locator('[data-plugin-body]')
+  const harms = (dialog: ReturnType<Page['getByRole']>) =>
+    dialog.getByRole('region', { name: 'What it harms' })
+  // For several: judged on what each sends.
+  const dialog = await opened(page, names, 'Grow')
+  await expect(harms(dialog)).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Grow 12 Widgets' })).toBeVisible()
+  await dialog.getByRole('switch', { name: 'Loud' }).click()
+  await expect(harms(dialog)).toHaveText(/Wakes the whole street\./)
+  await expect(dialog.getByRole('button', { name: 'Grow and shout 12 Widgets' })).toBeVisible()
+  // A rehearsal, asked of the person, as the file says: quiet.
+  await dialog.getByRole('switch', { name: 'Rehearse' }).click()
+  await expect(harms(dialog)).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Grow 12 Widgets' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await page
+    .getByRole('toolbar', { name: 'Selected rows' })
+    .getByRole('button', { name: 'Clear selection' })
+    .click()
+  // For one: the object's own Grow.
+  await body.getByRole('gridcell', { name: 'w-01', exact: true }).click()
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menuitem', { name: 'Grow…' }).click()
+  const one = page.getByRole('dialog')
+  await one.getByRole('switch', { name: 'Loud' }).click()
+  await expect(harms(one)).toHaveText(/Wakes the whole street\./)
+  await one.getByRole('button', { name: 'Grow and shout', exact: true }).click()
+  await expect
+    .poll(
+      () =>
+        clusters.demo.requests.filter(
+          (r) => r.method === 'PATCH' && r.path.endsWith('/widgets/w-01'),
+        ).length,
+    )
+    .toBe(1)
 })

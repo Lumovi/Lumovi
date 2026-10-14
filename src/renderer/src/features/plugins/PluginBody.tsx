@@ -224,6 +224,8 @@ export function PluginBody({
                     ...handed,
                     context,
                     ...(namespace && { namespace }),
+                    // (Its file's: what does harm, which Lumovi checks what it sends against.)
+                    changes: plugin.changes,
                   },
                   proposal,
                   layout,

@@ -356,9 +356,30 @@ export interface Plugin {
 }
 
 /** A kind of its own a plugin's page may propose changes to (`group/Kind`), and how. */
+/**
+ * A value in what a change sends that does harm, as a plugin's file says it: a path in the patch
+ * or object (`operation.sync.prune`), and the value that harms (`is`), or that it's there at all
+ * (`set`), or a value a list there holds (`contains`: `Replace=true` among a sync's options). Lumovi checks what it sends against it, draws `says` in red, and names `verb` on the
+ * button ("Sync, prune and force"), whatever the plugin's code says; `unless` what's sent holds
+ * the file's value at its path (a dry run: `operation.dryRun` true), which only the file says.
+ */
+export interface Harm {
+  path: string
+  is?: unknown
+  set?: boolean
+  contains?: unknown
+  says: string
+  verb: string
+  unless?: { path: string; is: unknown }
+}
+
+/** How much a file may say does harm, and its words. */
+export const HARM_LIMITS = { items: 8, says: 160, verb: 24 } as const
+
 export interface ChangesKind {
   kind: string
   actions: ChangeAction[]
+  harm?: Harm[]
 }
 
 /** A Secret a plugin's page may show: which of its kinds names it, where, and which keys. */
@@ -408,7 +429,7 @@ export const ADDED_LIMITS = { pages: 8, tabs: 4, commands: 12, name: 40 } as con
 /** A plugin that has a place in the sidebar, with that place's own fields beside its name. */
 export type ListedPlugin = Pick<
   Plugin,
-  'name' | 'source' | 'version' | 'added' | 'opens' | 'links' | 'logs' | 'server'
+  'name' | 'source' | 'version' | 'added' | 'opens' | 'links' | 'logs' | 'server' | 'changes'
 > &
   PluginPlace & {
     /** Every kind its file names (`namedKinds`): what its pages may open a list of. */
@@ -558,12 +579,42 @@ const inputShape: Shape = {
         return 'a switch starts as true or false'
       }
     }
+    // (A labelled choice starts at its first: a default would be read nowhere.)
+    if (input.choices !== undefined && input.default !== undefined) {
+      return 'a labelled choice starts at its first choice: put the one to start at first'
+    }
     // (One left out of several needs what it's filled in with there.)
-    if (input.bulk === false && input.default === undefined) {
+    if (input.bulk === false && input.default === undefined && input.choices === undefined) {
       return 'one not asked for several needs a default to fill it in there'
     }
     return undefined
   },
+}
+
+/**
+ * Whether a patch as a file writes it (a merge's object, or a JSON patch's operations) may write
+ * `path` (`operation.sync.prune`): it's there, or a placeholder or an operation stands for what
+ * holds it, so what's filled in could.
+ */
+function writesPath(patch: unknown, path: string): boolean {
+  if (Array.isArray(patch)) {
+    return (patch as { op?: unknown; path?: unknown }[]).some((op) => {
+      if (op.op === 'remove' || op.op === 'test' || typeof op.path !== 'string') return false
+      const at = op.path
+        .split('/')
+        .slice(1)
+        .map((name) => name.replace(/~1/g, '/').replace(/~0/g, '~'))
+        .join('.')
+      return at === path || path.startsWith(`${at}.`) || at.startsWith(`${path}.`)
+    })
+  }
+  let at: unknown = patch
+  for (const name of path.split('.')) {
+    if (typeof at === 'string') return true
+    if (typeof at !== 'object' || at === null || !Object.hasOwn(at, name)) return false
+    at = (at as Record<string, unknown>)[name]
+  }
+  return true
 }
 
 /** What of an object's metadata is the cluster's, or its owner's, and no plugin's to set. */
@@ -745,10 +796,23 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
       return `busy[${i}].word: is longer than ${BUSY_WORD_LENGTH} characters`
     }
   }
-  // An action that asks nothing first says so, where a reviewer sees it; and only such a one.
+  // An action that asks nothing first says so, where a reviewer sees it; and only such a one. One
+  // done to several may still have inputs: pressed for one it runs at once with their defaults,
+  // and they're asked once for several (Argo CD's Refresh: normal, or hard for those ticked).
   const asks = a.confirm !== undefined || a.inputs !== undefined || a.create !== undefined
   if (!asks && a.runs === undefined) return 'runs at once, so it has to say so: runs: at-once'
-  return asks && a.runs !== undefined ? 'asks first, so it can’t say runs: at-once' : undefined
+  if (asks && a.runs !== undefined) {
+    if (a.confirm !== undefined || a.create !== undefined || a.bulk !== true) {
+      return 'asks first, so it can’t say runs: at-once (one done to several may, with inputs only)'
+    }
+    const unfilled = (
+      (a.inputs ?? []) as { name: string; default?: unknown; choices?: unknown }[]
+    ).find((input) => input.default === undefined && input.choices === undefined)
+    if (unfilled) {
+      return `runs at once for one, filled in with its inputs’ defaults: ${unfilled.name} needs one`
+    }
+  }
+  return undefined
 }
 
 /** How long an action's dialog's own question and button can be, and its busy word. */
@@ -1209,6 +1273,50 @@ const CHANGES_SHAPE: Shape = {
     group: { shape: 'string', required: true },
     kind: { shape: 'string', required: true },
     actions: { shape: { list: 'string', nonEmpty: true }, required: true },
+    harm: {
+      list: {
+        fields: {
+          path: { shape: 'string', required: true },
+          is: 'json',
+          set: 'boolean',
+          contains: 'json',
+          says: { shape: 'string', required: true },
+          verb: { shape: 'string', required: true },
+          unless: {
+            fields: {
+              path: { shape: 'string', required: true },
+              is: { shape: 'json', required: true },
+            },
+          },
+        },
+        refine: (harm) => {
+          if (!/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(harm.path as string)) {
+            return 'its path should be names with dots between, as operation.sync.prune'
+          }
+          const unless = harm.unless as { path: string } | undefined
+          if (unless && !/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(unless.path)) {
+            return 'unless.path: should be names with dots between, as operation.sync.dryRun'
+          }
+          const said = [harm.is, harm.set, harm.contains].filter((each) => each !== undefined)
+          if (said.length !== 1) {
+            return 'needs one of: the value that harms (is), set: true (that it’s there at all), or a value a list there holds (contains)'
+          }
+          if (harm.set === false) return 'set says it harms where it’s there: it’s true'
+          if ((harm.says as string).length > HARM_LIMITS.says) {
+            return `says: is longer than ${HARM_LIMITS.says} characters`
+          }
+          if (
+            (harm.verb as string).length > HARM_LIMITS.verb ||
+            /[\r\n]/.test(harm.verb as string)
+          ) {
+            return `verb: should be a word or two, ${HARM_LIMITS.verb} characters at most`
+          }
+          return undefined
+        },
+      },
+      nonEmpty: true,
+      most: HARM_LIMITS.items,
+    },
   },
   refine: (item) => {
     if (item.kind === '*')
@@ -1411,9 +1519,13 @@ function opensProblems(opens: unknown): string[] {
 }
 
 function changesOf(changes: unknown): ChangesKind[] {
-  return ((changes ?? []) as ChangesItem[]).map((item) => {
+  return ((changes ?? []) as (ChangesItem & { harm?: Harm[] })[]).map((item) => {
     const kind = resolvedOf(item)
-    return { kind: `${kind.group}/${kind.kind}`, actions: [...item.actions] as ChangeAction[] }
+    return {
+      kind: `${kind.group}/${kind.kind}`,
+      actions: [...item.actions] as ChangeAction[],
+      ...(item.harm ? { harm: item.harm.map((harm) => ({ ...harm })) } : {}),
+    }
   })
 }
 
@@ -2473,6 +2585,34 @@ function readPlugin(
   }
   if (problems.length === 0 && items.length === 0 && place.kinds === undefined && !pages) {
     problems.push(`${source}: spec: needs views, or kinds for a place in the sidebar`)
+  }
+  // An action that runs at once asks nothing, so it shows no harm: one whose patch writes what
+  // this file says harms a kind of its view has to ask first.
+  const harmed = new Map<string, Harm[]>()
+  for (const item of (Array.isArray(changes) ? changes : []) as {
+    group?: string
+    kind?: string
+    harm?: Harm[]
+  }[]) {
+    if (item.harm) harmed.set(`${item.group ?? ''}/${item.kind}`, item.harm)
+  }
+  for (const [i, item] of items.entries()) {
+    const view = item as {
+      kinds?: { group?: string; kind: string }[]
+      actions?: { runs?: string; patch?: unknown }[]
+    }
+    const harms = (view.kinds ?? []).flatMap(
+      (each) => harmed.get(`${each.group ?? ''}/${each.kind}`) ?? [],
+    )
+    for (const [a, action] of (view.actions ?? []).entries()) {
+      if (action.runs !== 'at-once' || action.patch === undefined) continue
+      const harm = harms.find((each) => writesPath(action.patch, each.path))
+      if (harm) {
+        problems.push(
+          `${source}: spec.views[${i}].actions[${a}]: writes ${harm.path}, which this file says harms (${harm.verb}), so it has to ask first`,
+        )
+      }
+    }
   }
   if (problems.length) return { name, problems }
   const withType = (fields?: ViewField[]) =>

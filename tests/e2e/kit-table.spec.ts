@@ -787,3 +787,41 @@ test('beside a panel at 1440, a row of tiles keeps its words at the top, and a l
     expect(parts[1]![1]).toBeGreaterThan(parts[0]![1] as number)
   }
 })
+
+test('a page, and a row’s panel, keep their scroll bar’s room from the start: growing past the window narrows nothing', async ({
+  page,
+}) => {
+  await openCluster(page)
+  /** What's laid out beside its scroll bar, before the scroller grows past the window and after. */
+  const widthAsItGrows = (selector: string) =>
+    page.evaluate((selector) => {
+      const scroller = document.querySelector<HTMLElement>(selector)!
+      const before = scroller.clientWidth
+      const tall = document.createElement('div')
+      tall.style.height = '5000px'
+      scroller.append(tall)
+      const after = scroller.clientWidth
+      tall.remove()
+      return { before, after, gutter: getComputedStyle(scroller).scrollbarGutter }
+    }, selector)
+  const content = await widthAsItGrows('#content')
+  expect(content.gutter).toBe('stable')
+  expect(content.after).toBe(content.before)
+  // A row's panel, the same.
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
+  })
+  await page
+    .getByRole('grid', { name: 'Applications' })
+    .getByRole('row')
+    .filter({ hasText: 'payments' })
+    .first()
+    .click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  // (Its tab that's open: what scrolls in a row's panel.)
+  const open = '[role="tabpanel"][data-state="active"]'
+  await page.locator(open).waitFor()
+  const panel = await widthAsItGrows(open)
+  expect(panel.gutter).toBe('stable')
+  expect(panel.after).toBe(panel.before)
+})

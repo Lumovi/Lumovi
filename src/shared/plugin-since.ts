@@ -43,6 +43,8 @@ export const PLUGIN_SINCE = {
     /** An action's input that's a switch, or a choice of labelled values. */
     switch: 'next',
     choices: 'next',
+    /** What of a kind's change does harm (`spec.changes[].harm`), drawn by Lumovi in red. */
+    harm: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {

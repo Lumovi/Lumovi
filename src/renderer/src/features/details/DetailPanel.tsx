@@ -161,7 +161,8 @@ function Detail({
         <div
           ref={page}
           data-detail-page
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+          // (Its scroll bar's room kept from the start, as a page's is: nothing jumps as it grows.)
+          className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-x-hidden overflow-y-auto"
         >
           <div ref={header} className="px-4 pt-4 pb-3">
             {/* Which cluster: here is where Restart and Scale are, and no context row is. */}
@@ -344,7 +345,10 @@ function DetailTabs({
   // On a phone the page scrolls, not the tab: what's as long as it is (facts, events) is just
   // there, and what scrolls by itself (logs, a list) gets what the screen has under the top bar
   // and the tabs.
-  const long = cn(content, 'overflow-y-auto phone:flex-none phone:overflow-visible')
+  const long = cn(
+    content,
+    '[scrollbar-gutter:stable] overflow-y-auto phone:flex-none phone:overflow-visible',
+  )
   const own = cn(content, 'flex flex-col phone:h-[calc(100dvh-96px)] phone:flex-none')
   return (
     <Tabs
