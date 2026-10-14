@@ -164,9 +164,20 @@ test('the windows open again where they were', async ({ launch }) => {
       .map((win) => ({ id: win.id, ...win.getBounds() }))
       .sort((a, b) => a.id - b.id),
   )
-  for (const [i, kept] of (settings.windows as { x: number; y: number }[]).entries()) {
-    expect(Math.abs(bounds[i]!.x - kept.x), `window ${i + 1}'s x`).toBeLessThanOrEqual(2)
-    expect(Math.abs(bounds[i]!.y - kept.y), `window ${i + 1}'s y`).toBeLessThanOrEqual(2)
+  type Box = { x: number; y: number; width: number; height: number }
+  for (const [i, kept] of (settings.windows as Box[]).entries()) {
+    const area: Box = await again.app.evaluate(
+      ({ screen }, box) => screen.getDisplayMatching(box).workArea,
+      kept,
+    )
+    const said = `window ${i + 1}: kept ${JSON.stringify(kept)}, back at ${JSON.stringify(bounds[i])}, on ${JSON.stringify(area)}`
+    // Kept wholly on its display (a screen smaller than Lumovi's size has it smaller: CI's macOS
+    // has 1024 × 674 points), and back just there.
+    expect(kept.x >= area.x && kept.y >= area.y, said).toBe(true)
+    expect(kept.x + kept.width <= area.x + area.width, said).toBe(true)
+    expect(kept.y + kept.height <= area.y + area.height, said).toBe(true)
+    expect(Math.abs(bounds[i]!.x - kept.x), said).toBeLessThanOrEqual(2)
+    expect(Math.abs(bounds[i]!.y - kept.y), said).toBeLessThanOrEqual(2)
   }
   await again.close()
 })
