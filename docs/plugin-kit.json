@@ -32,7 +32,7 @@
     },
     "Header": {
       "holds": "nothing",
-      "props": ["buttons", "name", "onPress", "status"],
+      "props": ["buttons", "name", "onPress", "secondStatus", "status"],
       "required": ["name"],
       "events": ["press"]
     },
@@ -349,6 +349,7 @@
                   "server-cog",
                   "shield-check",
                   "signpost",
+                  "square",
                   "timer",
                   "waves",
                   "waypoints",
@@ -490,6 +491,7 @@
                   "server-cog",
                   "shield-check",
                   "signpost",
+                  "square",
                   "timer",
                   "waves",
                   "waypoints",
@@ -538,6 +540,19 @@
           },
           "required": ["level", "word"]
         },
+        "secondStatus": {
+          "kind": "record",
+          "fields": {
+            "level": {
+              "kind": "one-of",
+              "values": ["healthy", "progressing", "warning", "critical", "neutral"]
+            },
+            "word": { "kind": "text", "max": 253 },
+            "since": { "kind": "time" },
+            "detail": { "kind": "text", "max": 500 }
+          },
+          "required": ["level", "word"]
+        },
         "buttons": {
           "kind": "list",
           "of": {
@@ -549,7 +564,12 @@
               "asks": { "kind": "yes-or-no" },
               "note": { "kind": "text", "max": 120 },
               "off": { "kind": "text", "max": 80 },
-              "goes": { "kind": "destination" }
+              "goes": { "kind": "destination" },
+              "busy": {
+                "kind": "record",
+                "fields": { "word": { "kind": "text", "max": 253 }, "since": { "kind": "time" } },
+                "required": ["word"]
+              }
             },
             "required": ["key", "name"]
           },

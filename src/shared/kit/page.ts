@@ -161,6 +161,13 @@ const button = record(
      * button isn't drawn. It changes nothing and asks nothing first.
      */
     goes: destination,
+    /**
+     * What it's busy with, where what it started goes on: it's drawn where it was, with Lumovi's
+     * turning mark, the plugin's word, and how long since `since` where that's given, counted by
+     * Lumovi. It can't be pressed, and a screen reader hears it as busy. A press of it goes
+     * nowhere.
+     */
+    busy: record({ word: name, since: time }, ['word']),
   },
   ['key', 'name'],
 )
@@ -179,6 +186,15 @@ export const header = {
      * the plugin's, wrapped to two lines, then cut at its end and whole in its tooltip.
      */
     status: record({ level: oneOf(HEALTHS), word: name, detail: line }, ['level', 'word']),
+    /**
+     * A second status beside the first: what's happening to it now, with how long since `since`
+     * where that's given, counted by Lumovi. Where it says why, that's the line under, in place of
+     * the first's.
+     */
+    secondStatus: record({ level: oneOf(HEALTHS), word: name, since: time, detail: line }, [
+      'level',
+      'word',
+    ]),
     buttons: list(button, FRAME_LIMITS.buttons),
     /** Pressed one of its buttons. */
     onPress: handler('press'),
@@ -447,15 +463,24 @@ export function filledLast<Button extends { changes?: boolean }>(
 }
 
 export function headerProblem(
-  buttons: readonly (Keyed & { goes?: unknown; changes?: unknown; asks?: unknown })[],
+  buttons: readonly (Keyed & {
+    goes?: unknown
+    changes?: unknown
+    asks?: unknown
+    busy?: unknown
+    off?: unknown
+  })[],
 ): string | undefined {
   const same = clash(buttons.map((each) => each.key))
   if (same) return `Header buttons ${same[0]} and ${same[1]} have the same key.`
   const link = buttons.find((each) => each.goes !== undefined && (each.changes || each.asks))
-  return (
-    link &&
-    `Header button ${link.key} goes somewhere of Lumovi’s: it changes nothing and asks nothing first.`
+  if (link) {
+    return `Header button ${link.key} goes somewhere of Lumovi’s: it changes nothing and asks nothing first.`
+  }
+  const busy = buttons.find(
+    (each) => each.busy !== undefined && (each.goes !== undefined || each.off !== undefined),
   )
+  return busy && `Header button ${busy.key} is busy, so it can’t also be off or go anywhere.`
 }
 
 /**
