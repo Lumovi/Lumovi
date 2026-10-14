@@ -98,7 +98,7 @@ jobs:
           # With the commit before it: whether this one set the version (scripts/release-starts.ts).
           fetch-depth: 2
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
       - name: The version, unless it's released already
@@ -179,7 +179,7 @@ jobs:
       # nothing of a release exists before that.
       - name: Keep the notes
         if: steps.version.outputs.version
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-notes
           path: ${{ runner.temp }}/notes.md
@@ -230,7 +230,7 @@ jobs:
       # that failed is run again by itself, it holds what the other builds uploaded.
       - name: The release's notes
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-notes
           path: ${{ runner.temp }}/release-notes
@@ -257,13 +257,13 @@ jobs:
       # the step above is about to start over.
       - name: Say the draft is made
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-draft-made
           path: ${{ runner.temp }}/release-notes/notes.md
           overwrite: true
           retention-days: 7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -405,7 +405,7 @@ jobs:
           npx electron-builder --win appx --x64 --arm64 --publish never
       - name: Keep the Microsoft Store packages
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: microsoft-store-${{ needs.preflight.outputs.version }}
           path: release/Lumovi-*-store-*.appx
@@ -566,7 +566,7 @@ jobs:
         with:
           ref: ${{ needs.preflight.outputs.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
       # Asked again here: this run may have waited days for its approval, and an older version
