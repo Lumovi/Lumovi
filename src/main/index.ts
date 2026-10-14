@@ -102,7 +102,7 @@ if (stdio) {
     session.defaultSession.setPermissionCheckHandler((_contents, permission) => allowed(permission))
 
     const url = rendererUrl()
-    // A plugin's sealed box: its two files, and nothing a box asks the network for let through.
+    // A plugin's sealed box: its one document, and nothing a box asks the network for let through.
     serveBoxes(url)
     // (On the session the window's page is in. Lumovi's own requests elsewhere don't pass it:
     // the updater has a session of its own, and the clusters are reached from Node.)

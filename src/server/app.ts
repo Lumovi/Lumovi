@@ -6,7 +6,8 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { BOX_SCRIPT, BOX_SCRIPT_HEADERS, boxDocument, boxHeaders } from '@shared/plugin-box'
+import { boxDocument, boxHeaders } from '@shared/plugin-box'
+import { BOX_SCRIPT_SOURCE } from '@backend/plugin-box-script'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { digestOf } from '@backend/plugins'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
@@ -85,12 +86,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const box = config.publicUrl
     ? {
         document: new URL(`${base}${PATHS.box}`, config.publicUrl).href,
-        script: new URL(`${base}${PATHS.boxScript}`, config.publicUrl).href,
         page: config.publicUrl.origin,
       }
     : undefined
   /** The box's headers as it's served: its walls. */
-  const walls = box && boxWalls(boxHeaders(box.script, box.page), options.env)
+  const walls = box && boxWalls(boxHeaders(BOX_SCRIPT_SOURCE, box.page), options.env)
   /**
    * Lumovi's checks of the box in people's browsers: a result holds for these walls alone (their
    * digest), and a server whose walls change checks every browser again.
@@ -300,23 +300,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   }
 
   /**
-   * A plugin's sealed box: its two files, the same for whoever asks and whatever is added to
-   * the address. Nobody is looked up, no cookie is read or set, and nothing ever redirects; and
-   * nothing else is under its folder, the page least of all.
+   * A plugin's sealed box: its one document, its script in it, the same for whoever asks and
+   * whatever is added to the address. Nobody is looked up, no cookie is read or set, and
+   * nothing ever redirects; and nothing else is under its folder: no script by an address of
+   * its own, and the page least of all.
    */
   function answerBox(req: IncomingMessage, res: ServerResponse, path: string): boolean {
     if (!path.startsWith('plugin-box/') && path !== 'plugin-box') return false
-    const file = path === PATHS.box ? 'document' : path === PATHS.boxScript ? 'script' : undefined
-    if (!box || !file) {
+    if (!box || path !== PATHS.box) {
       sendJson(res, 404, { error: `There’s no ${path}` })
     } else if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendJson(res, 405, { error: 'Only GET' }, { Allow: 'GET, HEAD' })
-    } else if (file === 'document') {
-      res.writeHead(200, walls!)
-      res.end(req.method === 'HEAD' ? undefined : boxDocument(box.script))
     } else {
-      res.writeHead(200, BOX_SCRIPT_HEADERS)
-      res.end(req.method === 'HEAD' ? undefined : BOX_SCRIPT)
+      res.writeHead(200, walls!)
+      res.end(req.method === 'HEAD' ? undefined : boxDocument())
     }
     return true
   }

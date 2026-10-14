@@ -518,7 +518,7 @@ test('a plugin’s boxes can be taken off the page by Lumovi itself, and only th
   expect(() => takeOffScript(['"); alert(1); ("'])).toThrow()
 })
 
-test('the box’s protocol serves its two files and nothing else, however it’s asked', async ({
+test('the box’s protocol serves its one document and nothing else, however it’s asked', async ({
   lumovi: { app },
 }) => {
   // Asked from the main process, as nothing of a page may.
@@ -528,8 +528,8 @@ test('the box’s protocol serves its two files and nothing else, however it’s
         const answer = await net.fetch(url, { method, bypassCustomProtocolHandlers: false })
         return {
           status: answer.status,
-          type: answer.headers.get('content-type') ?? '',
           headers: [...answer.headers.entries()],
+          text: await answer.text(),
         }
       },
       { url, method },
@@ -540,14 +540,11 @@ test('the box’s protocol serves its two files and nothing else, however it’s
   await app.evaluate(({ session }) => session.defaultSession.webRequest.onBeforeRequest(null))
   const document = await ask('lumovi-plugin://echo/box.html')
   expect(document.status).toBe(200)
-  // Sealed by its own answer, shown by Lumovi's page alone (a file of the app's).
-  expect(unsealed(new Headers(document.headers), 'lumovi-plugin://echo/box.js', 'file:')).toEqual(
-    [],
-  )
-  const script = await ask('lumovi-plugin://echo/box.js')
-  expect(script.type).toContain('text/javascript')
-  expect(new Headers(script.headers).get('x-content-type-options')).toBe('nosniff')
+  // Sealed by its own answer, shown by Lumovi's page alone (a file of the app's); its script is
+  // in it, named by its hash, and at no address of its own.
+  expect(unsealed(new Headers(document.headers), document.text, 'file:')).toEqual([])
   for (const [url, method] of [
+    ['lumovi-plugin://echo/box.js', 'GET'],
     ['lumovi-plugin://echo/other.html', 'GET'],
     ['lumovi-plugin://echo/', 'GET'],
     // Anything added to its address isn't its address.
@@ -567,9 +564,8 @@ test('a frame of the window goes nowhere but to a box’s own document', async (
 }) => {
   await open(page, 'echo', ECHO)
   await expect.poll(async () => (await kept(page, 'echo')).count).toBe(1)
-  // By the test's hand on the box's page (no plugin's code runs there): to the box's own
-  // script as if it were a page, which the page's policy lets through and the app's own guard
-  // doesn't.
+  // By the test's hand on the box's page (no plugin's code runs there): to another address of
+  // the box's own host, which the page's policy lets through and the app's own guard doesn't.
   const went = await app.evaluate(async ({ BrowserWindow }) => {
     const [win] = BrowserWindow.getAllWindows()
     const frame = win!.webContents.mainFrame.framesInSubtree.find((at) =>

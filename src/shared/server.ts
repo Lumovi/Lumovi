@@ -63,11 +63,10 @@ export const PATHS = {
   callback: 'auth/callback',
   health: 'healthz',
   /**
-   * A plugin's sealed box, as a server has it: its document and its script, at one place for
-   * every plugin (a browser, not Lumovi, decides which process a frame is in).
+   * A plugin's sealed box, as a server has it: its document, at one place for every plugin (a
+   * browser, not Lumovi, decides which process a frame is in).
    */
   box: 'plugin-box/box.html',
-  boxScript: 'plugin-box/box.js',
   /** What a box's check aims at, to see whether anything gets out (`box-check/<nonce>/<way>`). */
   boxCheck: 'box-check',
 } as const

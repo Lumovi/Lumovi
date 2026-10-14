@@ -1,5 +1,5 @@
 /**
- * A plugin's sealed box on a server: its two files at one address, the same for whoever asks;
+ * A plugin's sealed box on a server: its one document at one address, the same for whoever asks;
  * and the box in each browser a person may have, where the box's own policy is the wall (a
  * server has no request filter, and no process of its own for a plugin). Only test plugins of
  * Lumovi's own run here; nothing in Lumovi opens a box yet.
@@ -23,6 +23,7 @@ import { namedIn } from '../e2e/plugin-box/net-log.ts'
 import { featuresOf, unsealed } from '../e2e/plugin-box/sealed.ts'
 import { notRefused } from '../e2e/plugin-box/worked.ts'
 import { DEMO_TOKEN, expect, refusedConfig, signIn, test, type Served } from './fixtures.ts'
+import { recording, type Arrived } from './recording.ts'
 
 const WAYS = readFileSync(resolve('tests/e2e/plugin-box/ways-out.js'), 'utf8')
 
@@ -55,7 +56,7 @@ async function served(
   return serve({ port, env: { LUMOVI_URL: `http://127.0.0.1:${port}`, ...env } })
 }
 
-test('the box’s two files are the same for whoever asks, never redirect, and are all there is under its folder', async ({
+test('the box’s document is the same for whoever asks, never redirects, and is all there is under its folder', async ({
   serve,
 }) => {
   const { url } = await served(serve)
@@ -67,10 +68,12 @@ test('the box’s two files are the same for whoever asks, never redirect, and a
   const policy = page.headers.get('content-security-policy')!
   // Sealed by its own answer, wherever it's opened; shown by Lumovi's own page and no other;
   // never kept by a browser, so a changed policy reaches every one at once; and no cookie.
-  expect(unsealed(page.headers, `${url}plugin-box/box.js`, origin)).toEqual([])
-  expect(policy).toContain("connect-src 'none'")
   const body = await page.text()
-  expect(body).toContain(`<script src="${url}plugin-box/box.js"></script>`)
+  expect(unsealed(page.headers, body, origin)).toEqual([])
+  expect(policy).toContain("connect-src 'none'")
+  // Its script is in it, and named in its policy by its hash: there's no address to ask for.
+  expect(body).not.toContain('src=')
+  expect(policy).toMatch(/script-src 'sha256-[A-Za-z0-9+/]{43}=';/)
 
   // The same with a cookie, and with anything added to the address.
   for (const [path, init] of [
@@ -84,15 +87,12 @@ test('the box’s two files are the same for whoever asks, never redirect, and a
     expect(again.headers.get('set-cookie'), path).toBeNull()
     expect(await again.text(), path).toBe(body)
   }
-  // Its script, which a sealed frame (another origin, even to its own server) may load.
-  const script = await ask('plugin-box/box.js')
-  expect(script.status).toBe(200)
-  expect(script.headers.get('content-type')).toContain('text/javascript')
-  expect(script.headers.get('cross-origin-resource-policy')).toBe('cross-origin')
-  expect(script.headers.get('set-cookie')).toBeNull()
-  // Only asked for, never sent to; and nothing else is there: not the page, not a folder.
+  // Only asked for, never sent to; and nothing else is there: no script by an address of its
+  // own (with or without something added to it), not the page, not a folder.
   expect((await ask('plugin-box/box.html', { method: 'POST' })).status).toBe(405)
   for (const path of [
+    'plugin-box/box.js',
+    'plugin-box/box.js?d=SECRET',
     'plugin-box',
     'plugin-box/',
     'plugin-box/box.html/',
@@ -319,6 +319,29 @@ box.then(({ post, listen }) => {
   post('ready')
 })`
 const IDLE = `box.then(({ post }) => post('ready'))`
+/**
+ * A plugin's code that reads its box's policy off the event a refusal raises (where a browser
+ * raises one in a worker), says every address it finds in it, and imports whatever address
+ * it's then given with something of its own added.
+ */
+const READS_ITS_POLICY = `box.then(async ({ post, listen }) => {
+  post('ready')
+  const raised = []
+  self.addEventListener('securitypolicyviolation', (event) => raised.push(event.originalPolicy + ' ' + event.documentURI))
+  await fetch('data:,refused').catch(() => undefined)
+  await new Promise((done) => setTimeout(done, 300))
+  const policy = raised.join(' ')
+  post(JSON.stringify({
+    raised: raised.length,
+    script: (/script-src\\s+([^;]*)/.exec(policy) || [])[1] || '',
+    addresses: [...new Set(policy.match(/[a-z][a-z0-9+.-]*:\\/\\/[^\\s;]+/g) || [])],
+  }))
+  listen(async (told) => {
+    if (!told || !told.address) return
+    const came = await import(told.address + '?d=SECRET-given').then(() => 'imported', (error) => 'refused ' + error.name)
+    post(JSON.stringify({ address: told.address, came }))
+  })
+})`
 
 /** One way, tried in a box's worker: what the plugin's code saw of it. */
 async function inWorker(page: Page, as: string, id: string, context: object): Promise<string> {
@@ -393,8 +416,20 @@ async function tryAll(
     only,
     named = false,
     awaited = {},
-  }: { only?: string; named?: boolean; awaited?: Record<string, string> } = {},
+    box,
+  }: {
+    only?: string
+    named?: boolean
+    awaited?: Record<string, string>
+    /** The box's own address, for the ways that ask its host: what serves it judges those. */
+    box?: string
+  } = {},
 ) {
+  /** What a try is told of where things are: the catchers', and the box's own address. */
+  const told = (id: string, role?: 'first' | 'second') => ({
+    ...catchers.context(id, role, named),
+    ...(box === undefined ? {} : { box }),
+  })
   // (Two frames of one plugin's at once, on the page, for what one can leave for the other: in
   // the worker only; the box's own page is no plugin's.)
   const ways = ALL.filter(
@@ -414,7 +449,7 @@ async function tryAll(
   if (where === 'worker') {
     await open(page, 'served', IDLE)
     served = await documentOf(page)
-    expect(served).toContain('<script src=')
+    expect(served).toContain('<script>')
     // (And a mark would be seen: one made by the test's own hand is.)
     await lastBox(page)!.evaluate(() => document.body.setAttribute('data-marked', ''))
     expect(await documentOf(page)).toBe(served.replace('<body', '<body data-marked=""'))
@@ -429,21 +464,17 @@ async function tryAll(
       )
     if (group === 'pair') {
       // Two boxes of one plugin alive together: what one can leave for the other.
-      const first = within(
-        inWorker(page, `${where}-${n}-first`, id, catchers.context(id, 'first', named)),
-      )
+      const first = within(inWorker(page, `${where}-${n}-first`, id, told(id, 'first')))
       await pause(300)
-      const second = await within(
-        inWorker(page, `${where}-${n}-second`, id, catchers.context(id, 'second', named)),
-      )
+      const second = await within(inWorker(page, `${where}-${n}-second`, id, told(id, 'second')))
       saw[id] = `first: ${await first} / second: ${second}`
       await close(page, `${where}-${n}-first`).catch(() => undefined)
       await close(page, `${where}-${n}-second`).catch(() => undefined)
     } else {
       saw[id] = await within(
         where === 'worker'
-          ? inWorker(page, `${where}-${n}`, id, catchers.context(id, undefined, named))
-          : onPage(page, `${where}-${n}`, id, catchers.context(id, undefined, named)),
+          ? inWorker(page, `${where}-${n}`, id, told(id))
+          : onPage(page, `${where}-${n}`, id, told(id)),
       )
     }
     if (awaited[id]) {
@@ -544,6 +575,23 @@ const NOT_HELD_ON_THE_PAGE: Record<string, string[]> = {
   WebKit: ['webrtc-stun', 'webrtc-turn-tcp', 'link-preconnect', 'link-click-blank'],
 }
 
+/**
+ * What the server itself was asked that wasn't Lumovi's own page asking: anything that came
+ * from another site or from no origin at all, which is how a box and its worker ask; and
+ * anything under the box's folder but the box's document as Lumovi's page loads it. A way to
+ * the box's own host reaches no stand-in elsewhere: what serves the box is its only judge.
+ */
+const askedByABox = (arrived: readonly Arrived[]) =>
+  arrived
+    .filter(
+      ({ how, origin, site }) =>
+        origin === 'null' ||
+        site === 'cross-site' ||
+        (how.includes('/plugin-box') &&
+          !(how === 'GET /plugin-box/box.html' && site === 'same-origin')),
+    )
+    .map(({ how }) => how)
+
 /** The name a test itself asks for, which a log that was kept holds. */
 const ASKED = 'asked-by-the-test'
 
@@ -588,7 +636,12 @@ for (const [name, browsers] of [
       // test. Elsewhere they run where they can, and are skipped where they can't.
       const must = name === 'Chromium' || process.env.LUMOVI_E2E_BROWSERS === 'all'
       test.skip(!must && Boolean(process.env.CI), 'CI’s Browsers job runs it')
-      const { url } = await served(serve, env)
+      // Lumovi behind a proxy that keeps what arrives, at the address the server is told is
+      // its own: so what the server itself was asked is known, a box's own host with it.
+      const port = await freePort()
+      const behind = await serve({ env: { LUMOVI_URL: `http://127.0.0.1:${port}`, ...env } })
+      const front = await recording(port, new URL(behind.url))
+      const url = front.url
       const log =
         name === 'Chromium'
           ? join(mkdtempSync(join(tmpdir(), 'lumovi-net-log-')), 'net-log.json')
@@ -633,7 +686,20 @@ for (const [name, browsers] of [
         const tries = (names: string[]) => names.filter((id) => id !== ASKED)
         return { lookedUp: tries(lookedUp), anywhere: tries(anywhere) }
       }
-      return { page, url, free, done: () => browser!.close(), named: log ? named : undefined }
+      return {
+        page,
+        url,
+        free,
+        /** What the server has been asked so far. */
+        arrived: front.arrived,
+        /** The box's own address there. */
+        box: `${url}plugin-box/box.html`,
+        done: async () => {
+          await browser!.close()
+          await front.close()
+        },
+        named: log ? named : undefined,
+      }
     }
 
     test('its code runs in a worker and answers in text; too much, or silence, ends it', async ({
@@ -806,14 +872,21 @@ for (const [name, browsers] of [
     })
 
     test('from the worker, nothing gets out', async ({ serve }) => {
-      const { page, done, named } = await pageIn(serve)
+      const { page, done, named, arrived, box } = await pageIn(serve)
       try {
+        const loaded = arrived.length
         const { tried, out, saw, changed } = await tryAll('worker', page, catchers, {
           named: !!named,
+          box,
         })
         await test.info().attach('saw', { body: JSON.stringify({ out, changed, saw }, null, 2) })
         expect(tried).toBeGreaterThan(40)
         expect(out).toEqual({})
+        // Nor did anything of it reach the server that serves the box, which no stand-in
+        // elsewhere would see: its own address asked for with something added, as a script or
+        // as anything else. From first to last the server was asked for the box's document by
+        // Lumovi's page, and by a box for nothing.
+        expect(askedByABox(arrived.slice(loaded))).toEqual([])
         // Nor did any of them leave a mark on the box's own page: after each, its document
         // was as Lumovi serves it, every element and attribute. On a server that page is held
         // by one thing alone, that no plugin's code runs on it.
@@ -830,6 +903,59 @@ for (const [name, browsers] of [
       }
     })
 
+    test('what its code can read of its box’s policy holds no address to ask for; and the box’s own addresses, asked for as scripts with something added, reach nobody', async ({
+      serve,
+    }) => {
+      const { page, url, done, arrived } = await pageIn(serve)
+      try {
+        const loaded = arrived.length
+        await open(page, 'reads', READS_ITS_POLICY)
+        const heard = () =>
+          page.evaluate(() => (window as unknown as OnPage).__boxes.reads!.heard.slice(1))
+        await expect.poll(async () => (await heard()).length, { timeout: 15_000 }).toBe(1)
+        const read = JSON.parse((await heard())[0]!) as {
+          raised: number
+          script: string
+          addresses: string[]
+        }
+        await test.info().attach('read', { body: JSON.stringify(read, null, 2) })
+        console.log(`${name}, of its box’s policy, its code read: ${JSON.stringify(read)}`)
+        // Chromium and Firefox hand a worker the whole policy with a refusal; WebKit hands it
+        // nothing. Where it's handed: its script is named by a hash, and the one address in it
+        // is the page that may show the box (and, in Firefox, the box's own document's). None
+        // is a script's.
+        if (name !== 'WebKit') expect(read.raised).toBeGreaterThan(0)
+        if (read.raised > 0) expect(read.script).toMatch(/^'sha256-[A-Za-z0-9+/]{43}='$/)
+        const origin = new URL(url).origin
+        expect(
+          read.addresses.filter(
+            (address) => ![origin, `${url}plugin-box/box.html`].includes(address),
+          ),
+        ).toEqual([])
+        // Given the addresses all the same (as a plugin written for one server would have
+        // them): the one its script had before it was in the document, and the document's.
+        for (const address of [`${url}plugin-box/box.js`, `${url}plugin-box/box.html`]) {
+          const before = (await heard()).length
+          await page.evaluate(
+            (address) => (window as unknown as OnPage).__boxes.reads!.box.post({ address }),
+            address,
+          )
+          await expect
+            .poll(async () => (await heard()).length, { timeout: 15_000 })
+            .toBe(before + 1)
+          expect(JSON.parse((await heard()).at(-1)!)).toEqual({
+            address,
+            came: expect.stringMatching(/^refused /),
+          })
+        }
+        // (What's on its way has the time to arrive.) The server was asked for neither.
+        await pause(500)
+        expect(askedByABox(arrived.slice(loaded))).toEqual([])
+      } finally {
+        await done()
+      }
+    })
+
     test('with the box’s wall taken away, what its code asks for leaves, and is caught: the tests can tell', async ({
       serve,
     }) => {
@@ -839,18 +965,25 @@ for (const [name, browsers] of [
       // It is the control for the ways that wall holds, the requests. The ways judged by what
       // the code saw of them (text made into code, a way back to what was taken away) have no
       // run without their wall on a server: they rest on that judging alone.
-      const { page, done, named } = await pageIn(serve, {
+      const { page, done, named, arrived, box } = await pageIn(serve, {
         LUMOVI_TEST_BOX_WALL_OFF: 'connect-src',
       })
       try {
+        const loaded = arrived.length
         const { out, saw } = await tryAll('worker', page, catchers, {
           only: 'request',
           named: !!named,
+          box,
         })
         await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
         console.log(`${name}, with the wall taken away, got out: ${JSON.stringify(out)}`)
         expect(out['fetch-other']).toContain('a request to another host')
         expect(Object.keys(out).length).toBeGreaterThan(3)
+        // And what a worker asks of the box's own host is seen by what serves it: the judge
+        // of the ways no stand-in can see.
+        expect(askedByABox(arrived.slice(loaded))).toContain(
+          'GET /plugin-box/box.html?d=SECRET-fetch-box-document',
+        )
         // (In Chromium its own log names what it asked for, too: each host that got out.)
         if (named) expect((await named()).lookedUp).toContain('fetch-other')
       } finally {
