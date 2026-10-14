@@ -1516,10 +1516,13 @@ export function Pill({
   level,
   word,
   className,
+  after,
 }: {
   level: Health
   word?: Their
   className?: string
+  /** Lumovi's, after the word: how long what it says has gone on. */
+  after?: ReactNode
 }) {
   const style = HEALTH_STYLE[level]
   const Icon = style.icon
@@ -1540,6 +1543,7 @@ export function Pill({
       <span className="truncate" title={word ? tooltip(word.their) : undefined}>
         <TheirText text={word} inline />
       </span>
+      {after !== undefined && <span className="shrink-0 tabular-nums opacity-75">{after}</span>}
     </span>
   )
 }

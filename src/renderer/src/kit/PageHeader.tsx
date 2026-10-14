@@ -7,7 +7,7 @@
  * aren't offered: one line says where they are. What a button does, where the plugin says, is
  * under them; and one it says can't be pressed now is off, and says why.
  */
-import { Ellipsis, Info } from 'lucide-react'
+import { Ellipsis, Info, LoaderCircle } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import {
   createContext,
@@ -22,6 +22,7 @@ import {
 import { spelled } from '@shared/kit/characters'
 import type { ListDestination, ReachDestination } from '@shared/kit/declare'
 import { BUTTONS_SHOWN, filledLast, type HeaderButton, type HeaderProps } from '@shared/kit/page'
+import { BusyButton, Elapsed } from '@renderer/components/Busy'
 import { Button } from '@renderer/components/Button'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
@@ -158,6 +159,20 @@ function Action({
 }) {
   const reason = useId()
   const tip = goesTip(button)
+  // At work: where it was, busy, and a press of it goes nowhere.
+  if (button.busy) {
+    const since = button.busy.since === undefined ? NaN : Date.parse(button.busy.since)
+    return (
+      <BusyButton
+        name={spelled(button.name.their)}
+        word={spelled(button.busy.word.their)}
+        {...(Number.isFinite(since) ? { since } : {})}
+        className={className}
+      >
+        <TheirText text={button.busy.word} inline />
+      </BusyButton>
+    )
+  }
   if (tip) {
     // (A link: never the filled one, and where it goes is Lumovi's to say.)
     return (
@@ -214,6 +229,28 @@ function Action({
  */
 function Folded({ button, onPress }: { button: HeaderButton; onPress: () => void }) {
   const reason = useId()
+  if (button.busy) {
+    const since = button.busy.since === undefined ? NaN : Date.parse(button.busy.since)
+    return (
+      <DropdownMenu.Item
+        className={cn(menuItem, 'text-ink-2')}
+        data-busy=""
+        aria-label={`${called(button)}, busy: ${spelled(button.busy.word.their).toLowerCase()}`}
+        aria-disabled="true"
+        onSelect={(event) => event.preventDefault()}
+      >
+        <LoaderCircle aria-hidden className="animate-spin text-ink-3" />
+        <span className="flex-1">
+          <TheirText text={button.busy.word} inline />
+        </span>
+        {Number.isFinite(since) && (
+          <span className="text-xs text-ink-3 tabular-nums">
+            <Elapsed since={since} />
+          </span>
+        )}
+      </DropdownMenu.Item>
+    )
+  }
   if (!button.off) {
     return (
       <DropdownMenu.Item
@@ -373,8 +410,12 @@ export function PageHeader({
   // (What it's measured by, as one key: a page drawn anew with the same buttons isn't remeasured.)
   const drawnAs = fitKey(
     spelled(header.name.their),
-    header.status?.word.their ?? '',
-    ordered.map((button) => `${spelled(button.name.their)}${button.asks ? '…' : ''}`),
+    `${header.status?.word.their ?? ''} ${header.secondStatus?.word.their ?? ''}`,
+    ordered.map((button) =>
+      button.busy
+        ? `${spelled(button.busy.word.their)}${button.busy.since ? ' 00m 00s' : ''}`
+        : `${spelled(button.name.their)}${button.asks ? '…' : ''}`,
+    ),
   )
   useLayoutEffect(() => {
     const group = groupRef.current
@@ -394,11 +435,26 @@ export function PageHeader({
   }, [drawnAs])
   // What it's of, as a screen reader says it: spelled.
   const named = spelled(header.name.their)
-  const status = header.status?.level && (
-    <Pill level={header.status.level} word={header.status.word} className="shrink-0" />
+  const second = header.secondStatus
+  const secondSince = second?.since === undefined ? NaN : Date.parse(second.since)
+  const status = (header.status?.level || second) && (
+    <span className="flex shrink-0 items-center gap-1.5">
+      {header.status?.level && (
+        <Pill level={header.status.level} word={header.status.word} className="shrink-0" />
+      )}
+      {second && (
+        <Pill
+          level={second.level}
+          word={second.word}
+          className="shrink-0"
+          {...(Number.isFinite(secondSince) ? { after: <Elapsed since={secondSince} /> } : {})}
+        />
+      )}
+    </span>
   )
-  // Why it's so, where the plugin says: under the name and its word, two lines at most.
-  const why = header.status?.detail
+  // Why it's so, where the plugin says: under the name and its words, two lines at most (what's
+  // happening now, where it says, before the first's).
+  const why = second?.detail ?? header.status?.detail
   const detail = why && (
     <p
       // (Whole in its tooltip, spelled: a line is 500 characters at most.)
