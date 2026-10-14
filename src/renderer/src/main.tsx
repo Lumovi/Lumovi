@@ -23,8 +23,8 @@ document.documentElement.dataset.host = api.host
 // yet, and a release build has none of it.
 declare const LUMOVI_TEST_BUILD: boolean
 if (LUMOVI_TEST_BUILD) {
-  void import('./plugins/box').then(({ openBox }) => {
-    ;(window as unknown as { __lumoviBox: unknown }).__lumoviBox = { openBox }
+  void import('./plugins/box').then(({ openBox, openBoxBare }) => {
+    ;(window as unknown as { __lumoviBox: unknown }).__lumoviBox = { openBox, openBoxBare }
   })
   void import('./plugins/stage').then(({ stage }) => {
     ;(window as unknown as { __lumoviDoor: unknown }).__lumoviDoor = stage

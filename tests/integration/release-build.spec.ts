@@ -39,6 +39,11 @@ const TESTS_ONLY = [
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',
+  // And the box they open with nothing taken away by the worker's first lines: by its name,
+  // by what makes its worker's text, and by that text's own first line.
+  'openBoxBare',
+  'workerTextBare',
+  'lumovi: first lines taken away',
   // The page the kit's parts are seen and tested on.
   'lumovi-kit-page',
   // And the stage a test plugin's page is drawn on, with the door's checks it lends the tests.
