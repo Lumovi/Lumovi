@@ -36,8 +36,12 @@ env:
 
 jobs:
   repeat:
-    name: ${{ inputs.times || '50' }} times on ${{ inputs.os || 'windows-latest' }}
-    runs-on: ${{ inputs.os || 'windows-latest' }}
+    name: ${{ inputs.times || '25' }} times on ${{ inputs.os || 'ubuntu-latest' }} (${{ matrix.shard }})
+    runs-on: ${{ inputs.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -51,7 +55,7 @@ jobs:
         timeout-minutes: 12
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            npx playwright install --with-deps chromium
+            npx playwright install --with-deps chromium firefox webkit
           else
             npx playwright install chromium
           fi
@@ -64,12 +68,16 @@ jobs:
         shell: bash
         env:
           LUMOVI_E2E_OPAQUE: ${{ runner.os != 'macOS' && '1' || '' }}
-          SPEC: ${{ inputs.spec || 'tests/web/audit.spec.ts' }}
-          GREP: ${{ inputs.grep || 'one Lumovi keeps a history|started at the same moment|another took over|two containers of one name|can’t reach its lock|folder goes while|held up while another' }}
-          TIMES: ${{ inputs.times || '50' }}
+          LUMOVI_E2E_BROWSERS: all
+          SPEC: ${{ inputs.spec || 'tests/web/plugin-box.spec.ts' }}
+          GREP: ${{ inputs.grep || 'on the box’s own page, only what’s named gets out' }}
+          TIMES: ${{ inputs.times || '25' }}
+          SHARD: ${{ matrix.shard }}
         # No second tries: a test that passes on its retry has failed here.
         run: |
-          run=(npx playwright test "$SPEC" --grep "$GREP" --repeat-each "$TIMES" --retries 0)
+          # shellcheck disable=SC2086
+          run=(npx playwright test $SPEC --repeat-each "$TIMES" --retries 0 --shard "$SHARD")
+          if [ -n "$GREP" ]; then run+=(--grep "$GREP"); fi
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run --auto-servernum "${run[@]}"
           else
@@ -78,7 +86,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: ${{ failure() }}
         with:
-          name: playwright-report-repeat
+          name: playwright-report-repeat-${{ strategy.job-index }}
           path: |
             playwright-report/
             test-results/
