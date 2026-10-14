@@ -7,6 +7,7 @@ import type { Locator, Page } from '@playwright/test'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { DEMO } from '../../tests/mock-cluster/kubeconfig.ts'
+import { Assistant, callback } from '../../tests/web/assistant-oauth.ts'
 import { CLUSTERS } from './clusters.ts'
 
 /** What AI assistants send to connect, in the screenshots (index.ts sets it). */
@@ -26,6 +27,8 @@ export interface Screen {
   server?: 'token' | 'sso' | 'proxy' | 'fleet' | 'audit' | 'access'
   /** Where it starts: a path in the app. */
   path: string
+  /** On a phone, held upright, by touch (images.ts's PHONE): served from a cluster only. */
+  phone?: boolean
   /**
    * `relative`: the desktop app started with KUBECONFIG=.kube/config, for a page that shows the
    * kubeconfig's path as it was given. As ~/.kube/config, it'd show the temporary home's.
@@ -116,6 +119,45 @@ const assistantAsks = (name: string, args: Record<string, unknown>) => {
   void assistant!
     .callTool({ name, arguments: { cluster: CLUSTERS.production, ...args } })
     .catch(() => undefined)
+}
+
+/**
+ * Claude Code, connected to Lumovi served from a cluster: it asks, the person the page is signed
+ * in as allows it on Lumovi's page, and it signs in with the code (OAuth, as the server has it).
+ */
+let served: Client | undefined
+
+const assistantSignsIn = async (page: Page) => {
+  const to = page.url()
+  const back = await callback()
+  const assistant = new Assistant(back.url)
+  const endpoint = new URL('/mcp', to)
+  // (Turned away at first: that's what sends the person to allow it.)
+  await new Client({ name: 'claude-code', version: '2.0.0' })
+    .connect(new StreamableHTTPClientTransport(endpoint, { authProvider: assistant }))
+    .catch(() => undefined)
+  await page.goto(assistant.authorizationUrl!.href)
+  await page.getByRole('button', { name: 'Allow' }).click()
+  const code = (await back.answer).get('code')!
+  back.close()
+  await new StreamableHTTPClientTransport(endpoint, { authProvider: assistant }).finishAuth(code)
+  served = new Client({ name: 'claude-code', version: '2.0.0' })
+  await served.connect(new StreamableHTTPClientTransport(endpoint, { authProvider: assistant }))
+  await page.goto(to)
+}
+
+/** A change it asks for, served (it waits for an answer: that's not waited for). */
+const servedAsks = (name: string, args: Record<string, unknown>) => {
+  void served!
+    .callTool({ name, arguments: { cluster: CLUSTERS.production, ...args } })
+    .catch(() => undefined)
+}
+
+/** It leaves: what it asked for that's still waiting is withdrawn. */
+const servedLeaves = async () => {
+  await (served!.transport as StreamableHTTPClientTransport).terminateSession()
+  await served!.close()
+  served = undefined
 }
 
 /** It leaves: what it asked for that's still waiting is withdrawn. */
@@ -855,5 +897,68 @@ export const SCREENS: Screen[] = [
       await page.keyboard.type('shop')
       await page.getByRole('listbox', { name: 'Workloads found' }).waitFor()
     },
+  },
+  {
+    name: 'phone-overview',
+    title: 'The overview on a phone',
+    description:
+      'Lumovi from a cluster, on a phone: the overview of production, in all namespaces. Nodes ready 3/4 with 1 not ready, 28 pods running with 8 unhealthy, workloads healthy 8/12 with 4 degraded, and 12 warnings in the last hour; then CPU at 41%, 11.4 of 27.5 cores in use, and memory at 52%.',
+    app: 'server',
+    server: 'proxy',
+    phone: true,
+    path: cluster,
+  },
+  {
+    name: 'phone-pods',
+    title: 'A list on a phone',
+    description:
+      'Pods on a phone, in production across all namespaces: 38, with chips for Failing 5, Warning 3, Running 28 and Completed 2. Each pod takes two lines, its name and status, then its namespace, containers ready, restarts and age; failing pods come first, two of them in CrashLoopBackOff.',
+    app: 'server',
+    server: 'proxy',
+    phone: true,
+    path: `${cluster}/pods`,
+  },
+  {
+    name: 'phone-pod',
+    title: 'A pod on a phone',
+    description:
+      'A pod’s page on a phone: storefront-cjt7gd2jtx-75pbc in shop, Running, with Restart and the tabs Overview, Logs, Metrics, Events, Audit and YAML. Its details (when it was created, its ReplicaSet, node, IPs, QoS class, service account and restart policy), then its containers, first the init container migrate, completed.',
+    app: 'server',
+    server: 'proxy',
+    phone: true,
+    path: `${cluster}/pods?open=Pod/shop/${storefrontPod}`,
+  },
+  {
+    name: 'phone-approval',
+    title: 'Approving an AI assistant’s change on a phone',
+    description:
+      'An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 5:00 more, with Reject… and Approve.',
+    app: 'server',
+    // (A server whose clock is the page's: how long the change still waits reads true.)
+    server: 'audit',
+    phone: true,
+    path: cluster,
+    async steps(page) {
+      await assistantSignsIn(page)
+      servedAsks('scale', {
+        kind: 'deployment',
+        namespace: 'shop',
+        name: DEMO.deployments.storefront,
+        replicas: 5,
+        reason:
+          'Checkout latency has doubled since 14:00 and storefront’s pods are at 95% CPU: two more replicas spread the load.',
+      })
+      await page.getByRole('button', { name: /change from Claude Code waits for you/ }).click()
+      const sheet = page.getByRole('dialog', { name: 'Scale Deployment storefront to 5 replicas' })
+      // (Approve waits its moment after the sheet opens, so a tap meant for the pill answers
+      // nothing: it's shown once it can be pressed, and a run where it can't be is no picture.)
+      const approve = sheet.getByRole('button', { name: /^Approve/ })
+      await approve.waitFor()
+      for (let tries = 0; !(await approve.isEnabled()); tries++) {
+        if (tries === 50) throw new Error('Approve was still off 5 s after the sheet opened.')
+        await page.waitForTimeout(100)
+      }
+    },
+    after: servedLeaves,
   },
 ]

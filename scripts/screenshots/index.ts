@@ -34,6 +34,7 @@ import {
   remove,
   same,
   sizeCheck,
+  sizeOf,
   WIDTH,
   type Theme,
 } from './images.ts'
@@ -65,9 +66,18 @@ async function startClusters() {
       reject(new Error(`The mock clusters stopped before they started (exit code ${code}).`)),
     )
   })
-  const { kubeconfig } = JSON.parse(line) as { kubeconfig: string }
+  const { kubeconfig, ports } = JSON.parse(line) as { kubeconfig: string; ports: number[] }
+  // What's never to be seen: where the clusters really are, and the proxy that takes their
+  // names there (clusters.ts).
+  const { clusters: entries } = parse(readFileSync(kubeconfig, 'utf8')) as {
+    clusters: { cluster: { 'proxy-url'?: string } }[]
+  }
+  const proxies = entries.flatMap(({ cluster }) =>
+    cluster['proxy-url'] ? [new URL(cluster['proxy-url']).host] : [],
+  )
   return {
     kubeconfig,
+    unseen: [...new Set([...proxies, ...ports.map((port) => `127.0.0.1:${port}`)])],
     async close() {
       const exited = once(child, 'exit')
       child.stdin.end()
@@ -404,9 +414,10 @@ async function shoot(
     await page.waitForTimeout(500)
     await screen.steps?.(page)
     await nothingOfThisComputer(page)
+    await nothingOfTheProxy(page)
     const png = await capture(page, screenshot)
     await screen.after?.(page)
-    await sizeCheck(png)
+    await sizeCheck(png, sizeOf(screen))
     return png
   } catch (error) {
     // What it was waiting for, and how the screen looked then.
@@ -447,6 +458,30 @@ async function nothingOfThisComputer(page: Page) {
 }
 
 /**
+ * Fails when the page shows where the mock clusters really are (127.0.0.1 and their ports), or
+ * the proxy their names go through: a screen shows them by those names only. In its text, what
+ * a field holds, or a tooltip (shown where something's hovered).
+ */
+async function nothingOfTheProxy(page: Page) {
+  const text = await page.evaluate(() =>
+    [
+      document.body.innerText,
+      ...Array.from(
+        document.querySelectorAll('input, textarea'),
+        (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
+      ),
+      ...Array.from(document.querySelectorAll('[title]'), (element) =>
+        element.getAttribute('title'),
+      ),
+    ].join('\n'),
+  )
+  const shown = clusters.unseen.find((address) => text.includes(address))
+  if (shown === undefined) return
+  const line = text.split('\n').find((line) => line.includes(shown))
+  throw new Error(`The page shows where the clusters really are (${shown}): ${line?.trim()}`)
+}
+
+/**
  * Times a screen is taken, at most, before it's said to have changed: once in
  * a while, something on it is laid out a pixel off (it differs every time
  * when it really changed).
@@ -473,7 +508,7 @@ async function take(screen: Screen, theme: Theme, afresh: () => Promise<Buffer>)
     }
     // As it came out most often.
     const { png } = shots.reduce((best, shot) => (shot.seen > best.seen ? shot : best))
-    await keep(DIR, screen.name, theme, png)
+    await keep(DIR, screen.name, theme, png, sizeOf(screen))
     changed.push(label)
     console.log(`  ${label}: ${before ? 'changed' : 'new'}`)
   } catch (error) {
@@ -519,8 +554,10 @@ try {
     for (const theme of THEMES) {
       await take(screen, theme, async () => {
         const context = await browser!.newContext({
-          viewport: { width: WIDTH, height: HEIGHT },
+          viewport: sizeOf(screen),
           deviceScaleFactor: 2,
+          // A phone's: touch, and its page's own width.
+          ...(screen.phone ? { isMobile: true, hasTouch: true } : {}),
           colorScheme: theme,
           reducedMotion: 'reduce',
           locale: 'en-US',

@@ -6,11 +6,14 @@
  * The kubeconfig is .kube/config in a folder of its own (the app is started
  * there, so the clusters page names it the same way every time).
  *
- * Addresses are shown on screen, so they're fixed: 46443 to 46446. Another
- * run at the same time (a check, say) takes others: LUMOVI_MOCK_CLUSTER_PORTS,
- * the first of four in a row, or `free` for any; none takes another's. Each
- * run leaves a note of itself in RUNS while it runs (a folder of the user's
- * own); `npm run screenshots:stop -- <pid>` stops one, and with no pid, all.
+ * Its clusters go by names a real cluster's would (api.prod.eu-west-1.example.com),
+ * as the screens show them: a proxy of its own (proxy.ts, their proxy-url)
+ * takes those names to the mock clusters on this computer. Their ports are
+ * fixed, 46443 to 46446. Another run at the same time (a check, say) takes
+ * others: LUMOVI_MOCK_CLUSTER_PORTS, the first of four in a row, or `free` for
+ * any; none takes another's. Each run leaves a note of itself in RUNS while it
+ * runs (a folder of the user's own); `npm run screenshots:stop -- <pid>` stops
+ * one, and with no pid, all.
  */
 import { execFileSync } from 'node:child_process'
 import {
@@ -30,6 +33,8 @@ import {
   startTestClusters,
   writeKubeconfig,
 } from '../../tests/mock-cluster/kubeconfig.ts'
+import { SHOWN_AS } from '../../tests/mock-cluster/server.ts'
+import { startNamesProxy } from './proxy.ts'
 import { EPOCH, stopClock } from './still.ts'
 
 /** The ports they answer on in the screenshots, and one where nothing does. */
@@ -136,7 +141,7 @@ const holderOf = (ports: number[]): Run | undefined =>
 /** Why they can't start on `ports`, and what to do. */
 function taken(ports: number[], holder: Run | undefined, error?: Error): string {
   const others =
-    'run this one on others: LUMOVI_MOCK_CLUSTER_PORTS=47443, say, or free (the addresses on screen then differ)'
+    'run this one on others: LUMOVI_MOCK_CLUSTER_PORTS=47443, say, or free (the screens show the clusters by their names either way)'
   return holder
     ? `The mock clusters need ports ${ports.join(', ')}, and another run of them has ${holder.ports.join(', ')} (pid ${holder.pid}, since ${holder.started}${holder.by ? `, started by ${holder.by}` : ''}). If it’s yours, stop it (npm run screenshots:stop -- ${holder.pid}); or ${others}.`
     : `The mock clusters need ports ${ports.join(', ')} (${error?.message}). Free them, or ${others}.`
@@ -200,7 +205,7 @@ if (import.meta.main && process.argv[2] === 'stop') {
   }
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-screenshots-'))
   const start = () =>
-    startTestClusters(dir, { jitter: true, ports }).catch((error: Error) => {
+    startTestClusters(dir, { jitter: true, ports, sandboxTls: true }).catch((error: Error) => {
       rmSync(dir, { recursive: true, force: true })
       console.error(taken(Object.values(ports ?? {}), undefined, error))
       process.exit(1)
@@ -211,16 +216,25 @@ if (import.meta.main && process.argv[2] === 'stop') {
     await clusters.close()
     clusters = await start()
   }
+  const used = portsOf(clusters)
+  // Each by the name it's shown by, through the proxy to its own port.
+  const proxy = await startNamesProxy({
+    [SHOWN_AS.demo]: used[0]!,
+    [SHOWN_AS.sandbox]: used[1]!,
+    [SHOWN_AS.large]: used[2]!,
+    [SHOWN_AS.offline]: used[3]!,
+  })
+  const shown = (name: string) => ({ server: `https://${name}`, proxyUrl: proxy.url })
   mkdirSync(join(dir, '.kube'))
   const kubeconfig = writeKubeconfig(
     join(dir, '.kube'),
     {
       currentContext: CLUSTERS.production,
       clusters: [
-        { name: 'production', server: clusters.demo.url, caPem: clusters.demo.caPem },
-        { name: 'staging', server: clusters.sandbox.url, insecure: true },
-        { name: 'load-test', server: clusters.large.url, insecure: true },
-        { name: 'edge', server: clusters.offlineUrl },
+        { name: 'production', ...shown(SHOWN_AS.demo), caPem: clusters.demo.caPem },
+        { name: 'staging', ...shown(SHOWN_AS.sandbox), insecure: true },
+        { name: 'load-test', ...shown(SHOWN_AS.large), insecure: true },
+        { name: 'edge', ...shown(SHOWN_AS.offline) },
       ],
       users: [{ name: 'admin', token: DEMO_TOKEN }, { name: 'developer' }],
       contexts: [
@@ -237,7 +251,6 @@ if (import.meta.main && process.argv[2] === 'stop') {
     },
     'config',
   )
-  const used = portsOf(clusters)
   // Its own, and only its own: never written through a link left in its place.
   const note = join(notes, `${process.pid}.json`)
   rmSync(note, { force: true })
@@ -261,7 +274,7 @@ if (import.meta.main && process.argv[2] === 'stop') {
   const stop = () => {
     if (stopping) return
     stopping = true
-    void clusters.close().finally(() => {
+    void Promise.all([clusters.close(), proxy.close()]).finally(() => {
       rmSync(dir, { recursive: true, force: true })
       rmSync(note, { force: true })
       process.exit(0)

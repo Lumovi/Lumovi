@@ -5,7 +5,7 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import prettier from 'prettier'
-import { filesOf, HEIGHT, WIDTH } from './images.ts'
+import { filesOf, HEIGHT, PHONE, sizeOf, WIDTH } from './images.ts'
 import type { Screen } from './screens.ts'
 
 /** Where the website and docs load them from: jsDelivr, serving this repository's main. */
@@ -21,7 +21,7 @@ function readme(screens: Screen[]): string {
       `[![${screen.description}](${files['1x']})](${files['2x']})`
     return `### ${screen.title}
 
-\`${screen.name}\`${screen.app === 'server' ? ', served from a cluster' : ''}: ${screen.description}
+\`${screen.name}\`${screen.app === 'server' ? ', served from a cluster' : ''}${screen.phone ? ', on a phone' : ''}: ${screen.description}
 
 | Light | Dark |
 | --- | --- |
@@ -42,6 +42,8 @@ Each comes as WebP in two sizes:
 | --- | --- |
 | \`<name>-<theme>.webp\` | ${WIDTH * 2} × ${HEIGHT * 2}, lossless, for high-density screens |
 | \`<name>-<theme>-1x.webp\` | ${WIDTH} × ${HEIGHT}, near-lossless |
+
+A phone's screens (\`phone-…\`) are a phone's size: ${PHONE.width * 2} × ${PHONE.height * 2}, and ${PHONE.width} × ${PHONE.height} at 1×.
 
 Names don't change, so a link keeps showing the latest screenshot. In this repository, link to the file itself. Elsewhere, link to [jsDelivr](https://www.jsdelivr.com), which serves this repository's \`main\` (its cache is cleared for every screenshot that changes there):
 
@@ -91,12 +93,14 @@ function manifest(screens: Screen[]) {
     url: CDN,
     width: WIDTH,
     height: HEIGHT,
-    screenshots: screens.map(({ name, title, description, app }) => ({
-      name,
-      title,
-      description,
-      app,
-      ...both(name),
+    screenshots: screens.map((screen) => ({
+      name: screen.name,
+      title: screen.title,
+      description: screen.description,
+      app: screen.app,
+      // (At 1×: a phone's are a phone's size.)
+      ...sizeOf(screen),
+      ...both(screen.name),
     })),
   }
 }

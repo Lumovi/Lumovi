@@ -12,17 +12,28 @@ export type Theme = 'light' | 'dark'
 export const WIDTH = 1440
 export const HEIGHT = 900
 
+/** A screen's size, in CSS pixels. */
+export interface Size {
+  width: number
+  height: number
+}
+/** A phone's, held upright (the size of a common one's page). */
+export const PHONE: Size = { width: 390, height: 844 }
+/** A screen's size: a phone's, or a desktop's. */
+export const sizeOf = (screen: { phone?: boolean }): Size =>
+  screen.phone ? PHONE : { width: WIDTH, height: HEIGHT }
+
 /** The files of a screenshot, in a theme: 2× and 1×. */
 export const filesOf = (name: string, theme: Theme) => ({
   '2x': `${name}-${theme}.webp`,
   '1x': `${name}-${theme}-1x.webp`,
 })
 
-/** Fails unless a capture is 2× the screen's size: anything else would be kept stretched. */
-export async function sizeCheck(capture: Buffer): Promise<void> {
+/** Fails unless a capture is 2× the screen's `size`: anything else would be kept stretched. */
+export async function sizeCheck(capture: Buffer, size: Size): Promise<void> {
   const { width, height } = await sharp(capture).metadata()
-  if (width !== WIDTH * 2 || height !== HEIGHT * 2) {
-    throw new Error(`Captured at ${width} × ${height}, not ${WIDTH * 2} × ${HEIGHT * 2}`)
+  if (width !== size.width * 2 || height !== size.height * 2) {
+    throw new Error(`Captured at ${width} × ${height}, not ${size.width * 2} × ${size.height * 2}`)
   }
 }
 
@@ -45,8 +56,8 @@ export function same(a: Buffer, b: Buffer): boolean {
   return true
 }
 
-/** Keeps a capture (a 2× PNG) as the screenshot `name` in `theme`. */
-export async function keep(dir: string, name: string, theme: Theme, capture: Buffer) {
+/** Keeps a capture (a 2× PNG of a screen `size`) as the screenshot `name` in `theme`. */
+export async function keep(dir: string, name: string, theme: Theme, capture: Buffer, size: Size) {
   const files = filesOf(name, theme)
   await Promise.all([
     // Lossless: text stays sharp, and it's as small as lossy would be at a quality that kept it so.
@@ -54,7 +65,7 @@ export async function keep(dir: string, name: string, theme: Theme, capture: Buf
     // A plain linear filter, much as if drawn at 1× (sharper ones ring around text, and
     // compress worse); near-lossless takes off a further quarter.
     sharp(capture)
-      .resize(WIDTH, HEIGHT, { kernel: 'linear' })
+      .resize(size.width, size.height, { kernel: 'linear' })
       .webp({ nearLossless: true, quality: 60, effort: 6 })
       .toFile(join(dir, files['1x'])),
   ])
