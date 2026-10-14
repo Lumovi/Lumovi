@@ -40,6 +40,8 @@ export interface ActionDialogProps {
   subject: string
   /** The kubectl command that does the same, kept in sync with the form. */
   command: string
+  /** Lumovi's line under the command, about what it shows. */
+  commandNote?: string
   confirmLabel: string
   tone?: 'default' | 'danger'
   /** A name the user types before a destructive change goes through. */
@@ -69,6 +71,7 @@ export function ActionDialog({
   name,
   subject,
   command,
+  commandNote,
   confirmLabel,
   tone = 'default',
   typeToConfirm,
@@ -212,6 +215,7 @@ export function ActionDialog({
                 <code className="block font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-2 selectable">
                   <CommandWords text={command} />
                 </code>
+                {commandNote && <p className="mt-1.5 text-xs text-ink-3">{commandNote}</p>}
                 <span className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch:opacity-100">
                   {api.host === 'desktop' && (
                     <IconButton

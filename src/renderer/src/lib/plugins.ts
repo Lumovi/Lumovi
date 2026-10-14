@@ -10,6 +10,7 @@
  * read fields with JSONPath and change objects only with the patches they spell out.
  * The format: https://docs.lumovi.dev/reference/plugin-format.
  */
+import type { Health } from '@shared/health'
 import { jsonPath } from '@shared/jsonpath'
 import {
   EXPRESSION,
@@ -254,8 +255,10 @@ function filled(
       const found = text(jsonPath(object, path))
       return managed && (found === '' || found?.includes(MANAGING_MARK)) ? undefined : found
     }
-    const value = inputs[path.slice('input.'.length)]!
-    return value === '' ? undefined : String(value)
+    const value = inputs[path.slice('input.'.length)]
+    // (In a longer text, a choice's value that's an object or a list is its JSON.)
+    if (value === '' || value === undefined) return undefined
+    return typeof value === 'object' ? JSON.stringify(value) : String(value)
   }
   let whole = true
   const out = template.replace(PLACEHOLDER, (_, expression: string) => {
@@ -344,6 +347,27 @@ export function actionBusy(
   const [at] = state.since ? jsonPath(object, state.since) : []
   const since = typeof at === 'string' ? Date.parse(at) : NaN
   return { word: state.word, ...(Number.isFinite(since) ? { since } : {}) }
+}
+
+/**
+ * How a view's action's work ended on `object`, as its file's `ends` says it: the word and level
+ * of the value at its path, and the message beside it (cut at 500 characters). Nothing while one
+ * of its busy states holds, where its file says no end, or where the value is none it names.
+ */
+export function actionEnded(
+  action: ViewAction,
+  object: unknown,
+): { word: string; level: Health; message?: string } | undefined {
+  if (!action.ends || actionBusy(action, object)) return undefined
+  const [value] = jsonPath(object, action.ends.path)
+  const found = action.ends.values.find((each) => each.value === value)
+  if (!found) return undefined
+  const [message] = action.ends.message ? jsonPath(object, action.ends.message) : []
+  return {
+    word: found.word,
+    level: found.level,
+    ...(typeof message === 'string' && message !== '' ? { message: message.slice(0, 500) } : {}),
+  }
 }
 
 export function inputOptions(input: ViewInput, object: unknown): string[] {

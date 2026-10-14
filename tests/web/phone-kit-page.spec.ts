@@ -404,6 +404,8 @@ test('on a phone, a table’s bar is the field and Filters, which opens its filt
   await expect(cards).toHaveCount(5)
   await apps.getByRole('textbox', { name: 'Search Applications' }).fill('pay')
   await expect(cards).toHaveCount(1)
+  // Nothing is ticked on a phone: no box on a card, nor in the headings.
+  await expect(apps.getByRole('checkbox')).toHaveCount(0)
   await expectNoSidewaysScroll(page, 'a table’s bar, on a phone')
   await expectFingerSized(page, 'a table’s bar, on a phone')
 })

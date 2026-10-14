@@ -257,6 +257,12 @@ export const table = {
     filters: list(filter, TABLE_LIMITS.filters),
     /** A field in the bar that keeps the rows whose name, or the word beside it, has what's typed. */
     search: yesOrNo,
+    /**
+     * Rows that open an object can be ticked, with a box at each and one in the headings for all
+     * shown. Lumovi's own bar then offers its file's actions that say `bulk` for them; the plugin
+     * is told nothing of what's ticked, and starts nothing.
+     */
+    ticks: yesOrNo,
     /** Pressed a row that opens something (Lumovi opens the object itself). */
     onOpen: handler('open'),
     /** Pressed "Try again" of a table that failed. */

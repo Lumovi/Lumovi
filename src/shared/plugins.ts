@@ -148,16 +148,27 @@ export interface ViewManages {
 }
 
 /** What an action's inputs were given: numbers for number inputs, and text ('' when left empty). */
-export type InputValues = Record<string, string | number>
+/** What an action's inputs were given: text, a number, yes or no, or a choice's value as it is. */
+export type InputValues = Record<string, unknown>
 
 /** A value an action asks for before it runs, filled in where its templates say `{{ input.name }}`. */
 export interface ViewInput {
   name: string
   label: string
-  /** `text` (the default), a `number`, or a `choice` of `options`, or of what `from` finds. */
-  type: 'text' | 'number' | 'choice'
+  /**
+   * `text` (the default), a `number`, a `switch` (yes or no, `true` or `false` where it's a whole
+   * value), or a `choice` of `options`, of what `from` finds, or of `choices`: labels the person
+   * picks among, each filling in its value as it is.
+   */
+  type: 'text' | 'number' | 'choice' | 'switch'
   options?: Scalar[]
   from?: string
+  choices?: { label: string; value: unknown }[]
+  /**
+   * `false`: not asked where the action is done to several at once (`bulk`); its `default` fills
+   * it in for each.
+   */
+  bulk?: boolean
   /** A template for the value it starts with. */
   default?: string
 }
@@ -175,9 +186,30 @@ export interface ActionBusy {
   since?: string
 }
 
+/** How an action's work ends, read off its own object: a path, and what its values are said as. */
+export interface ActionEnds {
+  /** Where the outcome is, on the action's own object. */
+  path: string
+  /** The values it ends on, each with its word and level ("Failed", critical). */
+  values: { value: Scalar; word: string; level: Health }[]
+  /** Where the message beside the outcome is, on the same object. */
+  message?: string
+}
+
 export interface ViewAction {
   name: string
   icon?: ViewIconName
+  /**
+   * Offered in Lumovi's own bar for rows a person ticks, done to each of them: its inputs asked
+   * once (those that say `bulk: false` filled in by their defaults), each judged on its own
+   * object and sent with the version it was judged on.
+   */
+  bulk?: boolean
+  /**
+   * How its work ends, once its `busy` no longer holds: Lumovi follows each it sent until then,
+   * and says how it ended, in these words, and nothing else of the object.
+   */
+  ends?: ActionEnds
   /**
    * Offered while this holds, and hidden while it doesn't; and where it holds, what the action
    * changes goes with the object's version it was judged on, so if the object has changed since,
@@ -396,6 +428,8 @@ type Shape =
   | 'managing'
   | 'regex'
   | 'patch'
+  /** Any value JSON can hold: a choice's value, filled in as it is. */
+  | 'json'
   | { oneOf: readonly string[] }
   /** `most`: how many it can hold. */
   | { list: Shape; nonEmpty?: boolean; most?: number }
@@ -486,23 +520,49 @@ const fieldShape: Shape = {
 
 const INPUT_NAME = /^[A-Za-z_]\w*$/
 
+/** How many labelled values a choice may offer. */
+export const CHOICES_MOST = 20
+
 const inputShape: Shape = {
   fields: {
     name: { shape: 'string', required: true },
     label: { shape: 'string', required: true },
-    type: { oneOf: ['text', 'number', 'choice'] },
+    type: { oneOf: ['text', 'number', 'choice', 'switch'] },
     options: { list: 'scalar', nonEmpty: true },
     from: 'path',
+    choices: {
+      list: {
+        fields: {
+          label: { shape: 'string', required: true },
+          value: { shape: 'json', required: true },
+        },
+      },
+      nonEmpty: true,
+      most: CHOICES_MOST,
+    },
     default: 'template',
+    bulk: 'boolean',
   },
   refine: (input) => {
     if (!INPUT_NAME.test(input.name as string)) {
       return `${quoted(input.name)} should be letters, digits and _, like replicas`
     }
     const choice = input.type === 'choice'
-    const given = [input.options, input.from].filter((v) => v !== undefined).length
-    if (choice && given !== 1) return 'a choice needs options, or a path to read them from'
-    return !choice && given > 0 ? 'only a choice has options' : undefined
+    const given = [input.options, input.from, input.choices].filter((v) => v !== undefined).length
+    if (choice && given !== 1) {
+      return 'a choice needs one of options, choices, or a path to read them from'
+    }
+    if (!choice && given > 0) return 'only a choice has options or choices'
+    if (input.type === 'switch' && input.default !== undefined) {
+      if (input.default !== 'true' && input.default !== 'false') {
+        return 'a switch starts as true or false'
+      }
+    }
+    // (One left out of several needs what it's filled in with there.)
+    if (input.bulk === false && input.default === undefined) {
+      return 'one not asked for several needs a default to fill it in there'
+    }
+    return undefined
   },
 }
 
@@ -587,6 +647,17 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
   if ((a.patch === undefined) === (a.create === undefined)) {
     return 'needs a patch, or an object to create (not both)'
   }
+  // Done to several at once: a change to each, its inputs asked once for all of them; never one
+  // read off a single object.
+  if (a.bulk === true) {
+    if (a.create !== undefined) return 'only a patch is done to several at once, never a create'
+    const read = ((a.inputs ?? []) as { name: string; from?: string; bulk?: boolean }[]).find(
+      (input) => input.from !== undefined && input.bulk !== false,
+    )
+    if (read) {
+      return `{{ input.${read.name} }} reads its choices off one object: say bulk: false on it to do this to several`
+    }
+  }
   if (a.create !== undefined) {
     const { apiVersion, kind, metadata } = a.create as Record<string, unknown>
     const { name, generateName } = (metadata ?? {}) as Record<string, unknown>
@@ -621,6 +692,24 @@ function actionProblem(a: Record<string, unknown>): string | undefined {
   ]).matchAll(INPUT_PLACEHOLDER)
   const unknown = [...used].find(([, name]) => !inputs.has(name!))
   if (unknown) return `{{ input.${unknown[1]} }} isn’t one of its inputs`
+  // What the person reads is words: a choice whose values are objects or lists fills a patch,
+  // never a sentence (it would read as JSON).
+  const valued = new Set(
+    ((a.inputs ?? []) as { name: string; choices?: { value: unknown }[] }[])
+      .filter((input) =>
+        input.choices?.some((c) => c.value !== null && typeof c.value === 'object'),
+      )
+      .map((input) => input.name),
+  )
+  const worded = (['confirm', 'confirmTitle', 'confirmButton', 'done'] as const).flatMap((field) =>
+    [...JSON.stringify(a[field] ?? '').matchAll(INPUT_PLACEHOLDER)]
+      .filter(([, name]) => valued.has(name!))
+      .map(
+        ([, name]) =>
+          `${field}: {{ input.${name} }} has values that aren’t words, so it can only fill the patch`,
+      ),
+  )
+  if (worded[0]) return worded[0]
   const guarded =
     metadataProblem(a.patch, GUARDED_IN_A_PATCH) ??
     metadataProblem(a.undo, GUARDED_IN_A_PATCH) ??
@@ -766,6 +855,27 @@ const VIEW_SHAPE: Shape = {
           },
           same: { list: 'path', nonEmpty: true, most: 4 },
           inputs: { list: inputShape, nonEmpty: true },
+          bulk: 'boolean',
+          ends: {
+            fields: {
+              path: { shape: 'path', required: true },
+              values: {
+                shape: {
+                  list: {
+                    fields: {
+                      value: { shape: 'scalar', required: true },
+                      word: { shape: 'string', required: true },
+                      level: { shape: { oneOf: HEALTHS }, required: true },
+                    },
+                  },
+                  nonEmpty: true,
+                  most: 8,
+                },
+                required: true,
+              },
+              message: 'path',
+            },
+          },
           patch: 'patch',
           create: 'patch',
           type: { oneOf: ['merge', 'json'] },
@@ -1858,6 +1968,8 @@ function check(value: unknown, shape: Shape, where: string, noun: string): strin
         return typeof value === 'object' && value !== null
           ? []
           : fail(`should be a patch (an object or a list), not ${describe(value)}`)
+      case 'json':
+        return value === undefined ? fail('should be a value') : []
       default: {
         if (typeof value !== 'string') return fail(`should be text, not ${describe(value)}`)
         try {

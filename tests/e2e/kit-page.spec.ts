@@ -697,3 +697,38 @@ test('a count that opens: Lumovi opens where it says, the plugin’s own page wi
   // One without a destination is no button.
   await expect(counts.getByRole('button', { name: /^Unknown/ })).toHaveCount(0)
 })
+
+test('rows that open an object tick: one at a time, all shown at once, and by Space; the plugin is told nothing', async ({
+  page,
+}) => {
+  await frame(page)
+  const apps = page.getByRole('region', { name: 'Applications table', exact: true })
+  const ticked = page.getByLabel('Ticked', { exact: true })
+  await expect(ticked).toHaveText('Nothing ticked')
+  // A row that opens nothing has no box.
+  await expect(apps.getByRole('checkbox', { name: /^Select [a-z-]+$/ })).toHaveCount(4)
+  await apps.getByRole('checkbox', { name: 'Select storefront' }).check()
+  await apps.getByRole('checkbox', { name: 'Select payments' }).check()
+  await expect(ticked).toHaveText('storefront, payments')
+  // The headings' box: a dash while some are ticked; pressed, every row shown.
+  const all = apps.getByRole('checkbox', { name: 'Select every row shown' })
+  expect(await all.evaluate((box: HTMLInputElement) => box.indeterminate)).toBe(true)
+  await all.check()
+  await expect(ticked).toHaveText(/^storefront, payments, checkout, legacy-batch$/)
+  await all.uncheck()
+  await expect(ticked).toHaveText('Nothing ticked')
+  // Filtered, only those shown are ticked by it.
+  await apps.getByRole('textbox', { name: 'Search Applications' }).fill('shop')
+  await all.check()
+  await expect(ticked).toHaveText('checkout, storefront')
+  await apps.getByRole('textbox', { name: 'Search Applications' }).fill('')
+  // By the keys: Space ticks the active row, and lets it go.
+  await apps.getByRole('grid').focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press(' ')
+  await expect(ticked).not.toContainText('checkout')
+  await page.keyboard.press(' ')
+  await expect(ticked).toContainText('checkout')
+  // Ticking opens nothing, and tells the plugin nothing.
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(0)
+})
