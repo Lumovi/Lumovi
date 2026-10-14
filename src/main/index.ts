@@ -68,7 +68,7 @@ import { PLUGINS_REPOSITORY, PLUGINS_SIGNER } from './plugins-release'
 import BUILT_WITH from 'virtual:lumovi-plugins/release'
 import SHIPPED from 'virtual:lumovi-plugins'
 import { WarningNotices } from './warning-notices'
-import { createMainWindow, rendererUrl, windowState } from './window'
+import { cascaded, createMainWindow, rendererUrl, windowState } from './window'
 import { Windows } from './windows'
 
 // Started by an assistant that talks to Lumovi over stdio (Claude Desktop): no window, nor the
@@ -659,16 +659,7 @@ if (stdio) {
     const newWindow = () => {
       const front = windows.front()
       const at = front && windowState(front)
-      wire(
-        makeWindow(
-          at && {
-            ...at,
-            x: at.x + NEW_WINDOW_OFFSET,
-            y: at.y + NEW_WINDOW_OFFSET,
-            maximized: false,
-          },
-        ),
-      )
+      wire(makeWindow(at && cascaded(at, NEW_WINDOW_OFFSET)))
     }
     registerIpc({
       problems: () => envReady.then(() => problems),

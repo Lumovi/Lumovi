@@ -45,6 +45,23 @@ function restorableBounds(saved: WindowState | undefined): Partial<Rectangle> {
   return visible ? saved : DEFAULT_SIZE
 }
 
+/**
+ * Where a window opens beside `at`: `by` down and to the right, its size, as far as the display
+ * `at` is on has room; else back as far as it must to be on it (on a display no wider than the
+ * window, where `at` is). Never partly off the screen, whatever the system would do with that.
+ */
+export function cascaded(at: WindowState, by: number): WindowState {
+  const area = screen.getDisplayMatching(at).workArea
+  const within = (start: number, size: number, from: number, room: number) =>
+    Math.max(from, Math.min(start, from + room - size))
+  return {
+    ...at,
+    x: within(at.x + by, at.width, area.x, area.width),
+    y: within(at.y + by, at.height, area.y, area.height),
+    maximized: false,
+  }
+}
+
 /** Where a window is, to open it there again. */
 export function windowState(win: BrowserWindow): WindowState {
   return { ...win.getNormalBounds(), maximized: win.isMaximized() }

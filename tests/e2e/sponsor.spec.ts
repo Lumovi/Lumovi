@@ -67,9 +67,17 @@ const pageSize = (app: ElectronApplication, width: number, height: number) =>
   app.evaluate(
     ({ BrowserWindow }, [width, height]) => {
       const win = BrowserWindow.getAllWindows()[0]!
+      // (A screen that can't hold it keeps the window smaller, macOS a moment after it's asked:
+      // CI's has 1024 × 674 points. Zoomed out to fit as it settles, whenever that is.)
+      const kept = globalThis as { fitPage?: () => void }
+      if (kept.fitPage) win.off('resize', kept.fitPage)
+      kept.fitPage = () => {
+        const [shown, tall] = win.getContentSize()
+        win.webContents.setZoomFactor(Math.min(1, shown! / width!, tall! / height!))
+      }
+      win.on('resize', kept.fitPage)
       win.setContentSize(width!, height!)
-      const [shown, tall] = win.getContentSize()
-      win.webContents.setZoomFactor(Math.min(1, shown! / width!, tall! / height!))
+      kept.fitPage()
     },
     [width, height],
   )
@@ -451,7 +459,9 @@ test('the nav fades out over the card where it goes on; on short windows the car
 }) => {
   sponsor.files.set('sponsor.json', sponsorJson({ mode: 'lumovi' }))
   const { app, page } = await launchSponsored({ fullLayout: false })
-  await pageSize(app, 1200, 760)
+  // (Its height is what it's about: as narrow as Lumovi's window goes, so a screen too short for
+  // it, zoomed out to fit, isn't laid out any taller for its width too.)
+  await pageSize(app, 1024, 760)
   await openCluster(page)
   await expectLumovis(page)
   const nav = page.getByRole('navigation', { name: 'Resources' })
@@ -468,6 +478,6 @@ test('the nav fades out over the card where it goes on; on short windows the car
   await expect.poll(fades).toEqual([true, false])
 
   // Under 720 px tall, the nav keeps the room.
-  await pageSize(app, 1200, 700)
+  await pageSize(app, 1024, 700)
   await expect(card(page)).toBeHidden()
 })

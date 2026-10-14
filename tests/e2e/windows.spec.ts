@@ -126,10 +126,22 @@ test('the palette opens a new window too: on the start screen, the size of the o
     width: first!.width,
     height: first!.height,
   })
-  if (!room) {
-    expect(next!.x).toBeGreaterThanOrEqual(area.x)
-    expect(next!.x + next!.width).toBeLessThanOrEqual(area.x + area.width)
+  /** That a window is wholly on the display: never partly off it, whatever the system does. */
+  const onIt = (bounds: { x: number; y: number; width: number; height: number }) => {
+    expect(bounds.x).toBeGreaterThanOrEqual(area.x)
+    expect(bounds.y).toBeGreaterThanOrEqual(area.y)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(area.x + area.width)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(area.y + area.height)
   }
+  if (!room) onIt(next!)
+  // One as wide as its display, in front: the next opens on the display too, back from its edge.
+  const wide = { x: area.x, y: area.y, width: area.width, height: Math.min(area.height, 700) }
+  await (await app.browserWindow(second)).evaluate((win, bounds) => win.setBounds(bounds), wide)
+  const third = await newWindow(app)
+  await expect(clusterOption(third, CONTEXTS.demo)).toBeVisible()
+  const last = await (await app.browserWindow(third)).evaluate((win) => win.getBounds())
+  onIt(last)
+  expect(last.width).toBe(area.width)
 })
 
 test('the windows open again where they were', async ({ launch }) => {
