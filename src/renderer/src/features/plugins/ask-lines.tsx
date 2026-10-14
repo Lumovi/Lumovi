@@ -123,9 +123,11 @@ export function askLines(granted: Granted, names: KindNames, tool: string): AskL
     })
   }
   for (const read of a.reads) {
-    const more = [read.status && 'status', read.events && 'events', read.usage && 'usage'].filter(
-      (said): said is string => Boolean(said),
-    )
+    const more = [
+      read.status && 'status',
+      read.events && 'warning events',
+      read.usage && 'usage',
+    ].filter((said): said is string => Boolean(said))
     lines.push({
       key: `reads:${read.kind}`,
       icon: Eye,

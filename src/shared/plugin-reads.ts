@@ -12,6 +12,8 @@
  *
  * And the counting (`PageReads`): how many lists a page keeps, how fast it asks.
  */
+import type { KubeObject } from './api'
+import { eventCount, firstSeen, lastSeen } from './events'
 import type { Step } from './jsonpath'
 import { LABEL_TERM } from './kit/declare'
 import type { Stopped } from './plugin-door'
@@ -46,6 +48,14 @@ export const READ_LIMITS = {
   logSeconds: 3600,
   logBytes: 64 * 1024,
   /**
+   * An object's warning events its code reads (`events: true` on its read): the newest so many,
+   * kept up to date as an object is; and of each one's message, so many characters, as long as
+   * a line of the kit's, past which it's cut with "…". (A message is whatever a controller or a
+   * webhook wrote: the count bounds how many, this how much.)
+   */
+  events: 50,
+  eventMessage: 500,
+  /**
    * Different reads a plugin's pages make in a while, in one cluster: objects, logs and asks of
    * its server together. Everything a plugin's code reads as the person is in the audit history,
    * and a history lists only so much: so past them a new read is refused until the while ends
@@ -63,7 +73,7 @@ export interface Granted {
   fields: readonly { path: string; steps: readonly Step[] }[]
   /** The object's status as Lumovi shows it. */
   status: boolean
-  /** The events of an object of this kind. */
+  /** The warning events of an object of this kind: a few fields of each (`HandedEvent`). */
   events: boolean
   /** Its usage as Lumovi shows it. */
   usage: boolean
@@ -486,6 +496,20 @@ export const READABLE: Readonly<Record<string, readonly string[]>> = {
     // state and last state (the last termination message is the tail of its log); its
     // command, arguments, environment, probes, hooks, ports and volumes; init and ephemeral
     // containers; every annotation but the plugin's own groups'.
+  ],
+  'apps/ReplicaSet': [
+    'metadata.name',
+    'metadata.namespace',
+    'metadata.labels',
+    'metadata.creationTimestamp',
+    // The Deployment that made it, as a Pod's names its ReplicaSet.
+    'metadata.ownerReferences',
+    'spec.replicas',
+    'status.replicas',
+    'status.readyReplicas',
+    'status.availableReplicas',
+    // Off it, by decision: its pod template (what its pods run, and with what); every
+    // annotation but the plugin's own groups' (a Deployment's revision among them).
   ],
   '/Node': [
     'metadata.name',
@@ -951,7 +975,7 @@ export type ReadRefusal =
   | 'not-pickable'
   | 'unreachable'
   | 'failed'
-  /** A read Lumovi doesn't make for a plugin yet: an object's events. */
+  /** A read Lumovi doesn't make for a plugin yet (one a later Lumovi's plugin may ask for). */
   | 'not-yet'
   /** Its code is turned off: by the person, a server's administrator, or the organization's policy. */
   | 'code-off'
@@ -1037,6 +1061,142 @@ export function logsQuery(value: unknown): PluginLogsQuery | undefined {
   }
   if (Object.hasOwn(q, 'previous') && q.previous !== true) return undefined
   return q as unknown as PluginLogsQuery
+}
+
+/**
+ * An object's warning events a plugin's code asks for (`events: true` on its file's read of the
+ * kind), as Lumovi's own page sends it to the backend: the object by its kind and name, found
+ * from the token the page holds for it. Kept up to date, as an object's read is.
+ */
+export interface PluginEventsQuery {
+  context: string
+  plugin: string
+  /** What the page's code was handed with, as a read's are. */
+  digest: string
+  codeDigest: string
+  /** As a read names it: `group/Kind`. */
+  kind: string
+  namespace?: string
+  name: string
+}
+
+/**
+ * A warning event, as a plugin's code is handed it: why, what it says (cut at
+ * `READ_LIMITS.eventMessage`), how many times, and when first and last. Nothing else of it: the
+ * object it's about is the one its code asked of; who reported it, from where, and every other
+ * field are never handed.
+ */
+export interface HandedEvent {
+  reason: string
+  message: string
+  count: number
+  first: string
+  last: string
+}
+
+export type PluginEvents =
+  { ok: true; events: HandedEvent[] } | { ok: false; refused: ReadRefusal; minutes?: number }
+
+/** A plugin's ask for an object's events as the backend takes it from a page, or nothing. */
+export function eventsQuery(value: unknown): PluginEventsQuery | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const q = value as Record<string, unknown>
+  if (!has(q, 'context', 'plugin', 'digest', 'codeDigest', 'kind', 'namespace', 'name')) {
+    return undefined
+  }
+  const namespace = Object.hasOwn(q, 'namespace') ? q.namespace : undefined
+  const fine =
+    typeof q.context === 'string' &&
+    q.context !== '' &&
+    typeof q.plugin === 'string' &&
+    q.plugin !== '' &&
+    typeof q.digest === 'string' &&
+    DIGEST.test(q.digest) &&
+    typeof q.codeDigest === 'string' &&
+    DIGEST.test(q.codeDigest) &&
+    typeof q.kind === 'string' &&
+    KIND.test(q.kind) &&
+    (namespace === undefined || (typeof namespace === 'string' && NAME.test(namespace))) &&
+    typeof q.name === 'string' &&
+    NAME.test(q.name)
+  if (!fine) return undefined
+  return {
+    context: q.context as string,
+    plugin: q.plugin as string,
+    digest: q.digest as string,
+    codeDigest: q.codeDigest as string,
+    kind: q.kind as string,
+    ...(namespace === undefined ? {} : { namespace: namespace as string }),
+    name: q.name as string,
+  }
+}
+
+/**
+ * Where a warning's message starts to carry what only a person may read, as Kubernetes writes
+ * them: what follows any of these is never handed to a plugin's code. (The picks of a read reach
+ * an object's fields, never the text of its events: these narrow what that text can carry.)
+ */
+export const EVENT_MESSAGE_CUTS = [
+  // The API server's field errors that can quote a value: a refused Pod's environment, say, in
+  // its ReplicaSet's FailedCreate; or a pod's update, set out whole.
+  'Invalid value: ',
+  'Unsupported value: ',
+  'Duplicate value: ',
+  'Not found: ',
+  'Forbidden: ',
+  // A probe's output (Liveness, Readiness or Startup; failed, or unable to run): the container's
+  // own, which can print anything.
+  'probe failed: ',
+  'probe errored: ',
+  // A lifecycle hook's (Exec or HTTP): its command line or its path, from the pod's spec, then its
+  // output.
+  'lifecycle hook (',
+  // An admission webhook's refusal, which may quote the object back.
+  'denied the request: ',
+] as const
+
+/** Said in place of what a message had after one of `EVENT_MESSAGE_CUTS`. */
+export const EVENT_MESSAGE_LEFT_OUT = '(the rest left out by Lumovi)'
+
+/**
+ * A warning's message as its plugin is handed it: up to the first of `EVENT_MESSAGE_CUTS`, the
+ * mark included, and said to be cut there (inside its bracket, where it opens one); a message
+ * with none, as it is.
+ */
+export function eventMessage(message: string): string {
+  let first: number | undefined
+  for (const mark of EVENT_MESSAGE_CUTS) {
+    const at = message.indexOf(mark)
+    if (at >= 0 && (first === undefined || at + mark.length < first)) first = at + mark.length
+  }
+  if (first === undefined) return message
+  const kept = message.slice(0, first).trimEnd()
+  return kept.endsWith('(')
+    ? `${kept}${EVENT_MESSAGE_LEFT_OUT.slice(1)}`
+    : `${kept} ${EVENT_MESSAGE_LEFT_OUT}`
+}
+
+/**
+ * An event as its plugin is handed it (`HandedEvent`): taken from what the cluster sent, field by
+ * field, and nothing more. A message is cut where it would carry what only a person may read
+ * (`eventMessage`), then, past Lumovi's limit, with "…".
+ */
+export function handedEvent(event: KubeObject): HandedEvent {
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  // (By characters, so a cut never halves one.)
+  const cut = (value: string) => {
+    const characters = Array.from(value)
+    const most = READ_LIMITS.eventMessage
+    return characters.length > most ? `${characters.slice(0, most - 1).join('')}…` : value
+  }
+  const count = eventCount(event)
+  return {
+    reason: cut(text(event.reason)),
+    message: cut(eventMessage(text(event.message))),
+    count: Number.isSafeInteger(count) && count > 0 ? count : 1,
+    first: text(firstSeen(event)),
+    last: text(lastSeen(event)),
+  }
 }
 
 /** What a read for a plugin comes to. */

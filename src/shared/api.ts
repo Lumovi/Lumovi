@@ -43,7 +43,14 @@ import type { AppCommand } from './navigation'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
-import type { PluginLogs, PluginLogsQuery, PluginRead, PluginReadQuery } from './plugin-reads'
+import type {
+  PluginEvents,
+  PluginEventsQuery,
+  PluginLogs,
+  PluginLogsQuery,
+  PluginRead,
+  PluginReadQuery,
+} from './plugin-reads'
 import type { Installed, InstalledRecord, StoreCheck } from './plugin-store'
 import type { PluginServerAnswer, PluginServerQuery } from './plugin-server'
 import type { ResourceDefinition, ResourceKind } from './resources'
@@ -1291,6 +1298,8 @@ export interface LumoviApi {
     pluginRead(query: PluginReadQuery): Promise<PluginRead>
     /** A pod's logs, once, for a plugin's code its file lets read them (`spec.logs: read`). */
     pluginLogs(query: PluginLogsQuery): Promise<PluginLogs>
+    /** An object's warning events, for a plugin's code its file lets read them (`events: true`). */
+    pluginEvents(query: PluginEventsQuery): Promise<PluginEvents>
     /** A path its file lists, of a plugin's tool's own server, once, as JSON (`spec.server`). */
     pluginServer(query: PluginServerQuery): Promise<PluginServerAnswer>
     /**
@@ -1689,6 +1698,7 @@ export const IPC = {
   secretValues: 'kube:secret-values',
   pluginRead: 'kube:plugin-read',
   pluginLogs: 'kube:plugin-logs',
+  pluginEvents: 'kube:plugin-events',
   pluginServer: 'kube:plugin-server',
   pluginChange: 'kube:plugin-change',
   pluginCode: 'kube:plugin-code',

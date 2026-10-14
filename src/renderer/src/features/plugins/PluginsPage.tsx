@@ -1507,7 +1507,7 @@ function MayRead({
       {asked.reads.map((read) => {
         const more = [
           read.status && 'status',
-          read.events && 'events',
+          read.events && 'warning events',
           read.usage && 'usage',
         ].filter((said): said is string => Boolean(said))
         return (

@@ -50,6 +50,8 @@ const READS: readonly string[] = [
   IPC.pluginRead,
   // A pod's logs, read once for a plugin's code: a read, as a phone's own logs are.
   IPC.pluginLogs,
+  // An object's warning events, read for a plugin's code: a read.
+  IPC.pluginEvents,
   IPC.pluginServer,
   // A plugin's code, and whether it would be handed: on a phone as anywhere, the hand-over's own
   // answer (`mayHandOver`) gives it or says why not, after the check of this browser's box, which

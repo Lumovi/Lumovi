@@ -12,6 +12,7 @@ import {
   type HistoryClock,
   type PluginHistory,
 } from '../../src/backend/plugin-history.ts'
+import { pluginEvents } from '../../src/backend/plugin-events.ts'
 import { pluginLogs } from '../../src/backend/plugin-logs.ts'
 import { pluginReads } from '../../src/backend/plugin-reads.ts'
 import { pluginServer } from '../../src/backend/plugin-server.ts'
@@ -295,10 +296,20 @@ const WIDGET: ResourceDefinition = {
   label: 'Widgets',
   category: 'cluster',
 }
+const POD: ResourceDefinition = {
+  kind: 'Pod',
+  apiKind: 'Pod',
+  plural: 'pods',
+  group: '',
+  version: 'v1',
+  namespaced: true,
+  label: 'Pods',
+  category: 'workloads',
+}
 const object = (kind: string, name: string, spec: object = {}) =>
   ({ apiVersion: 'v1', kind, metadata: { name, namespace: 'default' }, spec }) as KubeObject
 
-test('past its different reads, a page’s new read of a kind, of a pod’s logs and of its server are each refused before the cluster is asked; every read that was made is in the history', async () => {
+test('past its different reads, a page’s new read of a kind, of a pod’s logs, of an object’s events and of its server are each refused before the cluster is asked; every read that was made is in the history', async () => {
   const { kept, history, summaries } = stage()
   const toys = plugin({
     grant: {
@@ -308,7 +319,7 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
         '/Pod': {
           fields: [{ path: 'metadata.name', steps: [{ key: 'metadata' }, { key: 'name' }] }],
           status: false,
-          events: false,
+          events: true,
           usage: false,
         },
       },
@@ -322,7 +333,7 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
     },
   })
   /** What the cluster was asked, by what. */
-  const asked = { resource: 0, get: 0, list: 0, logs: 0, proxy: 0 }
+  const asked = { resource: 0, get: 0, list: 0, logs: 0, proxy: 0, events: 0 }
   const known = async () => [toys]
   const to = () => ({ host: 'desktop' as const, switches: { chosen: {} } })
   const reads = pluginReads({
@@ -341,6 +352,22 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
   })
   const logs = pluginLogs({
     kube: { podLogs: async () => (asked.logs++, { ok: true, data: 'a line\n' }) },
+    known,
+    to,
+    audit: history,
+  })
+  const events = pluginEvents({
+    kube: {
+      resource: async () => POD,
+      get: async (q) => ({
+        ok: true,
+        data: {
+          ...object('Pod', (q as { name: string }).name),
+          metadata: { name: (q as { name: string }).name, namespace: 'default', uid: 'u-1' },
+        } as KubeObject,
+      }),
+      list: async () => (asked.events++, { ok: true, data: { items: [], truncated: false } }),
+    },
     known,
     to,
     audit: history,
@@ -368,19 +395,24 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
   const status = { kind: 'Widget.example.com', namespace: 'default', name: 'blue' }
   const ofItsServer = (within: typeof status) =>
     server({ ...handed, in: within, path: '/api/v1/status' })
+  const eventsOf = (pod: string) =>
+    events({ ...handed, kind: '/Pod', namespace: 'default', name: pod })
 
-  // The three kinds of read share the one count: a pod's logs, an ask of its server, and
-  // objects by name, to the last place.
+  // The four kinds of read share the one count: a pod's logs, an object's events, an ask of its
+  // server, and objects by name, to the last place.
   expect(await logsOf('cart')).toMatchObject({ ok: true })
+  expect(await eventsOf('cart')).toMatchObject({ ok: true })
   expect(await ofItsServer(status)).toMatchObject({ ok: true })
-  for (let n = 0; n < MOST - 2; n++) expect(await widget(`w-${n}`)).toMatchObject({ ok: true })
-  expect(asked).toEqual({ resource: MOST - 2, get: MOST - 2, list: 0, logs: 1, proxy: 1 })
+  for (let n = 0; n < MOST - 3; n++) expect(await widget(`w-${n}`)).toMatchObject({ ok: true })
+  const made = { resource: MOST - 3, get: MOST - 3, list: 0, logs: 1, proxy: 1, events: 1 }
+  expect(asked).toEqual(made)
   expect(kept).toHaveLength(MOST)
 
-  // Past them: a pod's logs, a read by name, a list, an ask of its server, and a kind its file
-  // doesn't name. Each refused, with Lumovi's sentence and how long is left.
+  // Past them: a pod's logs, an object's events, a read by name, a list, an ask of its server,
+  // and a kind its file doesn't name. Each refused, with Lumovi's sentence and how long is left.
   const refused = { ok: false, refused: 'too-many-reads', minutes: 10 }
   expect(await logsOf('checkout')).toEqual(refused)
+  expect(await eventsOf('checkout')).toEqual(refused)
   expect(await widget('one-more')).toEqual(refused)
   expect(await reads({ ...handed, kind: 'example.com/Widget' })).toEqual(refused)
   expect(await reads({ ...handed, kind: 'apps/Deployment' })).toEqual(refused)
@@ -389,13 +421,14 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
     refused: 'too-many-reads',
     said: tooManyReads(10),
   })
-  // The cluster was asked for none of them: not what a kind is, not an object, a list, a log
-  // or its server.
-  expect(asked).toEqual({ resource: MOST - 2, get: MOST - 2, list: 0, logs: 1, proxy: 1 })
-  // In the history: every read that was made, and one entry of Lumovi's for the five.
+  // The cluster was asked for none of them: not what a kind is, not an object, a list, a log,
+  // events or its server.
+  expect(asked).toEqual(made)
+  // In the history: every read that was made, and one entry of Lumovi's for the six.
   expect(kept).toHaveLength(MOST + 1)
-  expect(summaries().slice(0, 3)).toEqual([
+  expect(summaries().slice(0, 4)).toEqual([
     'Read the logs of Pod cart (app), for the plugin Toys’ code',
+    'Read the warning events of Pod cart, for the plugin Toys’ code',
     'Asked the Service toys-api in default for /api/v1/status, for the plugin Toys’ page',
     'Read Widget w-0 for the plugin toys',
   ])
@@ -405,10 +438,11 @@ test('past its different reads, a page’s new read of a kind, of a pod’s logs
   expect(await widget('w-0')).toMatchObject({ ok: true })
   expect(await logsOf('cart')).toMatchObject({ ok: true })
   expect(await ofItsServer(status)).toMatchObject({ ok: true })
-  expect(asked).toMatchObject({ get: MOST - 1, logs: 2, proxy: 2 })
+  expect(await eventsOf('cart')).toMatchObject({ ok: true })
+  expect(asked).toMatchObject({ get: MOST - 2, logs: 2, proxy: 2, events: 2 })
   expect(kept).toHaveLength(MOST + 1)
   history.stop()
   expect(summaries().at(-1)).toBe(
-    'Refused for the plugin Toys’ page, past what Lumovi lists: 5 reads',
+    'Refused for the plugin Toys’ page, past what Lumovi lists: 6 reads',
   )
 })
