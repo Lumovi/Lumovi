@@ -17,76 +17,76 @@ export type Since = `${number}.${number}.${number}` | 'next'
 export const PLUGIN_SINCE = {
   /** What a plugin's file can say. */
   file: {
-    pages: 'next',
-    tabs: 'next',
-    commands: 'next',
-    reads: 'next',
-    showsSecrets: 'next',
+    pages: '1.22.0',
+    tabs: '1.22.0',
+    commands: '1.22.0',
+    reads: '1.22.0',
+    showsSecrets: '1.22.0',
     /** A view's `manages`: how an object of its kind says it manages another. */
-    manages: 'next',
-    changes: 'next',
-    opens: 'next',
+    manages: '1.22.0',
+    changes: '1.22.0',
+    opens: '1.22.0',
     /** Where its pages link to Lumovi's own places; a destination's `{ object, at }` with it. */
-    links: 'next',
+    links: '1.22.0',
     /**
      * Whether its pages show containers' logs (`shown`: Lumovi reads and draws them), or its code
      * reads them too (`read`).
      */
-    logs: 'next',
+    logs: '1.22.0',
     /** Its tool's own server its code may ask, through Lumovi. */
-    server: 'next',
+    server: '1.22.0',
     /** A page's `takes`: the kind whose tab it stands in. */
-    takes: 'next',
+    takes: '1.22.0',
     /** A view's action done to ticked rows (`bulk`), and how its work ends (`ends`). */
-    bulk: 'next',
-    ends: 'next',
+    bulk: '1.22.0',
+    ends: '1.22.0',
     /** An action's input that's a switch, or a choice of labelled values. */
-    switch: 'next',
-    choices: 'next',
+    switch: '1.22.0',
+    choices: '1.22.0',
     /** What of a kind's change does harm (`spec.changes[].harm`), drawn by Lumovi in red. */
-    harm: 'next',
+    harm: '1.22.0',
   },
   /** What a view's action can say beyond what it first took. */
   action: {
     /** Busy where it was, instead of hidden, while what it started goes on. */
-    busy: 'next',
+    busy: '1.22.0',
     /** What must still be as the person saw it, when it's sent. */
-    same: 'next',
+    same: '1.22.0',
     /** Its dialog's own question and button, where it asks first. */
-    confirmTitle: 'next',
-    confirmButton: 'next',
+    confirmTitle: '1.22.0',
+    confirmButton: '1.22.0',
   },
   /** What a read can ask beyond a kind's list or one object of it. */
   read: {
-    usage: 'next',
-    fields: 'next',
-    labels: 'next',
+    usage: '1.22.0',
+    fields: '1.22.0',
+    labels: '1.22.0',
     /** A pod's logs, read once: for a plugin whose file says `logs: read`. */
-    logs: 'next',
+    logs: '1.22.0',
     /** A path of its tool's own server, asked once: for a plugin whose file says `server`. */
-    server: 'next',
+    server: '1.22.0',
     /** An object's warning events: for a plugin whose file says `events: true` of its kind. */
-    events: 'next',
+    events: '1.22.0',
   },
   /** The parts a page's code can name. */
   parts: {
-    Table: 'next',
-    Graph: 'next',
-    Tiles: 'next',
-    Header: 'next',
-    Split: 'next',
-    Card: 'next',
-    Pair: 'next',
-    Counts: 'next',
-    Steps: 'next',
-    Stack: 'next',
-    Logs: 'next',
-    Secret: 'next',
+    Table: '1.22.0',
+    Graph: '1.22.0',
+    Tiles: '1.22.0',
+    Header: '1.22.0',
+    Split: '1.22.0',
+    Card: '1.22.0',
+    Pair: '1.22.0',
+    Counts: '1.22.0',
+    Steps: '1.22.0',
+    Stack: '1.22.0',
+    Logs: '1.22.0',
+    Secret: '1.22.0',
   } satisfies Record<keyof typeof DECLARED, Since>,
   /** The kinds a part's description can hold that a door hands over as something else. */
   kinds: {
-    destination: 'next',
-    cut: 'next',
+    destination: '1.22.0',
+    cut: '1.22.0',
   },
   /**
    * What a part's description can say past what it first took, drawn only by a Lumovi that
