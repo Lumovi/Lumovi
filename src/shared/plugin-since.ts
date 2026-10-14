@@ -98,5 +98,10 @@ export const PLUGIN_SINCE = {
     /** A row's button, and its press. */
     'Table.rows[].cells[].kind=button': 'next',
     'Table.onPress': 'next',
+    /** A graph's card marked, or shown for context, and what a mark is. */
+    'Graph.nodes[].marked': 'next',
+    'Graph.nodes[].context': 'next',
+    'Graph.nodes[].goes': 'next',
+    'Graph.legend.marked': 'next',
   },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, Since>>>>

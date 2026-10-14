@@ -12,7 +12,18 @@
  * object and an icon both) is the door's to refuse, by `graphProblem`.
  */
 import { VIEW_ICON_NAMES } from '../plugins'
-import { handler, list, object, oneOf, record, text, type Part, type PropsOf } from './declare'
+import {
+  destination,
+  handler,
+  list,
+  object,
+  oneOf,
+  record,
+  text,
+  yesOrNo,
+  type Part,
+  type PropsOf,
+} from './declare'
 import { cell, cellsProblem, column, HEALTHS, state, TABLE_LIMITS } from './table'
 
 /** How much may be said, and how much is drawn. */
@@ -55,6 +66,24 @@ const node = record(
     cells: list(cell, TABLE_LIMITS.columns),
     /** The object it opens. A card with one is pressed whole, in the picture and in the table. */
     opens: object,
+    /**
+     * Or where it goes, as a Table's row does: a list of Lumovi's own at one object of a kind its
+     * plugin's file says its pages open, where the plugin read no object to open (what a tool's
+     * status names, say), or one of Lumovi's own places for an object it was handed. Pressed
+     * whole, as one that opens; and it has that kind's own icon, never one a plugin names.
+     */
+    goes: destination,
+    /**
+     * It stands out from the rest, with an edge in the warning colour: what that means is the
+     * legend's `marked`, in the plugin's words ("Out of sync"), said beside it in the table and
+     * to a screen reader.
+     */
+    marked: yesOrNo,
+    /**
+     * Shown for context only (what's somewhere Lumovi doesn't read, say): drawn dashed and quiet,
+     * as a filter draws what it keeps above a match, and it opens nothing.
+     */
+    context: yesOrNo,
   },
   ['key', 'name', 'cells'],
 )
@@ -79,8 +108,11 @@ export const graph = {
   props: {
     /** What the graph is of: said above it, and what a screen reader calls it. */
     title: name,
-    /** What a solid line means, and a dashed one: two words under the title. */
-    legend: record({ solid: name, dashed: name }),
+    /**
+     * What a solid line means, and a dashed one: two words under the title; and what a marked
+     * card is, beside an edge of its colour.
+     */
+    legend: record({ solid: name, dashed: name, marked: name }),
     /** The table's columns, as a Table's are: what each card's cells are under. */
     columns: list(column, TABLE_LIMITS.columns),
     nodes: list(node, GRAPH_LIMITS.cards),
@@ -100,8 +132,17 @@ export const graph = {
 /** A graph as a plugin wrote it, as far as `graphProblem` reads it (its kinds already passed). */
 interface Written {
   columns: { kind: string }[]
-  nodes: { key: string; cells: { kind: string }[]; icon?: string; opens?: string }[]
+  nodes: {
+    key: string
+    cells: { kind: string }[]
+    icon?: string
+    opens?: string
+    goes?: unknown
+    marked?: boolean
+    context?: boolean
+  }[]
   edges: { from: string; to: string }[]
+  legend?: { marked?: string }
 }
 
 /**
@@ -111,7 +152,7 @@ interface Written {
  * where it is, never by its key. Nothing, when the graph can be drawn as it's described.
  */
 export function graphProblem(written: Readonly<Record<string, unknown>>): string | undefined {
-  const { columns, nodes, edges } = written as unknown as Written
+  const { columns, nodes, edges, legend } = written as unknown as Written
   const keys = new Map<string, number>()
   for (const [n, node] of nodes.entries()) {
     const here = `Card ${n + 1}`
@@ -123,8 +164,20 @@ export function graphProblem(written: Readonly<Record<string, unknown>>): string
     if (node.opens !== undefined && node.icon !== undefined) {
       return `${here} opens an object and names an icon: one that opens an object has its object’s own.`
     }
+    if (node.opens !== undefined && node.goes !== undefined) {
+      return `${here} opens an object and goes to a list: a card does one or the other.`
+    }
+    if (node.goes !== undefined && node.icon !== undefined) {
+      return `${here} goes somewhere and names an icon: one that goes has its kind’s own.`
+    }
     const wrong = cellsProblem(node, columns, here)
     if (wrong) return wrong
+    if (node.context && (node.opens !== undefined || node.goes !== undefined)) {
+      return `${here} is shown for context and opens something: one shown for context opens nothing.`
+    }
+    if (node.marked && !legend?.marked) {
+      return `${here} is marked, and the legend doesn’t say what a mark is: give it legend.marked.`
+    }
   }
   for (const [l, edge] of edges.entries()) {
     const here = `Line ${l + 1}`

@@ -52,6 +52,7 @@ import {
   type Line,
 } from '@renderer/lib/graph-table'
 import { useLayout } from '@renderer/lib/layout'
+import { offered } from '@renderer/plugins/reach'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { MiddleCut, tooltip } from './MiddleCut'
 import type { DrawnRow } from '@shared/kit/table'
@@ -82,7 +83,8 @@ export function Graph({
   /** Opens the object a card names: Lumovi's own to do, never the plugin's (and not declared). */
   go?: (to: ObjectRef | ListDestination | ReachDestination) => void
 }) {
-  const phone = useLayout() === 'phone'
+  const layout = useLayout()
+  const phone = layout === 'phone'
   // Inside a card, which says the title: no frame or heading of its own.
   const inCard = useContext(InCard)
   const [sought, setSought] = useState('')
@@ -97,7 +99,8 @@ export function Graph({
     () => orderRows(cards, lines, { placed: !tooMany }),
     [cards, lines, tooMany],
   )
-  const rows = useMemo(() => tableOf(shape), [shape])
+  // (A marked card's row says what a mark is, beside its name: the legend's word.)
+  const rows = useMemo(() => tableOf(shape, legend?.marked), [shape, legend?.marked])
   // For each letter typed: what the filter keeps of those rows, never the graph worked out again.
   const {
     rows: kept,
@@ -110,9 +113,12 @@ export function Graph({
     ? `${matches.toLocaleString('en-US')} of ${total.toLocaleString('en-US')}`
     : total.toLocaleString('en-US')
   const open = (card: Card) => {
-    const { opens, key } = card.node
-    if (!opens) return
-    go?.(opens)
+    const { opens, goes, key, context } = card.node
+    const to = opens ?? goes
+    if (!to || context) return
+    // (A link to a place Lumovi doesn't have here opens its object, as a Table's row does: a
+    // shell's on a phone, a forward's where there are none.)
+    go?.('to' in to && to.to === 'reach' && !offered(to.at, layout) ? to.object : to)
     onOpen?.({ node: key })
   }
 
@@ -214,13 +220,17 @@ export function Graph({
             named={named}
             sought={filtering ? sought : undefined}
             open={open}
+            {...(legend?.marked ? { marked: legend.marked } : {})}
           />
         ))}
     </section>
   )
 }
 
-/** What a solid line means, and a dashed one: a stroke of each, and the plugin's words. */
+/**
+ * What a solid line means, and a dashed one: a stroke of each, and the plugin's words; and what
+ * a marked card is, beside an edge of its colour.
+ */
 function Legend({ legend }: { legend?: GraphProps['legend'] }) {
   const sample = (dashed: boolean) => (
     <svg width="18" height="2" aria-hidden className="shrink-0">
@@ -247,6 +257,12 @@ function Legend({ legend }: { legend?: GraphProps['legend'] }) {
         <span className="flex min-w-0 items-center gap-1.5">
           {sample(true)}
           <TheirText text={legend.dashed} inline />
+        </span>
+      )}
+      {legend?.marked?.their && (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span aria-hidden className="h-2.5 w-4 shrink-0 rounded-[3px] border-2 border-warn" />
+          <TheirText text={legend.marked} inline />
         </span>
       )}
     </span>
@@ -326,7 +342,10 @@ function Picture({
   named,
   sought,
   open: openCard,
+  marked,
 }: {
+  /** What a marked card is, in the plugin's words: said with it to a screen reader. */
+  marked?: Their
   /** The whole graph's, in its order: what's kept of it is placed, never ordered again. */
   shape: Shape<Card, Line>
   kept: ReadonlyMap<string, Kept>
@@ -513,7 +532,7 @@ function Picture({
               card={card}
               kept={kept.get(card.key)}
               faded={near !== undefined && !near.has(card.key)}
-              said={saidOf(card.node!, kept.get(card.key), order, leadsTo, cards.length)}
+              said={saidOf(card.node!, kept.get(card.key), order, leadsTo, cards.length, marked)}
               level={order.depth.get(card.key) ?? 0}
               bold={kept.get(card.key) === 'match' ? sought : undefined}
               onLit={setLit}
@@ -548,17 +567,31 @@ function saidOf(
   order: Order,
   leadsTo: ReadonlyMap<string, ReadonlySet<string>>,
   of: number,
+  marked?: Their,
 ): string {
   const { node } = card
   const name = spelled(node.name.their)
   const kind = spelled(node.kind?.their ?? '')
+  // (What a mark is, in the plugin's words, after its status: "Out of sync".)
+  const mark = node.marked && marked?.their ? spelled(marked.their) : undefined
   if (kept === 'context') {
     return [[kind, name].filter(Boolean).join(' '), 'shown for context'].join(', ')
+  }
+  if (node.context) {
+    return [
+      [kind, name].filter(Boolean).join(' '),
+      node.status?.word?.their ? spelled(node.status.word.their) : undefined,
+      mark,
+      'shown for context: it opens nothing',
+    ]
+      .filter(Boolean)
+      .join(', ')
   }
   const leads = leadsTo.get(card.key)?.size ?? 0
   return [
     [kind, name].filter(Boolean).join(' '),
     node.status?.word?.their ? spelled(node.status.word.their) : undefined,
+    mark,
     `${(order.index.get(card.key) ?? 0) + 1} of ${of}`,
     leads > 0 ? `leads to ${leads}` : undefined,
   ]
@@ -590,11 +623,21 @@ function Label({ text }: { text?: Their }) {
 
 /** A card's icon: the kind's own, of an object Lumovi gave; else the one the plugin named; else none. */
 function CardIcon({ node }: { node: Card['node'] }) {
+  // (One that goes somewhere has its destination's kind's icon: a list's kind, or a place's
+  // object's.)
+  const goesKind =
+    node.goes?.to === 'list'
+      ? node.goes.kind
+      : node.goes?.to === 'reach'
+        ? node.goes.object.kind
+        : undefined
   const icon = node.opens
     ? kindIcon(node.opens.kind as ResourceKind)
-    : node.icon
-      ? VIEW_ICONS[node.icon]
-      : undefined
+    : goesKind
+      ? kindIcon(goesKind as ResourceKind)
+      : node.icon
+        ? VIEW_ICONS[node.icon]
+        : undefined
   return (
     <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-surface-3 text-ink-2 [.context_&]:opacity-55">
       {icon && createElement(icon, { className: 'size-[15px]', 'aria-hidden': true })}
@@ -670,7 +713,11 @@ function CardDrawn({
   )
   const frame = cn(
     'flex size-full items-center gap-2.5 rounded-xl border bg-surface-2 px-3 text-left outline-none',
-    kept === 'context' ? 'context border-dashed border-line' : 'border-line shadow-panel',
+    kept === 'context' || node.context
+      ? 'context border-dashed border-line'
+      : 'border-line shadow-panel',
+    // A marked card's edge in the warning colour, dashed too where it's shown for context.
+    node.marked && 'border-warn shadow-[0_0_0_1px_var(--warn)]',
     'focus-visible:border-accent focus-visible:shadow-[0_0_0_3px_var(--accent-soft)]',
     faded && 'opacity-35',
   )
@@ -686,7 +733,7 @@ function CardDrawn({
   }
   return (
     <div role="listitem" aria-level={level + 1} style={place(card)} className="absolute">
-      {node.opens ? (
+      {(node.opens || node.goes) && !node.context ? (
         <button type="button" onClick={onOpen} {...shared}>
           {body}
         </button>

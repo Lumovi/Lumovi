@@ -333,7 +333,8 @@
           "kind": "record",
           "fields": {
             "solid": { "kind": "text", "max": 253 },
-            "dashed": { "kind": "text", "max": 253 }
+            "dashed": { "kind": "text", "max": 253 },
+            "marked": { "kind": "text", "max": 253 }
           },
           "required": []
         },
@@ -467,7 +468,10 @@
                 },
                 "max": 8
               },
-              "opens": { "kind": "object" }
+              "opens": { "kind": "object" },
+              "goes": { "kind": "destination" },
+              "marked": { "kind": "yes-or-no" },
+              "context": { "kind": "yes-or-no" }
             },
             "required": ["key", "name", "cells"]
           },

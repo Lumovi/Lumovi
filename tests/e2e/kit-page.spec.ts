@@ -529,7 +529,7 @@ test('a row’s button: pressed on its own, never the row; off, it says why and 
   await history.getByRole('row').filter({ hasText: /^13/ }).getByText('1m 12s').click()
   await expect(pressed(page).getByRole('listitem')).toHaveCount(1)
   // Off: in its place, found as any other, why in its tooltip and said with it; pressed, nothing.
-  const off = page.getByRole('region', { name: 'History, auto-sync on table' })
+  const off = page.getByRole('region', { name: 'History, synced by itself table' })
   const offBack = off.getByRole('button', { name: 'Roll back…', exact: true }).first()
   await expect(offBack).toHaveAttribute('aria-disabled', 'true')
   await expect(offBack).toHaveAccessibleDescription(
@@ -570,9 +570,62 @@ test('a row’s button: pressed on its own, never the row; off, it says why and 
     'Steps 1 and 2 have the same key.',
     'Steps.steps: is longer than 12',
     'Nothing: it can be drawn.',
+    'Nothing: it can be drawn.',
+    'Nothing: it can be drawn.',
+    'Card 1 is shown for context and opens something: one shown for context opens nothing.',
+    'Card 3 is marked, and the legend doesn’t say what a mark is: give it legend.marked.',
     'Columns 4 and 5 both hold buttons: a table has one such column.',
-    'Row 1 has a button and is pressed whole: a row with a button opens nothing.',
+    'Row 1 has a button and opens something: a row with a button opens nothing.',
     'In row 1, inner row 1 has a button: only a table’s own rows have them.',
     'Row 1, cell 1 is a button, and its column takes text.',
   ])
+})
+
+test('a graph’s marked card stands out, said in the legend’s words; one shown for context is dashed and opens nothing', async ({
+  page,
+}) => {
+  await frame(page)
+  const here = page.getByRole('region', { name: 'Resources', exact: true })
+  // The legend says what a mark is, beside an edge of its colour.
+  await expect(here).toContainText('Out of sync')
+  // A marked card's status is followed by what the mark is, to a screen reader; it still opens.
+  const marked = here.getByRole('button', {
+    name: /^Deployment orders, Progressing, Out of sync, /,
+  })
+  await expect(marked).toBeVisible()
+  await marked.click()
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'go {"kind":"Deployment","name":"orders","namespace":"shop"}',
+  )
+  // One the plugin holds no token for goes to Lumovi's own list of its kind, with its kind's icon.
+  const service = here.getByRole('button', { name: /^Service orders, Healthy, \d/ })
+  await expect(service.locator('svg').first()).toBeVisible()
+  await service.click()
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'go {"to":"list","kind":"Service"}',
+  )
+  // Elsewhere: every card is context, dashed, and none is a button.
+  const remote = page.getByRole('region', { name: 'Resources on prod-us', exact: true })
+  await expect(remote.getByRole('button', { name: /orders/ })).toHaveCount(0)
+  const context = remote.getByRole('group', {
+    name: 'Deployment orders, Progressing, Out of sync, shown for context: it opens nothing',
+  })
+  await expect(context).toBeVisible()
+  await expect(context).toHaveClass(/border-dashed/)
+  await context.click()
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(2)
+  // As a table: the mark beside its name, and a context card's row opens nothing either.
+  await here.getByRole('radio', { name: 'Table', exact: true }).click()
+  await here.getByRole('button', { name: 'Open orders', exact: true }).click()
+  await expect(here.getByRole('row').filter({ hasText: 'Deployment' })).toContainText('Out of sync')
+  await remote.getByRole('radio', { name: 'Table', exact: true }).click()
+  await remote.getByRole('button', { name: 'Open orders', exact: true }).click()
+  await remote.getByRole('row').filter({ hasText: 'orders-migrate' }).click()
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(2)
+  // In the table, the Service's row goes where its card does.
+  await here.getByRole('row').filter({ hasText: 'Service' }).click()
+  await expect(pressed(page).getByRole('listitem')).toHaveCount(3)
+  await expect(pressed(page).getByRole('listitem').last()).toHaveText(
+    'go {"to":"list","kind":"Service"}',
+  )
 })
