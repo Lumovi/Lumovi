@@ -273,3 +273,54 @@ export function fieldsOf(object: KubeObject, paths: readonly string[]): Record<s
   }
   return picked
 }
+
+/**
+ * The reasons that say a warning's trouble is over, by the warning's reason: an object that was
+ * scheduled after failing to be, an image pulled after failing to be, a node ready again. (Not a
+ * back-off: a container started after one is still the one that keeps crashing.)
+ */
+/** Whether a "Failed" event's message is a failure to pull an image. */
+const pullFailed = (message: string) =>
+  message.startsWith('Failed to pull image') || /ErrImagePull|ImagePullBackOff/.test(message)
+
+const RESOLVED_BY: Readonly<Record<string, readonly string[]>> = {
+  FailedScheduling: ['Scheduled'],
+  FailedCreate: ['SuccessfulCreate'],
+  FailedAttachVolume: ['SuccessfulAttachVolume'],
+  FailedMount: ['SuccessfulMountVolume'],
+  Failed: ['Pulled'],
+  ErrImagePull: ['Pulled'],
+  NodeNotReady: ['NodeReady'],
+}
+
+/**
+ * Of a warning, the later event about the same object that says its trouble is over, if one
+ * among `events` does: as the warning's own reason is resolved, and after it was last seen.
+ */
+export function resolvedBy(
+  warning: KubeObject,
+  events: readonly KubeObject[],
+  seen: (event: KubeObject) => number,
+): KubeObject | undefined {
+  const by = RESOLVED_BY[String(warning.reason)]
+  if (warning.type !== 'Warning' || !by) return undefined
+  // (The kubelet's "Failed" is any failure to start a container: only a pull's is over once
+  // its image is pulled. A missing key, say, fails again right after "Pulled", on every try.)
+  if (warning.reason === 'Failed' && !pullFailed(String(warning.message ?? ''))) {
+    return undefined
+  }
+  const about = involved(warning)
+  return events
+    .filter((event) => {
+      const theirs = involved(event)
+      return (
+        event.type === 'Normal' &&
+        by.includes(String(event.reason)) &&
+        theirs.kind === about.kind &&
+        theirs.name === about.name &&
+        theirs.namespace === about.namespace &&
+        seen(event) > seen(warning)
+      )
+    })
+    .sort((a, b) => seen(b) - seen(a))[0]
+}

@@ -8,3 +8,8 @@ export function lastSeen(event: KubeObject): string {
 
 /** How many times it happened: once, unless it says otherwise. */
 export const eventCount = (event: KubeObject): number => (event.count as number | undefined) ?? 1
+
+/** When an event first happened: as it says, or when it was made. */
+export function firstSeen(event: KubeObject): string {
+  return (event.firstTimestamp ?? event.eventTime ?? event.metadata.creationTimestamp) as string
+}

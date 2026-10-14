@@ -8,7 +8,7 @@
  * unless their permissions let assistants change it without asking.
  */
 import { randomUUID } from 'node:crypto'
-import { eventCount, lastSeen } from '@shared/events'
+import { eventCount, firstSeen, lastSeen } from '@shared/events'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js'
 import type {
@@ -52,6 +52,7 @@ import {
   fieldsOf,
   involved,
   readable,
+  resolvedBy,
   row,
   statusOf,
   withoutLongAnnotations,
@@ -678,7 +679,7 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
     {
       title: 'Get events',
       description:
-        'What Kubernetes reported, the latest first: about one object, or a namespace’s, or the whole cluster’s.',
+        'What Kubernetes reported, the latest first: about one object, or a namespace’s, or the whole cluster’s. Each says when it was last seen, and when it began where it happened more than once; a pod’s back-off says how often the pod has restarted; and a warning whose trouble a later event says is over (scheduled, pulled, ready again) says so.',
       inputSchema: {
         cluster,
         namespace: z.string().optional(),
@@ -727,17 +728,49 @@ export function registerTools(mcp: McpServer, t: ToolContext): void {
       const now = Date.now()
       const latest = [...events].sort((a, b) => seen(b) - seen(a)).slice(0, limit)
       if (latest.length === 0) return text('No events.')
+      const ago = (event: KubeObject, when: (e: KubeObject) => string) =>
+        `${age(when(event), now)} ago`
+      // A pod's back-offs beside its restarts: each pod read once, so many at most.
+      const backingOff = [
+        ...new Set(
+          latest
+            .filter((e) => e.reason === 'BackOff' && involved(e).kind === 'Pod')
+            .map((e) => `${involved(e).namespace}/${involved(e).name}`),
+        ),
+      ].slice(0, 20)
+      const restarts = new Map(
+        await Promise.all(
+          backingOff.map(async (key) => {
+            const [ns, pod] = key.split('/') as [string, string]
+            const got = await kube.get({ context: cluster, kind: 'Pod', namespace: ns, name: pod })
+            const count = got.ok
+              ? (got.data.status?.containerStatuses ?? []).reduce(
+                  (sum: number, c: { restartCount?: number }) => sum + (c.restartCount ?? 0),
+                  0,
+                )
+              : undefined
+            return [key, count] as const
+          }),
+        ),
+      )
       return text(
         yaml(
-          latest.map((e) => ({
-            last: `${age(new Date(seen(e)).toISOString(), now)} ago`,
-            type: e.type,
-            reason: e.reason,
-            object: `${involved(e).kind}/${involved(e).name}`,
-            ...(involved(e).namespace ? { namespace: involved(e).namespace } : {}),
-            message: e.message,
-            ...(eventCount(e) > 1 ? { count: eventCount(e) } : {}),
-          })),
+          latest.map((e) => {
+            const resolved = resolvedBy(e, events, seen)
+            const podRestarts = restarts.get(`${involved(e).namespace}/${involved(e).name}`)
+            return {
+              last: ago(e, lastSeen),
+              ...(eventCount(e) > 1 ? { first: ago(e, firstSeen) } : {}),
+              type: e.type,
+              reason: e.reason,
+              object: `${involved(e).kind}/${involved(e).name}`,
+              ...(involved(e).namespace ? { namespace: involved(e).namespace } : {}),
+              message: e.message,
+              ...(eventCount(e) > 1 ? { count: eventCount(e) } : {}),
+              ...(e.reason === 'BackOff' && podRestarts !== undefined ? { podRestarts } : {}),
+              ...(resolved ? { resolved: `${resolved.reason} ${ago(resolved, lastSeen)}` } : {}),
+            }
+          }),
         ),
       )
     },
