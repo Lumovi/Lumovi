@@ -106,7 +106,15 @@ export function boxOf(url: string): { plugin: string } | undefined {
  * The policy is the wall. The worker's first lines (below) are hardening behind it; only a
  * worker made by a worker rests on them alone.
  */
-export function boxHeaders(script: string, page: string): Record<string, string> {
+export function boxHeaders(
+  script: string,
+  page: string,
+  /**
+   * What it may ask, where it's no box: the one other sealed document of Lumovi's (the check's
+   * frame, which asks the check's catcher and nothing else). A box may ask nothing.
+   */
+  connect?: readonly string[],
+): Record<string, string> {
   return {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -117,7 +125,7 @@ export function boxHeaders(script: string, page: string): Record<string, string>
       "default-src 'none'",
       `script-src ${script}`,
       'worker-src blob:',
-      "connect-src 'none'",
+      `connect-src ${connect?.join(' ') ?? "'none'"}`,
       "img-src 'none'",
       "style-src 'none'",
       "font-src 'none'",
@@ -147,6 +155,45 @@ export function sealedDocument(script: string): string {
   }
   return `<!doctype html><meta charset="utf-8"><title>plugin</title><body><script>${script}</script>`
 }
+
+/** How long the check's frame waits for its three asks before it says it's done. */
+export const CHECK_FRAME_WAIT_MS = 3000
+
+/**
+ * The lines in the check's frame (`PATHS.boxCheckFrame`), all of them Lumovi's: the control of
+ * Lumovi's check of a box. A server knows nothing reached its catcher from a box only if
+ * something shaped as a box's request can reach it at all, so the control is asked from a frame
+ * sealed as a box is (an origin that is nobody's), in each shape a box's ways have on the wire:
+ * a request that says where it's from (`Origin: null`), one that doesn't (as a box's `no-cors`
+ * fetch), and a socket. Its policy lets it ask the catcher's folder and nothing else.
+ *
+ * It takes one message, from its parent alone, and asks nothing before it: the address to ask.
+ * It runs no plugin's text and makes no worker; and says one word up, once each ask was answered,
+ * refused, or given up on. Whether any arrived is the server's to say.
+ */
+export const CHECK_FRAME_SCRIPT = `(() => {
+  let asked = false
+  addEventListener('message', (event) => {
+    if (asked || event.source !== parent || typeof event.data !== 'string') return
+    asked = true
+    const at = event.data
+    const over = (ask) => { try { return Promise.resolve(ask()).then(() => {}, () => {}) } catch { return Promise.resolve() } }
+    const asks = [
+      over(() => fetch(at + '/origin', { credentials: 'omit' })),
+      over(() => fetch(at + '/no-origin', { mode: 'no-cors', credentials: 'omit' })),
+      over(() => new Promise((done) => {
+        const socket = new WebSocket(at.replace(/^http/, 'ws') + '/socket')
+        socket.onopen = () => { socket.close(); done() }
+        socket.onerror = socket.onclose = () => done()
+      })),
+    ]
+    Promise.race([Promise.all(asks), new Promise((done) => setTimeout(done, ${CHECK_FRAME_WAIT_MS}))])
+      .then(() => parent.postMessage('done', '*'))
+  })
+})()`
+
+/** What the check's frame says up, once: nothing else ever comes out of it. */
+export const CHECK_FRAME_DONE = 'done'
 
 /** The box's document: its script in it, whole, and nothing else. */
 export const boxDocument = (): string => sealedDocument(BOX_SCRIPT)

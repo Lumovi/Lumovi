@@ -1305,10 +1305,14 @@ export interface LumoviApi {
      */
     pluginChange(request: PluginChangeRequest): Promise<PluginChangeAnswer>
     /**
-     * A server's: a check of this browser's plugin box, with its one-time nonce and the code a
-     * box runs for it (none for a session whose code wouldn't be handed over anyway).
+     * A server's: a check of this browser's plugin box, with its one-time nonce, the code a box
+     * runs for it, and the address this page hands the check's own sealed frame to ask, so the
+     * server knows a request shaped as a box's can reach its catcher (none for a session whose
+     * code wouldn't be handed over anyway).
      */
-    boxCheckStart?(): Promise<{ nonce: string; code: Record<BoxCheckRole, string> } | undefined>
+    boxCheckStart?(): Promise<
+      { nonce: string; code: Record<BoxCheckRole, string>; control: string } | undefined
+    >
     /**
      * And how it came out, judged by the server: what each box sent up (nothing, where one didn't
      * answer), and what the page heard.

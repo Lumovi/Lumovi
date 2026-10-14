@@ -67,6 +67,11 @@ export const PATHS = {
    * browser, not Lumovi, decides which process a frame is in).
    */
   box: 'plugin-box/box.html',
+  /**
+   * The sealed frame Lumovi's check of a box asks its own catcher from (the control): sealed as
+   * a box is, with Lumovi's lines alone in it.
+   */
+  boxCheckFrame: 'plugin-box/check.html',
   /** What a box's check aims at, to see whether anything gets out (`box-check/<nonce>/<way>`). */
   boxCheck: 'box-check',
 } as const

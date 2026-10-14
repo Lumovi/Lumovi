@@ -4,8 +4,11 @@
  * way out a plugin's code could, each at a catcher of the server's own. What reached the
  * catcher, the server saw; what the worker saw of each, it reports. Two such boxes run side by
  * side, each looking for what the other kept, and a third, once they're closed, for what they
- * left. It passes only if nothing reached the catcher, no box found another's, every report came
- * in time, and each names every way here, each refused.
+ * left. And a frame of Lumovi's own, sealed as a box is and with no plugin's code in it, asks the
+ * same catcher in every shape a box's request has (the control): a catcher that nothing shaped
+ * so can reach would see nothing of a box that lets everything out. It passes only if the
+ * control arrived in each shape, nothing of the boxes' reached the catcher, no box found
+ * another's, every report came in time, and each names every way here, each refused.
  */
 
 /**
@@ -26,6 +29,10 @@ export const BOX_CHECK_WAYS = [
   'beacon',
   'import',
   'import-scripts',
+  // (Text made into code leaves nothing at a catcher: what the worker saw of it is all there is.)
+  'eval',
+  'new-function',
+  'text-timer',
   'worker',
   'blob-worker',
   'shared-worker',
@@ -35,6 +42,17 @@ export const BOX_CHECK_WAYS = [
 ] as const
 
 export type BoxCheckWay = (typeof BOX_CHECK_WAYS)[number]
+
+/**
+ * The shapes Lumovi's own request to the catcher (the control) must arrive in for a check to be
+ * judged at all: each shape a box's ways have on the wire, asked from a frame sealed as a box is.
+ * A request that says where it's from (`Origin: null`, as a box's XHR does), one that says no
+ * origin (as a box's `no-cors` fetch does), and a socket's upgrade (`Origin: null`). Something
+ * in front of the server may pass one on and not another. Which shape one arrived in is the
+ * server's to say, by what it carried, never the address's.
+ */
+export const BOX_CHECK_CONTROLS = ['http-with-origin', 'http-without-origin', 'socket'] as const
+export type BoxCheckControl = (typeof BOX_CHECK_CONTROLS)[number]
 
 /**
  * What the worker saw of a way: it was refused (it threw, or failed); the browser hasn't it;
@@ -160,6 +178,10 @@ export function boxCheckCode(catcher: string, nonce: string, role: BoxCheckRole)
     beacon: () => self.navigator && typeof self.navigator.sendBeacon === 'function' ? (self.navigator.sendBeacon(at('beacon'), 'x') ? 'sent' : 'refused') : 'absent',
     import: () => import(at('import') + '.js').then(() => 'reached', () => 'refused'),
     'import-scripts': () => typeof self.importScripts === 'function' ? (() => { try { self.importScripts(at('import-scripts') + '.js'); return 'reached' } catch { return 'refused' } })() : 'absent',
+    // Text made into code: reached if it ran. (Each asked of the worker's own scope, by name.)
+    'eval': () => { try { return self.eval('1 + 1') === 2 ? 'reached' : 'refused' } catch { return 'refused' } },
+    'new-function': () => { try { return new self.Function('return 1 + 1')() === 2 ? 'reached' : 'refused' } catch { return 'refused' } },
+    'text-timer': () => new Promise((done) => { const flag = '__lumoviCheckTimer'; self[flag] = false; try { self.setTimeout('self.' + flag + ' = true', 0) } catch { return done('refused') } setTimeout(() => done(self[flag] === true ? 'reached' : 'refused'), 60) }),
     worker: () => has('Worker') ? event((yes, no) => { const w = new Worker(at('worker') + '.js'); w.onmessage = yes; w.onerror = no }) : 'absent',
     'blob-worker': () => has('Worker') && has('Blob') && typeof URL.createObjectURL === 'function' ? event((yes, no) => { const w = new Worker(URL.createObjectURL(new Blob(['fetch(' + JSON.stringify(at('blob-worker')) + ', { mode: "no-cors" }).then(() => postMessage(1), () => {})']))); w.onmessage = yes; w.onerror = no }) : 'absent',
     'shared-worker': () => has('SharedWorker') ? event((yes, no) => { const w = new SharedWorker(at('shared-worker') + '.js'); w.onerror = no; w.port.onmessage = yes }) : 'absent',

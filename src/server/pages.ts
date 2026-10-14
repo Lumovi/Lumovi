@@ -21,10 +21,11 @@ const TYPES: Record<string, string> = {
 const COMPRESSIBLE = new Set(['.js', '.css', '.svg'])
 
 /**
- * As strict as the desktop app's: nothing but the server's own files and WebSocket. `box`: the
- * one address a page may show in a frame, a plugin's sealed box, where the server has one.
+ * As strict as the desktop app's: nothing but the server's own files and WebSocket. `box` and
+ * `check`: the only addresses a page may show in a frame, where the server has them: a plugin's
+ * sealed box, and the sealed frame Lumovi's check of a box asks its own catcher from.
  */
-export const contentSecurityPolicy = (box?: string): string =>
+export const contentSecurityPolicy = (box?: string, check?: string): string =>
   [
     "default-src 'self'",
     "script-src 'self'",
@@ -36,7 +37,7 @@ export const contentSecurityPolicy = (box?: string): string =>
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    `frame-src ${box ?? "'none'"}`,
+    `frame-src ${[box, check].filter((address) => address !== undefined).join(' ') || "'none'"}`,
   ].join('; ')
 
 export type Encoding = 'br' | 'gzip'

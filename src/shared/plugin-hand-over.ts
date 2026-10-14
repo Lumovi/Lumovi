@@ -23,6 +23,12 @@ export type NotHanded =
    * blocks them, or throws): it didn't finish, and won't in this browser as it is.
    */
   | 'check-unlooked'
+  /**
+   * On a server: the check's own request, from Lumovi's page, didn't reach the server (something
+   * in front of it doesn't pass it on): nothing can be told of what a box lets out, so it didn't
+   * finish, and won't from this page as things are.
+   */
+  | 'check-unreached'
   /** The person turned this plugin's code off, on the Plugins page. */
   | 'turned-off'
   /** On a server: its administrator turned plugins' code off (LUMOVI_PLUGIN_CODE=off). */
@@ -121,6 +127,8 @@ const WHY: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
     'Lumovi’s check of this browser didn’t finish in time, so it doesn’t run plugins’ code here yet. Open the page again to check again.',
   'check-unlooked':
     'Before handing a plugin its code, Lumovi checks that this browser keeps each plugin in a box of its own. Here it can’t look in the places a box might keep things, so no plugin’s code runs in this browser.',
+  'check-unreached':
+    'Lumovi couldn’t check this browser: its own test request didn’t reach this server, so it can’t tell what a plugin’s box lets out here. Something in front of Lumovi may not pass it on. Whoever runs Lumovi can see which in its log.',
   'turned-off': 'You turned off its code.',
   'off-on-server': 'This server doesn’t run plugins’ code. Whoever runs Lumovi can turn it on.',
   'off-on-server-for-it':
@@ -145,6 +153,7 @@ const LINE: Readonly<Record<Exclude<NotHanded, 'not-in-use'>, string>> = {
   'check-failed': 'Lumovi’s check of this browser didn’t pass.',
   'check-unfinished': 'Lumovi’s check of this browser didn’t finish in time.',
   'check-unlooked': 'Lumovi couldn’t check this browser.',
+  'check-unreached': 'Lumovi’s check of this browser couldn’t reach this server.',
   'turned-off': 'you turned off its code.',
   'off-on-server': 'this server doesn’t run plugins’ code.',
   'off-on-server-for-it': 'this server doesn’t run this plugin’s code.',
