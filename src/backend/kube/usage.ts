@@ -5,6 +5,8 @@ import type {
   MetricsFlavor,
   MetricsService,
   MetricsSourceSetting,
+  PrometheusAlert,
+  PrometheusAlerts,
   RangeResult,
   Result,
 } from '@shared/api'
@@ -107,6 +109,66 @@ function assertQueries(value: unknown): asserts value is { id: string; expr: str
 function sample(value: string): number | null {
   const number = Number(value)
   return Number.isFinite(number) ? number : null
+}
+
+/** A map of strings, as Prometheus writes labels and annotations: anything else is left out. */
+function strings(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+}
+
+const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
+const field = (value: unknown, key: string): unknown =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined
+
+/**
+ * Prometheus's alerting rules with their alerts (`/api/v1/rules?type=alert`), read with care: a
+ * rule, an alert or a field that isn't as Prometheus writes it is left out, never guessed at.
+ */
+export function alertsOf(groups: unknown): Pick<PrometheusAlerts, 'alerts' | 'rules'> {
+  if (!Array.isArray(groups)) {
+    throw new KubeRequestError('server', 'It answered, but not with alerting rules.')
+  }
+  const alerts: PrometheusAlert[] = []
+  const rules: PrometheusAlerts['rules'] = []
+  for (const group of groups) {
+    const groupName = field(group, 'name')
+    for (const rule of list(field(group, 'rules'))) {
+      const name = field(rule, 'name')
+      if (typeof name !== 'string' || (field(rule, 'type') ?? 'alerting') !== 'alerting') continue
+      const ruleLabels = strings(field(rule, 'labels'))
+      const duration = field(rule, 'duration')
+      let active = false
+      for (const alert of list(field(rule, 'alerts'))) {
+        const state = field(alert, 'state')
+        if (state !== 'firing' && state !== 'pending') continue
+        active = true
+        const labels = { ...strings(field(alert, 'labels')) }
+        const activeAt = Date.parse(String(field(alert, 'activeAt')))
+        const value = field(alert, 'value')
+        alerts.push({
+          name: labels.alertname ?? name,
+          state,
+          ...(Number.isFinite(activeAt) ? { activeAt } : {}),
+          ...(typeof value === 'string' ? { value } : {}),
+          labels,
+          annotations: strings(field(alert, 'annotations')),
+          for: typeof duration === 'number' && duration >= 0 ? duration : 0,
+          group: typeof groupName === 'string' ? groupName : '',
+        })
+      }
+      rules.push({
+        name,
+        ...(ruleLabels.severity !== undefined ? { severity: ruleLabels.severity } : {}),
+        active,
+      })
+    }
+  }
+  return { alerts, rules }
 }
 
 async function run<T>(task: () => Promise<T>): Promise<Result<T>> {
@@ -223,6 +285,20 @@ export class UsageHistory {
         }),
       )
       return { results }
+    })
+  }
+
+  /** The alerts the source holds, firing and pending, with its alerting rules. */
+  alerts(context: unknown): Promise<Result<PrometheusAlerts>> {
+    return run(async () => {
+      assertString(context, 'context')
+      const service = await this.#ready(context)
+      const { groups } = await this.#prom<{ groups?: unknown }>(
+        context,
+        service,
+        '/api/v1/rules?type=alert',
+      )
+      return { ...alertsOf(groups), service, at: Date.now() }
     })
   }
 

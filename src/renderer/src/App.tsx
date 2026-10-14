@@ -21,6 +21,7 @@ import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
 import { OverviewPage } from './features/overview/OverviewPage'
+import { AlertsPage } from './features/alerts/AlertsPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { RightsizingPage } from './features/rightsizing/RightsizingPage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
@@ -99,6 +100,7 @@ const routes: RouteObject[] = [
               { index: true, element: <OverviewPage /> },
               { path: 'workloads', element: <WorkloadsPage /> },
               { path: 'metrics', element: <MetricsPage /> },
+              { path: 'alerts', element: <AlertsPage /> },
               { path: 'metrics/right-sizing', element: <RightsizingPage /> },
               ...RESOURCES.map((resource) => ({
                 path: resource.plural,

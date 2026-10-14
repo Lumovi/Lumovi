@@ -4,6 +4,7 @@ import { Command } from 'cmdk'
 import {
   Blocks,
   Boxes,
+  Bell,
   ChartSpline,
   Check,
   ChevronDown,
@@ -15,7 +16,7 @@ import {
   ScrollText,
   ShipWheel,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
 import type { KubeContext } from '@shared/api'
 import { GO_KEYS } from '@shared/navigation'
@@ -53,6 +54,7 @@ import {
   clusterPath,
   helmPath,
   kindPath,
+  alertsPath,
   metricsPath,
   workloadsPath,
 } from '@renderer/lib/routes'
@@ -226,10 +228,19 @@ export function Sidebar() {
             {RESOURCES.filter((r) => r.category === category).map((resource) => {
               const Icon = KIND_ICONS[resource.kind]
               return (
-                <NavItem key={resource.kind} to={kindPath(context, resource.kind)}>
-                  <Icon className="size-4 text-ink-3" /> {resource.label}
-                  <GoHint target={resource.kind} />
-                </NavItem>
+                <Fragment key={resource.kind}>
+                  <NavItem to={kindPath(context, resource.kind)}>
+                    <Icon className="size-4 text-ink-3" /> {resource.label}
+                    <GoHint target={resource.kind} />
+                  </NavItem>
+                  {/* Prometheus's alerts, beside the cluster's events. */}
+                  {resource.kind === 'Event' && (
+                    <NavItem to={alertsPath(context)}>
+                      <Bell className="size-4 text-ink-3" /> Alerts
+                      <GoHint target="alerts" />
+                    </NavItem>
+                  )}
+                </Fragment>
               )
             })}
             {/* Plugins that extend Kubernetes' own, like Gateway API, sit with them. */}

@@ -22,6 +22,7 @@ import {
 import type { ClusterFixture, KubeObject } from '../types.ts'
 import { CUSTOM, demoCustomResources } from './custom.ts'
 import { demoHelmReleases } from './helm.ts'
+import { demoAlertRules } from './demo-alerts.ts'
 import { demoLogs } from './demo-logs.ts'
 
 const REVISION = {
@@ -2094,7 +2095,17 @@ export function demoCluster(now = Date.now()): ClusterFixture {
   return {
     ...b.build(demoLogs),
     prometheus: [
-      { namespace: 'monitoring', service: 'prometheus', flavor: 'prometheus' },
+      {
+        namespace: 'monitoring',
+        service: 'prometheus',
+        flavor: 'prometheus',
+        rules: () =>
+          demoAlertRules(now, {
+            crashing: [checkoutPods[0]!.metadata.name, checkoutPods[1]!.metadata.name],
+            healthy: checkoutPods[2]!.metadata.name,
+            waiting: recommendationsPod.metadata.name,
+          }),
+      },
       { namespace: 'data', service: 'prometheus-archive', flavor: 'prometheus' },
     ],
   }

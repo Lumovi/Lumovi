@@ -136,6 +136,7 @@ export function createWebApi(): LumoviApi {
       test: invoke(IPC.usageTest),
       range: invoke(IPC.usageRange),
       instant: invoke(IPC.usageInstant),
+      alerts: invoke(IPC.usageAlerts),
     },
     metricsStack: {
       status: invoke(IPC.metricsStackStatus),

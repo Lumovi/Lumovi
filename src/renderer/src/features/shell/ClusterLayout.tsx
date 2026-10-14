@@ -30,6 +30,7 @@ import { ActionHost } from '../actions/ActionSurfaces'
 import { CreateDialog } from '../actions/CreateDialog'
 import { SourceDialog } from '../metrics/SourceDialog'
 import { DetailPanel } from '../details/DetailPanel'
+import { AlertPanel } from '../alerts/AlertPanel'
 import { ReleasePanel } from '../helm/ReleasePanel'
 import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
@@ -173,6 +174,7 @@ export function ClusterLayout() {
               </div>
               <DetailPanel />
               <ReleasePanel />
+              <AlertPanel />
             </div>
             {api.host === 'desktop' && <TerminalDock />}
           </div>

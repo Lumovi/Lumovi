@@ -21,6 +21,19 @@ export function useHistorySource() {
   })
 }
 
+/** The alerts the cluster's Prometheus holds, once it's found: read again every 30 seconds. */
+export function useAlerts() {
+  const { context } = useCluster()
+  const source = useHistorySource()
+  return useQuery({
+    // (Under the usage key: a new source, or a refresh, reads them again with the charts.)
+    queryKey: ['usage', context, 'alerts'],
+    queryFn: () => unwrap(api.usage.alerts(context)),
+    enabled: source.data?.state === 'ready',
+    refetchInterval: 30_000,
+  })
+}
+
 /** Looks for the source again (or applies a new setting), then reloads every chart. */
 export function useResetSource() {
   const { context } = useCluster()

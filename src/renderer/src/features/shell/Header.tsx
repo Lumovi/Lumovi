@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Blocks,
   Boxes,
+  Bell,
   ChartSpline,
   LayoutDashboard,
   Menu,
@@ -39,6 +40,7 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   '': ['Overview', LayoutDashboard],
   workloads: ['Workloads', Boxes],
   metrics: ['Metrics', ChartSpline],
+  alerts: ['Alerts', Bell],
   'api-resources': ['API resources', Blocks],
   helm: ['Helm releases', ShipWheel],
   // A plugin the cluster doesn't have (the others go by their own names).

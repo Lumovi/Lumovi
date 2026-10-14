@@ -46,6 +46,7 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'usage.test': 'reads',
   'usage.range': 'reads',
   'usage.instant': 'reads',
+  'usage.alerts': 'reads',
   'metricsStack.status': 'reads',
   'metricsStack.install': 'changes',
   'metricsStack.uninstall': 'changes',

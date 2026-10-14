@@ -58,8 +58,16 @@ export interface ClusterFixture {
   objects: KubeObject[]
   /** Omit to simulate a cluster without metrics-server. */
   metrics?: { nodes: NodeUsage[]; pods: PodUsage[] }
-  /** Services that answer PromQL through the API server's service proxy. */
-  prometheus?: { namespace: string; service: string; flavor: 'prometheus' | 'victoriametrics' }[]
+  /**
+   * Services that answer PromQL through the API server's service proxy; and, where given, its
+   * alerting rules, as `/api/v1/rules?type=alert` answers them.
+   */
+  prometheus?: {
+    namespace: string
+    service: string
+    flavor: 'prometheus' | 'victoriametrics'
+    rules?: () => unknown[]
+  }[]
   /** Log lines (without timestamps) for a container; the server adds timestamps and tailing. */
   logs?: (pod: KubeObject, container: string, previous: boolean) => string[]
 }

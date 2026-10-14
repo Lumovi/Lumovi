@@ -68,6 +68,7 @@ const READS: readonly string[] = [
   IPC.usageTest,
   IPC.usageRange,
   IPC.usageInstant,
+  IPC.usageAlerts,
   IPC.metricsStackStatus,
   IPC.fleetSummary,
   IPC.fleetAgents,

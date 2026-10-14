@@ -9,6 +9,7 @@ import {
   Blocks,
   Bookmark,
   Plug,
+  Bell,
   ChartSpline,
   CornerDownLeft,
   FilePlus2,
@@ -63,6 +64,7 @@ import {
   helmPath,
   formatRef,
   kindPath,
+  alertsPath,
   metricsPath,
   rightsizingPath,
   workloadsPath,
@@ -434,6 +436,14 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go(metricsPath(context)))}
           >
             Metrics
+          </Item>
+          <Item
+            icon={<Bell />}
+            value="Alerts firing pending Prometheus alerting rules"
+            hint={<Keys keys={['G', 'Z']} />}
+            onSelect={run(() => go(alertsPath(context)))}
+          >
+            Alerts
           </Item>
           <Item
             icon={<Scale />}

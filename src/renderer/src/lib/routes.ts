@@ -71,6 +71,11 @@ export function metricsPath(context: string): string {
   return `${clusterPath(context)}/metrics`
 }
 
+/** The alerts the cluster's Prometheus holds, firing and pending. */
+export function alertsPath(context: string): string {
+  return `${clusterPath(context)}/alerts`
+}
+
 /** What workloads should request, from their usage history: a tab of Metrics. */
 export function rightsizingPath(context: string): string {
   return `${metricsPath(context)}/right-sizing`
@@ -133,6 +138,7 @@ const PAGES: Partial<Record<NavTarget, (context: string) => string>> = {
   overview: clusterPath,
   workloads: workloadsPath,
   metrics: metricsPath,
+  alerts: alertsPath,
   helm: helmPath,
 }
 

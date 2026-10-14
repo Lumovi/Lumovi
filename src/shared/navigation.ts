@@ -4,12 +4,13 @@
  */
 import { resourceByKind, type BuiltinKind } from './resources'
 
-export type NavTarget = 'overview' | 'workloads' | 'metrics' | 'helm' | BuiltinKind
+export type NavTarget = 'overview' | 'workloads' | 'metrics' | 'alerts' | 'helm' | BuiltinKind
 
 const PAGE_LABELS: Record<string, string> = {
   overview: 'Overview',
   workloads: 'Workloads',
   metrics: 'Metrics',
+  alerts: 'Alerts',
   helm: 'Helm releases',
 }
 
@@ -27,6 +28,8 @@ export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'n', target: 'Node' },
   { key: 'm', target: 'Namespace' },
   { key: 'e', target: 'Event' },
+  // (z: the last free letter that reads as alerts.)
+  { key: 'z', target: 'alerts' },
   { key: 'p', target: 'Pod' },
   { key: 'd', target: 'Deployment' },
   { key: 's', target: 'StatefulSet' },
