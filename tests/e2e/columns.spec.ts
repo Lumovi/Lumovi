@@ -17,6 +17,7 @@ import {
   DEMO,
   expect,
   hoverForTooltip,
+  LARGE,
   openCluster,
   row,
   rows,
@@ -173,6 +174,9 @@ test('a list’s columns are shown, hidden and moved from the keyboard, and kept
   expect((await headings(page)).slice(0, 3)).toEqual(['Name', 'Restarts', 'Status'])
   await expect(header(page, 'Node')).toHaveCount(0)
   await go(page, `#/cluster/${CONTEXTS.large}/pods`)
+  // (That cluster's own list, by how many it holds: a first row of Pods is on the page before
+  // it is, the list just left, with its own columns.)
+  await expect(page.getByText(`${LARGE.podCount.toLocaleString('en-US')} items`)).toBeVisible()
   await expect(rows(page, 'Pods').first()).toBeVisible()
   expect((await headings(page)).slice(0, 2)).toEqual(['Name', 'Status'])
 
