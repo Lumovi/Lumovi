@@ -543,7 +543,19 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   // (Laid out at 1728 itself, a laptop's whole screen: there the panel leaves Argo CD's
   // Applications its Deploys to column, and its last two give way. Where payments deploys to is
   // long, so the column cuts it whatever the platform's type.)
-  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1728x995' }, fullLayout: false })
+  const { app: electron, page } = await launch({
+    env: { LUMOVI_E2E_WINDOW: '1728x995' },
+    fullLayout: false,
+  })
+  // A screen narrower than that keeps the window narrower (CI's macOS has 1024): 1728 all the
+  // same, zoomed out, as the tests' 1440 is.
+  await electron.evaluate(({ BrowserWindow }, width) => {
+    const win = BrowserWindow.getAllWindows()[0]!
+    const fit = () => win.webContents.setZoomFactor(Math.min(1, win.getContentSize()[0]! / width))
+    fit()
+    win.on('show', fit)
+    win.on('resize', fit)
+  }, 1728)
   const DEPLOYS = 'eu-west-1-payments-production · payments'
   const far = structuredClone(
     clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
