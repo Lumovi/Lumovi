@@ -360,11 +360,12 @@ async function diagnose(
 }
 
 /**
- * Adds to a failed test's diagnostics, on Windows, what only PowerShell can say: what keeps the
- * machine busy, every shell there is, and how long one takes to start. Asked last of all that's
- * kept of a failure and while Lumovi still runs (its terminals' shells with it): PowerShell is
- * slow to start in the very failure this is most wanted for, so each answer is written as it
- * comes, and a teardown that runs out of time has lost only what wasn't asked yet.
+ * Adds to a failed test's diagnostics, on Windows, what only PowerShell can say: what the
+ * shells there are are doing, what keeps the machine busy, every shell there is, and how long
+ * one takes to start. Asked last of all that's kept of a failure and while Lumovi still runs
+ * (its terminals' shells with it): PowerShell is slow to start in the very failure this is most
+ * wanted for, so each answer is written as it comes, and a teardown that runs out of time has
+ * lost only what wasn't asked yet.
  */
 function diagnoseShells(path: string) {
   if (process.platform !== 'win32') return
@@ -382,6 +383,34 @@ function diagnoseShells(path: string) {
     }
     appendFileSync(path, `\n${title}:\n${said}`)
   }
+  // First, what a shell that says nothing is doing, asked without listing every process (which
+  // has run out of time in the very failure this is for): the shells' and console hosts' threads
+  // by state, what the virus scanner is using, and how busy the machine is, each with how long
+  // its answer took. One PowerShell asks all three, and leaves itself out by its own id; it is
+  // still one more process at that moment, which is to be read beside the numbers.
+  // (It is the slowest of the asks, by what it is: two seconds of watching the scanner, a
+  // counter's sample, and PowerShell's own start, well inside one ask's time. So where a
+  // teardown's time is short, what's lost now is the asks after it. A silent shell's failure
+  // needs these three most.)
+  const timed = (title: string, command: string) =>
+    `$w = [Diagnostics.Stopwatch]::StartNew(); $said = try { $(${command}) -join ' | ' } catch { 'failed: ' + $_.Exception.Message }; '${title} ({0}ms): {1}' -f $w.ElapsedMilliseconds, $said`
+  ask(
+    'what the shells are doing',
+    [
+      timed(
+        'threads',
+        "Get-Process powershell,pwsh,conhost,OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | ForEach-Object { $p = $_; $t = $p.Threads | Group-Object { if ($_.ThreadState -eq 'Wait') { 'Wait-' + $_.WaitReason } else { [string]$_.ThreadState } } | ForEach-Object { '{0}x{1}' -f $_.Count, $_.Name }; $s = try { $p.StartTime.ToUniversalTime().ToString('HH:mm:ss.fff') } catch { '?' }; '{0} {1} started {2}, {3:n2}s of CPU, threads {4}' -f $p.ProcessName, $p.Id, $s, $p.CPU, ($t -join ' ') }",
+      ),
+      timed(
+        'scanner',
+        "$a = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; Start-Sleep -Milliseconds 2000; $b = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; 'MsMpEng used {0:n2}s of CPU in 2s, {1:n1}s so far' -f ($b - $a), $b",
+      ),
+      timed(
+        'machine',
+        "'{0:n0}% of all processors busy' -f (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue",
+      ),
+    ].join('; '),
+  )
   // What else keeps the machine busy (total CPU seconds so far).
   ask(
     `busiest processes (of ${cpus().length} cpus)`,
