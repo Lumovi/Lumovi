@@ -419,12 +419,14 @@ test('view actions: reconcile, suspend and resume, sync, abort', async ({ page, 
   const resumed = writes(clusters.demo, 'PATCH', path('infra')).at(-1)!.body
   expect(resumed.spec).toEqual({ suspend: null })
 
-  // Argo CD syncs an application when it finds an operation on it.
+  // Argo CD syncs an application when it finds an operation on it: its Sync asks first.
   await openKind(page, 'argoproj.io', 'Applications')
   await openRow(page, 'Applications', CUSTOM.applications.progressing)
   await panel(page, 'Application', CUSTOM.applications.progressing)
-    .getByRole('button', { name: 'Sync', exact: true })
+    .getByRole('button', { name: 'Sync…', exact: true })
     .click()
+  await expect(dialog(page)).toContainText('Argo CD brings payments in line with its source.')
+  await dialog(page).getByRole('button', { name: 'Sync', exact: true }).click()
   await expect(toasts(page)).toContainText('Started syncing payments')
   expect(
     writes(
@@ -433,7 +435,11 @@ test('view actions: reconcile, suspend and resume, sync, abort', async ({ page, 
       '/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/payments',
     ).at(-1)!.body,
   ).toEqual({
-    operation: { initiatedBy: { username: 'lumovi' }, sync: { syncStrategy: { hook: {} } } },
+    // (Its own sync options, where it has any: payments has none.)
+    operation: {
+      initiatedBy: { username: 'lumovi' },
+      sync: { prune: false, syncStrategy: { hook: {} } },
+    },
     // (Offered while no operation was on it: sent with the version it was judged on.)
     metadata: { resourceVersion: expect.stringMatching(/^\d+$/) },
   })

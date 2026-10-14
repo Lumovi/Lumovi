@@ -518,64 +518,80 @@ test('a table of moments: its own lead heading, each revision in fixed-width typ
   await expect(page.getByRole('tooltip')).toHaveCount(0)
 })
 
-test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, and only what’s cut: a heading, a text, and in the keyboard’s row', async ({
+test('a heading its column cuts is said whole in Lumovi’s tooltip, never a title of the browser’s; one that fits says nothing more', async ({
+  page,
+}) => {
+  // (On the kit's page: no page of a plugin Lumovi has cuts a heading.)
+  await kit(page)
+  const repositories = page
+    .locator('[data-fits="heading"]')
+    .getByRole('grid', { name: 'Repositories' })
+  await repositories.scrollIntoViewIfNeeded()
+  const tip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
+  await point(repositories.getByRole('columnheader', { name: 'Repository and path' }))
+  await expect(tip('Repository and path')).toBeVisible()
+  await expect(repositories.getByRole('columnheader').locator('[title]')).toHaveCount(0)
+  await away(page)
+  await point(repositories.getByRole('columnheader', { name: 'Sync' }))
+  await expect(tip('Sync')).toHaveCount(0)
+})
+
+test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, and only what’s cut: a text, and in the keyboard’s row', async ({
   launch,
   clusters,
 }) => {
-  // (A 1024 window, laid out at the tests' usual 1440 and zoomed: there the panel leaves the
-  // table room to keep its Repository and path column, cut.)
-  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x900' } })
+  // (Laid out at 1728 itself, a laptop's whole screen: there the panel leaves Argo CD's
+  // Applications its Deploys to column, and its last two give way. Where payments deploys to is
+  // long, so the column cuts it whatever the platform's type.)
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1728x995' }, fullLayout: false })
+  const DEPLOYS = 'eu-west-1-payments-production · payments'
+  const far = structuredClone(
+    clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
+  )
+  const destination = { name: 'eu-west-1-payments-production', namespace: 'payments' }
+  far.spec = { ...(far.spec as object), destination }
+  clusters.demo.upsert(far)
   await openCluster(page)
+  const tip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
   await page.evaluate(() => {
-    window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/applications'
   })
   const applications = page.getByRole('grid', { name: 'Applications' })
   await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
   await page.waitForFunction(() => window.location.hash.includes('open='))
-  const tip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
-  // A heading its column cuts: whole in Lumovi's tooltip, and never a title beside it.
-  await applications.getByRole('columnheader', { name: 'Repository and path' }).hover()
-  await expect(tip('Repository and path')).toBeVisible()
-  await expect(applications.getByRole('columnheader').locator('[title]')).toHaveCount(0)
-  // (Pointed away twice: one move away is still on the way to the tooltip, as Radix sees it.)
-  const away = async () => {
-    await page.mouse.move(0, 0)
-    await page.mouse.move(1, 1)
-    await expect(page.getByRole('tooltip')).toHaveCount(0)
-  }
-  await away()
-  // One that fits says nothing more.
-  await applications.getByRole('columnheader', { name: 'Sync' }).hover()
-  await expect(tip('Sync')).toHaveCount(0)
+  await expect(applications.getByRole('columnheader')).toHaveText([
+    '',
+    'Name',
+    'Health',
+    'Sync',
+    'Operation',
+    'Tracks · at',
+    'Deploys to',
+  ])
   // A text its column cuts: whole, in its own tooltip.
-  await away()
-  const batch = applications.getByRole('row').filter({ hasText: 'legacy-batch' })
-  await batch.locator('[data-cuts]').first().hover()
-  await expect(tip('apps/batch · github.com/example/deploy').first()).toBeVisible()
+  const payments = applications.getByRole('row').filter({ hasText: 'payments' }).first()
+  await point(payments.locator('[data-cuts]').filter({ hasText: DEPLOYS }))
+  await expect(tip(DEPLOYS).first()).toBeVisible()
   // The keyboard's row (payments, opened above): cells can't be pointed at, so its tooltip says
   // the cut one whole too, beside the columns that gave way.
   await page.mouse.move(0, 0)
   await applications.focus()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowUp')
-  const row = page.getByRole('tooltip').filter({ hasText: 'Target revision' })
-  await expect(row).toContainText(
-    /Repository and path\s*apps\/payments · github\.com\/example\/deploy/,
-  )
+  const row = page.getByRole('tooltip').filter({ hasText: 'Last synced' })
+  await expect(row).toContainText(`Deploys to${DEPLOYS}`)
   // Read after the row: what gave way, and not the cut cell again, which is read whole where it is.
-  const payments = applications.getByRole('row').filter({ hasText: 'payments' }).first()
-  await expect(payments).toHaveAccessibleDescription(/Target revision/)
-  await expect(payments).not.toHaveAccessibleDescription(/Repository and path/)
+  await expect(payments).toHaveAccessibleDescription(/Last synced/)
+  await expect(payments).not.toHaveAccessibleDescription(/Deploys to/)
   // Its value shortened as the page reads it again: no longer cut, no longer said.
   const app = structuredClone(
     clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
   )
-  const spec = app.spec as { source: { repoURL: string; path: string } }
-  spec.source.repoURL = 'https://g.io/d'
-  spec.source.path = 'p'
+  const spec = app.spec as { destination: Record<string, string> }
+  spec.destination = { name: 'eu', namespace: 'p' }
   clusters.demo.upsert(app)
-  await expect(page.getByRole('tooltip').filter({ hasText: 'Target revision' })).not.toContainText(
-    'Repository and path',
+  await expect(page.getByRole('tooltip').filter({ hasText: 'Last synced' })).not.toContainText(
+    'Deploys to',
   )
 })
 
@@ -716,20 +732,20 @@ test('beside a panel at 1024, a row of tiles too narrow for two stands one acros
   await page.evaluate(() => {
     window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
   })
-  const applications = page.getByRole('grid', { name: 'Applications' })
-  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  const attention = page.getByRole('grid', { name: 'Needs attention' })
+  await attention.getByRole('row').filter({ hasText: 'payments' }).first().click()
   await page.waitForFunction(() => window.location.hash.includes('open='))
-  const tiles = ['Healthy', 'Out of sync', 'Last sync failed'].map((name) =>
+  const tiles = ['Healthy', 'Synced', 'Syncing now', 'Last sync failed'].map((name) =>
     page.getByRole('region', { name, exact: true }),
   )
   // One across: each at the row's left edge, one under another, with its label whole.
   await expect
     .poll(async () => new Set(await Promise.all(tiles.map(async (t) => (await placed(t)).x))).size)
     .toBe(1)
-  const label = tiles[1]!.getByText('Out of sync', { exact: true })
+  const label = tiles[2]!.getByText('Syncing now', { exact: true })
   expect(await label.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   // A short line holds on one line (16 px), never broken inside a word.
-  const line = tiles[1]!.getByText('of 3 applications', { exact: true })
+  const line = tiles[2]!.getByText('Nothing is syncing', { exact: true })
   expect((await placed(line)).height).toBeLessThanOrEqual(20)
 })
 
@@ -741,10 +757,10 @@ test('beside a panel at 1440, a row of tiles keeps its words at the top, and a l
   await page.evaluate(() => {
     window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
   })
-  const applications = page.getByRole('grid', { name: 'Applications' })
-  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  const attention = page.getByRole('grid', { name: 'Needs attention' })
+  await attention.getByRole('row').filter({ hasText: 'payments' }).first().click()
   await page.waitForFunction(() => window.location.hash.includes('open='))
-  const tiles = ['Healthy', 'Out of sync', 'Last sync failed'].map((name) =>
+  const tiles = ['Healthy', 'Synced', 'Syncing now', 'Last sync failed'].map((name) =>
     page.getByRole('region', { name, exact: true }),
   )
   // In each, its label and its figure at the same height from its own top (the spare under the
@@ -780,8 +796,8 @@ test('beside a panel at 1440, a row of tiles keeps its words at the top, and a l
       ]),
     )
   expect(parts.map(([text]) => text)).toEqual(['1 degraded', '1 progressing'])
-  // Each part whole, never broken inside; three across, the line is too long for one and breaks
-  // between them. (Two and one, the tiles are wide enough for it on one.)
+  // Each part whole, never broken inside; four across, the line is too long for one and breaks
+  // between them. (In rows of fewer, the tiles are wide enough for it on one.)
   for (const [text, , lines] of parts) expect(lines, String(text)).toBe(1)
   if (new Set(placed.map((at) => at.row)).size === 1) {
     expect(parts[1]![1]).toBeGreaterThan(parts[0]![1] as number)
@@ -812,7 +828,7 @@ test('a page, and a row’s panel, keep their scroll bar’s room from the start
     window.location.hash = '#/cluster/demo/plugins/argo-cd/overview'
   })
   await page
-    .getByRole('grid', { name: 'Applications' })
+    .getByRole('grid', { name: 'Needs attention' })
     .getByRole('row')
     .filter({ hasText: 'payments' })
     .first()
