@@ -135,6 +135,10 @@ export interface MockCluster {
   endLogs(namespace: string, pod: string, options?: { abruptly?: boolean }): void
   /** How many log streams are being followed. */
   logFollowers(): number
+  /** How many lists are being watched (`?watch=1`), of a kind by its plural, or of all. */
+  watches(plural?: string): number
+  /** Writes to every watch this many bytes and no line's end, as a broken proxy might. */
+  watchNoise(bytes: number): void
   /** How many shells (exec streams) are open. */
   shells(): number
   /** How many port-forward streams are open. */
@@ -487,6 +491,35 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   const started = Date.now()
   const appended = new Map<string, { at: number; line: string }[]>()
   const followers = new Set<{ key: string; res: http.ServerResponse }>()
+  /** Lists being watched: each told of a change to an object it would list, as it happens. */
+  const watchers = new Set<{
+    def: Served
+    namespace?: string
+    labelSelector: string | null
+    fieldSelector: string | null
+    /** Only the objects' metadata, as `as=PartialObjectMetadata` asks. */
+    metadata: boolean
+    /** What was asked: a fault set on it later ends it. */
+    url: URL
+    res: http.ServerResponse
+  }>()
+  /** Tells the watches of `object` of a change to it. */
+  function told(type: 'ADDED' | 'MODIFIED' | 'DELETED', object: KubeObject): void {
+    for (const watcher of watchers) {
+      if (kindOf(object) !== watcher.def.kind) continue
+      if (watcher.namespace !== undefined && object.metadata.namespace !== watcher.namespace) {
+        continue
+      }
+      if (watcher.labelSelector && !matchesLabels(object.metadata.labels, watcher.labelSelector)) {
+        continue
+      }
+      if (watcher.fieldSelector && !matchesFields(object, watcher.fieldSelector)) continue
+      const sent = watcher.metadata
+        ? { apiVersion: 'meta.k8s.io/v1', kind: 'PartialObjectMetadata', metadata: object.metadata }
+        : object
+      watcher.res.write(`${JSON.stringify({ type, object: sent })}\n`)
+    }
+  }
 
   const store$: Store = {
     get: (kind, namespace, name) => store.get(objectKey(kind, namespace, name)),
@@ -497,14 +530,23 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       ),
     put(object) {
       resourceVersion += 1
-      store.set(keyOf(object), {
+      const had = store.has(keyOf(object))
+      const put = {
         ...object,
         metadata: { ...object.metadata, resourceVersion: String(resourceVersion) },
-      })
+      }
+      store.set(keyOf(object), put)
+      told(had ? 'MODIFIED' : 'ADDED', put)
     },
     remove(object) {
       resourceVersion += 1
+      const had = store.get(keyOf(object))
       store.delete(keyOf(object))
+      if (had)
+        told('DELETED', {
+          ...had,
+          metadata: { ...had.metadata, resourceVersion: String(resourceVersion) },
+        })
     },
     get podUsage() {
       return fixture.metrics?.pods ?? []
@@ -1592,6 +1634,36 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     const json = (status: number, payload: Json) =>
       send(req, res, status, JSON.stringify(payload), 'application/json')
     try {
+      // A list watched: its changes from now on, one event a line, until its time is up.
+      if (req.method === 'GET' && /^(1|true)$/.test(url.searchParams.get('watch') ?? '')) {
+        const { def, namespace, name } = resolve(url.pathname)
+        if (name !== undefined) throw notFoundPath()
+        if (denied({ verb: 'watch', resource: def.plural, namespace })) {
+          throw new HttpError(
+            403,
+            `${def.plural} is forbidden: User "${username()}" cannot watch resource "${def.plural}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ' at the cluster scope'}`,
+          )
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.flushHeaders()
+        const watcher = {
+          def,
+          namespace,
+          labelSelector: url.searchParams.get('labelSelector'),
+          fieldSelector: url.searchParams.get('fieldSelector'),
+          metadata: accept.includes('as=PartialObjectMetadata'),
+          url,
+          res,
+        }
+        watchers.add(watcher)
+        const seconds = Number(url.searchParams.get('timeoutSeconds') ?? 0)
+        const timer = seconds > 0 ? setTimeout(() => res.end(), seconds * 1000) : undefined
+        res.on('close', () => {
+          clearTimeout(timer)
+          watchers.delete(watcher)
+        })
+        return
+      }
       const followed = /^\/api\/v1\/namespaces\/([^/]+)\/pods\/([^/]+)\/log$/.exec(url.pathname)
       if (req.method === 'GET' && followed && url.searchParams.get('follow') === 'true') {
         const [, namespace, name] = followed as unknown as [string, string, string]
@@ -1727,6 +1799,13 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     fail(match, fault) {
       const entry = { match, fault }
       faults.unshift(entry)
+      // A list that fails from now fails its watches too: they end, as a dropped connection does,
+      // and begin again only as the fault lets them.
+      if ('status' in fault || 'hang' in fault) {
+        for (const watcher of [...watchers]) {
+          if (faultFor(watcher.url) === fault) watcher.res.end()
+        }
+      }
       return () => {
         const index = faults.indexOf(entry)
         if (index >= 0) faults.splice(index, 1)
@@ -1736,7 +1815,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       resourceVersion += 1
       const key = keyOf(object)
       const existing = store.get(key)
-      store.set(key, {
+      const put = {
         ...structuredClone(object),
         metadata: {
           uid: existing?.metadata.uid ?? crypto.randomUUID(),
@@ -1746,13 +1825,23 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
           ...structuredClone(object.metadata),
           resourceVersion: String(resourceVersion),
         },
-      })
+      }
+      store.set(key, put)
+      told(existing ? 'MODIFIED' : 'ADDED', put)
     },
     remove(kind, namespace, name) {
       resourceVersion += 1
       // A deleted pod's logs stop.
       if (kind === 'Pod') endLogs(namespace!, name)
-      return store.delete(objectKey(kind, namespace, name))
+      const key = objectKey(kind, namespace, name)
+      const had = store.get(key)
+      if (had) {
+        told('DELETED', {
+          ...had,
+          metadata: { ...had.metadata, resourceVersion: String(resourceVersion) },
+        })
+      }
+      return store.delete(key)
     },
     appendLogs(namespace, pod, container, lines) {
       const key = `${namespace}/${pod}/${container}`
@@ -1763,6 +1852,12 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     },
     endLogs: (namespace, pod, { abruptly = false } = {}) => endLogs(namespace, pod, abruptly),
     logFollowers: () => followers.size,
+    watchNoise(bytes) {
+      for (const watcher of watchers) watcher.res.write('x'.repeat(bytes))
+    },
+    watches: (plural) =>
+      [...watchers].filter((watcher) => plural === undefined || watcher.def.plural === plural)
+        .length,
     shells: streams.shells,
     tunnels: streams.tunnels,
     files: streams.files,
@@ -1784,6 +1879,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     reset() {
       for (const res of pending) res.destroy()
       for (const follower of followers) follower.res.destroy()
+      for (const watcher of watchers) watcher.res.destroy()
       appended.clear()
       controllers.stop()
       streams.closeAll()
@@ -1794,6 +1890,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       controllers.stop()
       streams.closeAll()
       for (const follower of followers) follower.res.destroy()
+      for (const watcher of watchers) watcher.res.destroy()
       for (const res of pending) res.destroy()
       server.closeAllConnections()
       return new Promise<void>((resolve) => server.close(() => resolve()))

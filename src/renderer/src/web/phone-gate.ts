@@ -93,6 +93,8 @@ const READS: readonly string[] = [
   IPC.helmSearch,
   IPC.logsStart,
   IPC.logsStop,
+  IPC.watchStart,
+  IPC.watchStop,
   // A shell is never opened from a phone; closing one that somehow is harms nothing.
   IPC.terminalClose,
 ]

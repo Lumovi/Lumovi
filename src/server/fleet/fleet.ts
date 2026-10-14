@@ -226,6 +226,7 @@ export class HostedFleet implements Hosted {
           ...(c.title ? { title: c.title } : {}),
         })),
       }),
+      watches: (name) => !visible().find((c) => c.name === name)?.agent,
       forContext: (name) => {
         const cluster = visible().find((c) => c.name === name)
         if (!cluster) {

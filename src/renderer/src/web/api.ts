@@ -45,9 +45,10 @@ function download(name: string, text: string): void {
 }
 
 export function createWebApi(): LumoviApi {
-  // Shells and log streams this page has open: they stop when the connection drops.
+  // Shells, log streams and watches this page has open: they stop when the connection drops.
   const shells = new Set<string>()
   const streams = new Set<string>()
+  const watched = new Set<string>()
   const socketUrl = serverUrl(PATHS.socket)
   socketUrl.protocol = socketUrl.protocol.replace('http', 'ws')
   const connection = new Connection(
@@ -58,6 +59,12 @@ export function createWebApi(): LumoviApi {
         connection.emit(IPC.terminalExit, id, { message: LOST } satisfies ShellExit)
       for (const id of streams) {
         connection.emit(IPC.logsEnd, id, { code: 'unreachable', message: LOST } satisfies KubeError)
+      }
+      for (const id of watched) {
+        connection.emit(IPC.watchEnded, id, {
+          code: 'unreachable',
+          message: LOST,
+        } satisfies KubeError)
       }
       files.dropped()
     },
@@ -74,6 +81,7 @@ export function createWebApi(): LumoviApi {
   })
   connection.on(IPC.terminalExit, (id) => shells.delete(id as string))
   connection.on(IPC.logsEnd, (id) => streams.delete(id as string))
+  connection.on(IPC.watchEnded, (id) => watched.delete(id as string))
   // Someone changed the clusters' settings, which are everyone's on a server: read them again.
   connection.on(IPC.settingsChanged, () => dispatchEvent(new Event(SETTINGS_CHANGED)))
 
@@ -252,6 +260,15 @@ export function createWebApi(): LumoviApi {
       },
       onLines: listen(IPC.logsLines),
       onEnd: listen(IPC.logsEnd),
+    },
+    watches: {
+      start: (id, query) => started(watched)(id, connection.invoke(IPC.watchStart, id, query)),
+      stop: (id) => {
+        watched.delete(id)
+        connection.send(IPC.watchStop, id)
+      },
+      onChanged: listen(IPC.watchChanged),
+      onEnded: listen(IPC.watchEnded),
     },
   }
 }

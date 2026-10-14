@@ -89,6 +89,7 @@ interface Dependencies extends Backend {
 const STARTED_BY_ID = new Set<string>([
   IPC.terminalOpen,
   IPC.logsStart,
+  IPC.watchStart,
   IPC.filesDownload,
   IPC.filesUpload,
 ])

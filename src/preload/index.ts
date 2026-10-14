@@ -196,6 +196,12 @@ const api: LumoviApi = {
     onLines: (listener) => subscribe(IPC.logsLines, listener),
     onEnd: (listener) => subscribe(IPC.logsEnd, listener),
   },
+  watches: {
+    start: (id, query) => invoke(IPC.watchStart, id, query),
+    stop: (id) => ipcRenderer.send(IPC.watchStop, id),
+    onChanged: (listener) => subscribe(IPC.watchChanged, listener),
+    onEnded: (listener) => subscribe(IPC.watchEnded, listener),
+  },
 }
 
 contextBridge.exposeInMainWorld('lumovi', api)

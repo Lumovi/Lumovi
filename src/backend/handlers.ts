@@ -36,6 +36,7 @@ import type { Recorded, Recorder } from './audit/recorder'
 import type { MetricsStackService } from './helm/metrics-stack'
 import type { HelmService } from './helm/service'
 import type { LogStreams } from './kube/logs'
+import type { ListWatches } from './kube/watches'
 import { KubeRequestError } from './kube/errors'
 import type { FileCopies } from './kube/files'
 import type { KubeService } from './kube/service'
@@ -75,6 +76,7 @@ export interface Backend {
   settings: SettingsAccess
   terminals: Terminals
   logs: LogStreams
+  watches: ListWatches
   files: FileCopies
   /** Where the plugins of one's own are, and how that folder is shown. */
   pluginsDirectory: { path: string; shown: string }
@@ -110,6 +112,7 @@ export function handlers({
   settings,
   terminals,
   logs,
+  watches,
   files,
   pluginsDirectory,
   knownPlugins,
@@ -464,6 +467,7 @@ export function handlers({
 
       [IPC.terminalOpen]: (id, request) => terminals.open(id, request),
       [IPC.logsStart]: (id, request) => logs.start(id, request),
+      [IPC.watchStart]: (id, query) => watches.start(id, query),
       [IPC.filesDownload]: (id, request) => files.download(id, request),
       [IPC.filesUpload]: (id, request) => files.upload(id, request),
     },
@@ -472,6 +476,7 @@ export function handlers({
       [IPC.terminalResize]: (id, columns, rows) => terminals.resize(id, columns, rows),
       [IPC.terminalClose]: (id) => terminals.close(id),
       [IPC.logsStop]: (id) => logs.stop(id),
+      [IPC.watchStop]: (id) => watches.stop(id),
       [IPC.filesCancel]: (id) => files.cancel(id),
     },
   }
