@@ -8,6 +8,354 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.22.0] - 2026-10-14
+
+Add-ons are now **plugins**: a page lists them all, the desktop app installs and updates them from
+Lumovi-plugins, and Argo CD's, CloudNativePG's, Karpenter's and Prometheus Operator's draw pages of
+their own. A server's web UI works on a phone.
+
+Lists choose their columns and update as the cluster changes, the namespace picker picks several,
+objects can be pinned and views saved, and Create has a form beside its YAML. Events have a
+timeline, alerts a page of their own, and logs a full search; Lumovi can tell you of new warnings,
+and attach to a container's main process.
+
+The desktop app opens more than one window, keeps objects open below the pages, opens again as it
+was, and notices your kubeconfig changing. Nothing signs in by itself as it starts.
+
+### Added
+
+- A server's web UI works on a phone and a tablet. Under 1024 px wide the sidebar is a drawer
+  behind a menu button, with the cluster and the namespace as two chips under the top bar. Under
+  640 px a list is two lines an object (its name, cut in the middle so replicas stay apart, and
+  its status; then its kind's first facts and its age), sorted and filtered from sheets; a detail
+  is a page of its own with Back, its facts stacked and its tables as cards; logs wrap, with what
+  runs over set in; and every menu, picker and dialog is a sheet from the bottom, an assistant's
+  change to approve among them, with Reject and Approve at its two edges. Such a change arrives
+  as the pill that says it waits, and its sheet opens when that's tapped; for a moment after the
+  sheet opens, or moves on to the next change, Approve can't be pressed, so a tap meant for
+  something else approves nothing. Dragging that sheet down or tapping outside it puts the
+  change aside: it isn't an answer. On a phone an object
+  offers Restart, Scale, Cordon and Uncordon, each behind its usual confirmation, and nothing
+  else: no deleting, editing or shells there. Wherever the page is used by touch, what's pressed
+  answers on at least 44 px and nothing needs a hover. A table's rows are cards there, and a
+  card's facts stand side by side only where every value fits: a long one has a line of its own.
+  Nothing scrolls sideways but a strip of tabs. The desktop app, whose window stops at 1024 px,
+  is unchanged.
+- Service accounts, roles and bindings have pages of their own, under **Access control** in the
+  sidebar: Roles, Cluster Roles, Role Bindings, Cluster Role Bindings and Service Accounts, each
+  also in the command palette and `g` navigation (`g r`, `g k`, `g b`, `g g`, `g t`). A role's
+  rules read as a table of API groups, resources and verbs. The links go both ways: a binding
+  links its role and its subjects, a role lists the bindings that grant it and to whom, a
+  service account lists the bindings that name it and the role each grants, and a workload and
+  its pods link the service account they act as. Someone who may not list one of these kinds
+  is told so, on its page and in the panels that would have listed it.
+- Create has a form beside its YAML. **Create…** (the + button, ⌘N, the palette) opens on
+  **Form | YAML**. The form asks the essentials of nine kinds: a Deployment, a StatefulSet (its
+  headless Service, and storage for each pod), a DaemonSet, a Job, a CronJob (its schedule read
+  back in words), a Service (its type, the labels of the pods it sends to with how many match
+  now, its ports), a ConfigMap (values of several lines), a Secret and a PersistentVolumeClaim.
+  The YAML it writes is beside it: either side is edited and the other follows, and the YAML is
+  what's created. Each field names the path it writes and lights its lines while it has the
+  focus. What's wrong is said under its field as it's typed, with its lines marked, and what
+  the cluster refuses is said under the field it names. What the YAML sets that the form has no
+  field for (a strategy, a node selector) is kept as it is and named; YAML the form can't show
+  (two containers, several objects, another kind) is still what's created: the form steps back,
+  says why, and one button goes back to its last version. A form edit changes only its own
+  characters: comments, the order of keys and their quoting stay as they were written. A
+  Secret's values are hidden on both sides until **Show values** is chosen: while they're
+  hidden the YAML shown holds none of them (nor the words of comments among them, where an old
+  value is often left) and is read-only, a value is typed blind, and what the cluster says of
+  it is kept back until they're shown. YAML whose values can't be told from the rest (it
+  doesn't parse, or a value comes through an alias or a merge key) can't be hidden, and says
+  so. YAML's side is the dialog as it was, and the side used last opens first.
+- **Plugins** has a page of every plugin, last in its section of the sidebar (All plugins): the
+  ones Lumovi comes with and your own files, each with its version, whether this cluster has
+  it, and where it came from. Opened, a plugin says what it asks for, read from its file: the
+  kinds it may change and create, what it reads, and each of its actions with what it sends (and what its undo sends) and
+  whether it asks first or runs at once. A file that isn't in use says why there, and the API
+  resources page points to it.
+- **The namespace picker picks several namespaces.** ⌘↵ (Ctrl+↵ on Windows and Linux) adds one and
+  keeps the menu open; ↵ picks one alone. Lists, Workloads, Events, Metrics and Helm releases
+  show the picked namespaces together, up to 20, and the address carries them, so a link opens on
+  the same ones. A namespace you can't list can be typed and picked like any other.
+- **Lists choose their columns.** The Columns button at the end of a list's toolbar, or a heading's
+  right-click menu, shows and hides columns, moves them (drag, or ⌥↑ ⌥↓) and adds one from a label
+  or an annotation the listed objects carry. Drag a heading's edge to size its column (⌥← ⌥→;
+  double-click for its own width again). A list never scrolls sideways: columns that don't fit
+  aren't drawn, and the button says how many. What you choose is kept for that kind in that
+  cluster. **Copy**, in the bar of picked rows (or ⌘C), copies them as the list shows them;
+  **Download CSV** saves every row the filters let through, with whole values, times in UTC and
+  numbers without units.
+- **A plugin can say what its objects manage**: a view's `manages` names the labels and
+  annotations its objects mark workloads with. Where one does, workloads' lists get a
+  **Managed by** column (a fact on a phone's card), and a workload's Overview a line for each
+  manager, with its plugin's icon, that opens it. To find them, Lumovi lists those views' kinds
+  in the whole cluster where you may list them (else in the namespaces you're looking at), and
+  the Plugins page says so. Where no plugin asks, nothing more is read.
+- **YAML is checked against the cluster's schema as it's typed**, in **Create…** (its YAML and
+  the form's) and when an object's YAML tab edits it. What the cluster would refuse (YAML it
+  can't read, a value of the wrong type or not among those allowed, a required field left out)
+  is marked as an error. What it would drop without saying so (a field the kind doesn't have,
+  with the one meant where one is close) is marked as a warning. A card under the pointer says
+  what's wrong, a line under the editor counts the problems, F8 and ⇧F8 go from one to the next,
+  and ⌥F8 lists them. Typing a key, ⌃Space or ⌥Esc offers the fields that fit there, required
+  ones first, and after a colon the values a field allows. Pointing at a field, or ⌥F1, shows
+  what the schema says of it (⌥ is Alt on Windows and Linux). A custom resource is checked by
+  its CRD's schema; where the cluster publishes none, only the YAML itself is checked, and a line
+  says so. Nothing here stops a save: the cluster checks the YAML before anything changes. In
+  YAML, viewed or edited, a character that can't be seen or would turn a line round shows as a
+  placeholder, never as itself.
+- **Pins and saved views.** Pin an object from its page (**Pin**, or ⌥P), from a list's row or
+  from the command palette, up to 20 in a cluster. It stands in the sidebar under its cluster,
+  with its status, and ⌥1 to ⌥9 open the first nine (⌥ is Alt on Windows and Linux; a browser on
+  Linux keeps Alt and a number for its own tabs, so there they open from the sidebar or the
+  palette). A pin whose object is gone, or can't be read, says so. Pins are moved and unpinned in
+  the sidebar and the palette, with Undo. A list's columns, sort, filters and namespaces are saved
+  as a named view, up to 20 for one kind and 50 in a cluster, opened again from the list's
+  **Views** menu or the palette, and renamed, moved or deleted there. On a phone, the menu's drawer
+  holds the pins, each with a sheet to open or unpin it. The desktop app keeps them in its
+  settings. A server keeps each person's with who's signed in, wherever Lumovi keeps its state (the
+  chart's Secret, `LUMOVI_DATA_DIR`, or memory): up to 32 kB in one cluster and 96 kB in all, and
+  400 kB for everyone. A person's are let go after 180 days without use, and when everyone's would
+  pass 400 kB, those of clusters the server doesn't show now go first, the longest unread first.
+  Everyone who signs in with the same token shares one set.
+- **An organization's policy can hold plugins to what it allows**: none at all (`plugins: off`),
+  only the ones that come with Lumovi (`bundled`), or only those it names (`pluginsAllowed`).
+- **Argo CD's and CloudNativePG's plugins draw pages of their own**, from code that comes with
+  Lumovi and runs in the same sealed box, reading only what each file says, as you. Argo CD: an
+  **Overview** of what needs a look; every Application in one table, filtered and searched, with
+  **Sync** and **Refresh** for the ones selected; and a tab on an Application with where its sync
+  is, its resources down to their pods, its problems and **Roll back**. Its **Sync…** has every
+  option Argo CD's own has, says in red what a sync would harm, and is busy while one runs, with
+  **Terminate sync**. Its **Sync…**, **Refresh…** and **Delete…** are changes you confirm in
+  Lumovi's own dialog, shown as the cluster would make them. Besides Argo CD's own kinds it reads
+  ReplicaSets and Pods, never what they run, and the warning events of those that aren't well, each
+  message cut where it could carry what only you may read. CloudNativePG: an **Overview** of every
+  PostgreSQL cluster with its instances, backups, schedules and poolers, and a **Backup health**
+  page; its **Back up now…** is confirmed the same way. A resource's row opens Lumovi's own list at
+  that object.
+- **Flux's and Argo CD's plugins say what their objects manage.** A workload that a Flux
+  Kustomization or HelmRelease manages, by Flux's own labels, or that an Argo CD Application
+  manages, by Argo CD's tracking annotation, says so in its list's **Managed by** column and on
+  its Overview. Where Argo CD tracks by the `app.kubernetes.io/instance` label, it isn't
+  recognised: any chart can set that label, so a plugin can't name it.
+- **Karpenter's overview is drawn by the Karpenter plugin**, whose code comes with Lumovi and runs
+  in a sealed box: it reads only what its file says, as you, and changes nothing in your cluster. On
+  a server it runs only in a browser Lumovi has checked keeps it apart, and whatever stands in front
+  of the server (an ingress that lists its paths, a sign-in proxy) must let that check through:
+  everything under `box-check/`, without a sign-in of its own; wherever it doesn't run, Lumovi's own
+  overview of Karpenter is shown. A plugin's code can be turned off: by you, with **Run its code**
+  on the Plugins page; on a server, for everyone or for all but the plugins named
+  (`LUMOVI_PLUGIN_CODE`, the chart's `pluginCode`); or by an organization's policy
+  (`plugins: no-code`), which can also let no plugin's page propose a change or show what's in a
+  Secret (`pluginProposals`, `pluginSecrets`: `off`).
+- **The Plugins page says which plugins have a newer version.** When you open it, or press
+  **Check now**, the desktop app looks at Lumovi-plugins' latest release, and takes it only if
+  it's signed by that repository's release workflow, built from its tag's commit, no older than
+  one it already took, and not expired. A plugin with a newer one says so, or which Lumovi it
+  needs, and **Not here yet** lists the plugins this Lumovi doesn't have, with what each would
+  ask. An organization's policy can turn it off (`pluginStore: off`; `plugins: bundled` or `off`
+  do too).
+- **Plugins can be installed and updated from Lumovi-plugins**, in the desktop app.
+  **Install…** or **Update…** on the Plugins page first shows what the plugin may do, in
+  Lumovi's words, what's new first and whether its code changed, and nothing changes until you
+  agree. The release is checked again then, and the plugin's files every time Lumovi reads them:
+  a copy that isn't what you agreed to isn't used. **Back to** returns to the version before,
+  kept on your computer, or to the one that comes with Lumovi, and one Lumovi doesn't come with
+  can be removed. Nothing updates by itself. An organization's policy can pin plugins by version
+  (`pluginsAllowed: [argo-cd@1.2.0]`) or turn this off.
+- **Developer mode** runs code from plugins of your own. With it on, at the foot of the Plugins
+  page, a plugin that is a folder of its own in your plugins folder (`<name>/plugin.yaml` and
+  `<name>/plugin.js`) draws its pages in Lumovi's sealed box, as Lumovi's own and installed ones
+  do, once you've seen what it may do and agreed. New code asks again with one press; a file
+  that asks for more asks again with what's new. Off, which is how it starts, a folder's code
+  isn't read at all. An organization's policy can keep it off (`pluginDeveloperMode: off`, or
+  `plugins` set to `bundled`, `off` or `no-code`), and then lets go of what was agreed.
+- **CloudNativePG's Overview links to Lumovi's own places** for the cluster picked: **Shell into
+  primary** and **Forward 5432** open the primary pod's Shell tab and its Port forward, each
+  instance's row opens that pod's logs, and the primary's log is on the page. A link only says
+  where to go: a shell or a forward still starts only when you start it there, and Lumovi reads
+  the log itself, so the plugin's code never holds a line of it. An organization's policy can keep
+  plugins from showing logs (`pluginLogs: off`).
+- **Prometheus Operator's plugin has a Target health page**: what's up, down and not scraped yet,
+  the targets that are down with their last error, and each Prometheus server's scrape pools. It's
+  the first plugin to ask its tool's own server in the cluster: in each namespace with a
+  Prometheus it asks the `prometheus-operated` Service for its active targets, through Lumovi and
+  as you. What the server answers reaches the plugin's code: every active target, with the labels
+  and annotations of the Services and Pods behind it, from every namespace that Prometheus
+  watches. The Plugins page says so first, in red, each ask is in the history, and an
+  organization's policy can turn it off (`pluginServers: off`). A Prometheus scrapes across
+  namespaces: whoever may reach its server sees all its targets, and each card says so.
+- **AI assistants find a cause in fewer steps.** `find_problems` says how a failing container's last
+  run ended, with its last error lines, and warns of a workload whose image's tag can move under its
+  data. `get_logs` searches by text or level and pages through a long log. Two new tools:
+  `get_rollout_history`, each rollout's images and the digests its pods pulled, and
+  `find_in_clusters`, where something is in every cluster at once. No answer is more than an
+  assistant can take.
+- Nodes have taints: add and remove them, with what each effect does, and a warning before a
+  NoExecute taint evicts pods. Drain takes a grace period, a timeout, and whether to leave
+  DaemonSet pods; a pod a PodDisruptionBudget holds is tried again, and its row says which budget
+  and why.
+- **Lumovi notices your kubeconfig changing.** A context your cloud's command-line tool adds appears
+  within a second, without Reload. **Add a folder…** reads every kubeconfig in a folder and keeps up
+  as files come and go. A folder's context whose credentials run a program, send a file or go to a
+  server Lumovi can't verify asks first, as an added cluster's do, and Lumovi's terminals aren't
+  handed a folder's kubeconfigs. A file caught half-written keeps the contexts it had until it reads
+  again, and says so. Lumovi never writes to any of them. On a server, the fleet's kubeconfig file
+  is read again when it changes.
+- **Events as a timeline.** On the Events page and an object's Events tab, **List** | **Timeline**
+  shows events where they fell in time: a row for each object (on an object's tab, each reason), a
+  Normal event as a hollow circle and a Warning as a triangle, and one that repeated as a bar from
+  its first time to its last, with how many times. It shows the last 15 minutes, the last hour, or
+  every event kept, and dragging across it zooms in. Each mark says what happened when it's hovered
+  or focused, and the keyboard moves through rows and marks. Kubernetes keeps events for about an
+  hour unless its API server is set otherwise, and the timeline says so. On a phone, or where the
+  page is too narrow, events stay a list.
+- **More than one window.** File → New Window (⇧⌘N, Ctrl+Shift+N) opens another on the start
+  screen, so two clusters can be open side by side. Each window has its own pages, and what it
+  starts (a terminal, a pod's logs, a copy, a port forward) is its own: it goes on whatever the
+  other windows do, and ends when its window closes. Lumovi's windows open again where they were
+  on the screen.
+- **Alerts**, a page of its own under Cluster, beside Events (`g z`, and in the palette): what the
+  cluster's Prometheus is firing and has pending, read from the source the Metrics page uses,
+  through the cluster as you, every 30 seconds while it's open. The worst come first, each with its
+  severity, how long it has fired or when it fires if its condition holds, the object its labels
+  name, as a link, and how long it has been active. They filter by the header's namespaces, by
+  severity, by firing or pending, and by text. One opens beside the list with its summary,
+  description, labels, rule and runbook. An alert of severity none, like Watchdog, never counts as
+  firing. Whoever may reach Prometheus through the cluster sees every alert it holds. Where alerts
+  fire, the Overview's Warnings tile says how many, with a link.
+- **Log search** takes a regular expression, matches case, or shows the lines without a match,
+  each a toggle in the search field (⌥R, ⌥C and ⌥X; Alt and the letter on Windows and Linux), and
+  steps between matches with ↵ and ⇧↵. A search that runs too long is stopped and says so, and an
+  expression that isn't one says why, leaving the lines as the last search did. **Since…** takes
+  a time ago, like 90m, or a date and time; a span with more than 20,000 lines shows its last
+  20,000 and says so. On a computer, a strip under the search shows the lines over time, and
+  dragging across it picks a stretch. A download is what's shown, and its name ends in -filtered
+  when that's only part of the log.
+- **Notifications of new warnings**, off until you turn them on for a cluster: in its settings on
+  the desktop, or on a server in the sidebar's cluster menu, for you alone, in your browser. While
+  Lumovi runs (on a server, while one of its tabs is open), it checks the namespaces you watch every
+  30 seconds, as you, and your system shows each new Warning event: its reason, object and message
+  (cut where it could carry what only you may read), and the cluster. Each object and reason is
+  shown once in 10 minutes, and several in one namespace at once come as one. Clicking one opens
+  Lumovi at the object, or at the namespace's warnings. If signing in to a cluster fails, its
+  notifications pause, saying so once, until you open the cluster and sign in again.
+- **Keep open below.** **Keep open below**, in the detail panel or the palette, keeps an object
+  open below the pages, beside the terminals, on the tab it was showing: a pod's logs keep coming
+  and a Deployment's metrics keep moving while the pages above go elsewhere. It's read in its own
+  cluster. It says when the object was deleted, and offers what ran it instead, or when its
+  cluster can't be reached; its tab's menu opens it in the panel again. With focus below, ⌘W
+  (Ctrl+Shift+W) closes the tab shown.
+- **Opened again as it was.** Each window comes back on its page, with the panel's object and what
+  it had below. One that was on a cluster that signs in through a program opens the start screen
+  instead, and that cluster is read when you open it. A kept object reads again as if just opened,
+  on its overview if it was on its Shell; one on a cluster that signs in through a program waits,
+  "not read yet", until you pick its tab, choose **Read it now**, or open its cluster. A terminal
+  comes back ended, its name, cluster and namespace kept, with Start a new shell. A window whose
+  cluster has gone from the kubeconfig opens the start screen. Nothing signs in by itself as Lumovi
+  starts: a cluster that signs in through a program is checked when you open it.
+- **Attach to a container's main process**, as `kubectl attach -it` does: **Attach** in a pod's
+  actions, or on its Shell tab beside Shell. What the process prints shows, and what you type goes
+  to it, Ctrl+C included; closing the tab detaches and leaves it running. A container whose input closes after one
+  session (`stdinOnce`) is sent nothing, since detaching would end it, and one that takes no input
+  shows what it prints. It's in the audit history with its command, and it's allowed where shells
+  are: by your access on a server, the cluster's RBAC (`pods/attach`), and not on a read-only
+  cluster.
+
+### Changed
+
+- A note at the bottom of the window (that a change was made, say) stays while a mouse points at
+  it, and no longer while a finger's last tap happens to be where it appeared: on a touch screen
+  it now always leaves after its few seconds. On a phone it sits above the pill of changes that
+  wait, and is never over an open sheet: it's a line at the sheet's top instead, which says when
+  it's about another change than the one shown. Where that line is too long it takes a second
+  line, then the object's name and then the cluster's are shortened in their middle, then a third:
+  how it ends, which is where it happened, is never cut off. A sheet's own heading says its
+  cluster whole too, over as many lines as it takes, and the title of one of Lumovi's own dialogs
+  takes up to three lines there, as an assistant's request does: a name too long for them is
+  shortened in its middle.
+- "Create from YAML" is **Create…**: on the + button, in the command palette, in the shortcuts
+  and in the app's menu (where it was "New from YAML…").
+- A change to a Secret that fails (an edit, a delete, a create) is in the activity log as
+  having failed, with why in a word, and without what the cluster said: the cluster can quote
+  the Secret's values, and the audit log already kept none of it. The dialog that made the
+  change still shows the cluster's words.
+- A Lumovi server whose audit history another Lumovi has taken over (two on one volume, one of
+  them held up for longer than its hold lasts) now stops, saying why as its last line, and ends as
+  a failure. From the moment it finds out, it does nothing more that's asked of it, and says so.
+  It used to go on serving with nothing of what was done through it kept in that history. Started
+  again, it waits its turn for the history, or says who holds it.
+- Add-ons are **plugins**, and a tool's file is one thing: a plugin, with its place in the
+  sidebar and, inside it, a view for each kind it shows. The sidebar's section, the command
+  palette and the API resources page say Plugins: that page counts them and names the plugin that
+  shows each kind, and a plugin's own page is at `…/plugins/<name>`. Your own go in
+  `~/.lumovi/plugins` (or the folder `LUMOVI_PLUGINS_DIR` names; a server's in
+  `/etc/lumovi/plugins`, from the Helm chart's `plugins`), one `kind: Plugin` a file with its
+  views under `views:`. A file is used whole or not at all, and everything wrong with it is
+  listed, where a part of a file used to be dropped by itself; when that leaves one of Lumovi's
+  plugins in use in place of yours, the page says so. The command palette's field says
+  "Jump to a page…", so that "view" means one thing in Lumovi: a part of a plugin.
+- A plugin's file says more about itself, and is checked harder. It starts
+  `apiVersion: lumovi.dev/v1beta1` and names its `version`, the oldest Lumovi it works with
+  (`needs.lumovi`) and the API groups its kinds are in (`groups`). A name is lowercase letters,
+  digits and hyphens. An action that changes something without asking first
+  says `runs: at-once`. Refused, each with its reason on the API resources page: a key Lumovi
+  doesn't know, anywhere in the file; two views of one kind in a plugin; a second file with a
+  name another has (the first is used); a patch that
+  changes what's the cluster's to set (an object's owners, finalizers, name or namespace); a
+  text that's too long or holds characters nobody can see; and a plugin that needs a newer
+  Lumovi than this one.
+- A plugin of your own is held as Lumovi's are. Its kinds are in its `groups`, none of them
+  Kubernetes' own, and an action of it creates only the plugin's own kinds. A kind of
+  Kubernetes' that Lumovi has no page for can be shown, and only shown (no actions), by a plugin
+  that names it under `shows`. A kind is one plugin's: yours takes the place of one of Lumovi's
+  under that plugin's name, and then all of it, which the API resources page says beside the
+  count; anything else that shows a kind another plugin has is refused, and the page says
+  which and what to do. Of two of yours that show one kind, the first by file name is used.
+- **An object's Events tab** stays quick with thousands of events: past 200, only the events in
+  view are drawn, and a filter above them finds one by its reason, its message or what reported
+  it.
+- A server's `LUMOVI_URL` names one host: a name of letters, digits, hyphens and dots, or an IP
+  address. One with a `*`, a comma, or a user and password in it is refused when the server
+  starts, with a line that says so. The security policy sent with a server's pages names that
+  address exactly.
+- A server acts for someone signed in only on requests that say they come from Lumovi's own page.
+  Where their browser sends Sec-Fetch-Site as they sign in, every later request of that session must
+  send it as same-origin; any other is refused, and changes nothing of the session. A browser that
+  doesn't send it as they sign in isn't held to it. `LUMOVI_SEC_FETCH_SITE=off` (the chart's
+  `auth.secFetchSite`) turns it off. Behind a sign-in proxy, `LUMOVI_PROXY_SEC_FETCH_SITE=on` (the
+  chart's `auth.proxy.secFetchSite`) says the proxy passes the header through unchanged: every
+  request is then held to it, and one without it is refused. Off, the default, plugins that run code
+  aren't offered behind a proxy. A setting that should be an address and isn't is no longer repeated
+  in its error.
+- A file in a plugins folder that isn't UTF-8 text isn't read: the API resources page lists it by
+  name, as `platform.yaml: It isn’t UTF-8 text.`
+- **Lists and opened objects update as the cluster changes**: a pod starting, failing or going
+  away shows in about a second, rather than at the next read every 5 seconds. Lumovi watches what
+  a page shows while it's shown, so a list that isn't changing isn't read again and again (once a
+  minute still, to be sure). Where a cluster refuses to be watched, and for Secrets on a server and
+  a fleet's clusters reached through their agent, lists are read every few seconds as before.
+- **Clusters that sign in through a program wait to be opened.** The start screen and the
+  cluster switcher say "Signs in when opened" for them instead of checking them, which would
+  start that program, a browser or a prompt, for clusters nobody picked. The AI assistants'
+  Permissions tab counts their namespaces only once they're signed in, with **Count them** to sign
+  in and count them now.
+
+### Fixed
+
+- Create said nothing, and did nothing, for YAML whose alias names no anchor set before it
+  (`name: *n` above the `&n` it means). It now answers as for any YAML it can't read, with what's
+  wrong.
+- What you type while a terminal is still opening is no longer lost: it reaches the shell once
+  it's open, in the order you typed it.
+- On a phone, the tabs at the top of Workloads, Metrics and a plugin's page are big enough to tap.
+- On Windows, at any zoom, a name with room for all of it is shown whole, not cut in its middle.
+- On a phone, a failed refresh's notice shows its whole reason, on as many lines as it takes.
+- An equivalent command breaks between its words, so a flag such as `--replicas=5` stays whole;
+  only a word longer than the line is broken inside. On a phone, a change's lines keep their −
+  and +, not only their colour.
+
 ## [1.21.0] - 2026-10-10
 
 Files are copied out of a pod's container and into one, from the pod's own actions. And two Lumovi
@@ -928,7 +1276,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...HEAD
+[1.22.0]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/Lumovi/Lumovi/compare/v1.18.0...v1.19.0

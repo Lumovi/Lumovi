@@ -1,1 +1,0 @@
-- On Windows, at any zoom, a name with room for all of it is shown whole, not cut in its middle.
