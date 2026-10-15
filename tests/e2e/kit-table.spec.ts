@@ -2,6 +2,9 @@
  * The kit's Table, on the page the tests' build has for the kit's parts: the cases that break a
  * table first, as design drew them.
  */
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, openCluster, test } from './fixtures.ts'
 import { holds } from '../holds.ts'
@@ -586,6 +589,13 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   const payments = applications.getByRole('row').filter({ hasText: 'payments' }).first()
   await point(payments.locator('[data-cuts]').filter({ hasText: TRACKS.slice(0, 12) }))
   await expect(tip(TRACKS).first()).toBeVisible()
+  // Pointed at elsewhere in the row, its tooltip says it whole too, beside what gave way.
+  await away(page)
+  await point(payments.getByRole('gridcell').filter({ hasText: '—' }).first())
+  await expect(page.getByRole('tooltip').filter({ hasText: 'Last synced' })).toContainText(
+    `Tracks · at${TRACKS}`,
+  )
+  await away(page)
   // The keyboard's row (payments, opened above): cells can't be pointed at, so its tooltip says
   // the cut one whole too, beside the columns that gave way.
   await page.mouse.move(0, 0)
@@ -606,6 +616,99 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   await expect(page.getByRole('tooltip').filter({ hasText: 'Last synced' })).not.toContainText(
     'Tracks · at',
   )
+})
+
+test('beside a panel at 1440, a status is never cut: the columns after it give way first', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/applications'
+  })
+  const applications = page.getByRole('grid', { name: 'Applications' })
+  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  // Progressing and Out of sync, beside the panel: each pill's word whole, as it draws.
+  const pills = applications.locator('[data-health]')
+  await expect(pills.filter({ hasText: 'Progressing' }).first()).toBeVisible()
+  await expect(applications.getByRole('columnheader')).toContainText(['Health', 'Sync'])
+  const cut = await pills.evaluateAll((all) =>
+    all
+      .map((pill) => pill.querySelector('.truncate')!)
+      .filter((word) => word.scrollWidth > word.clientWidth)
+      .map((word) => word.textContent),
+  )
+  expect(cut).toEqual([])
+})
+
+test('a status that has said so for days keeps its time whole: the column takes the widest it can draw', async ({
+  launch,
+}) => {
+  // A table at 1024 beside nothing, its text columns long enough that the status is at its least.
+  const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  const since = new Date(Date.now() - 123 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  writeFileSync(
+    join(folder, 'stuck.yaml'),
+    `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: stuck }
+spec:
+  version: 1.0.0
+  needs: { lumovi: 1.0.0 }
+  groups: [example.com]
+  label: Stuck
+  kinds: [{ group: example.com, kind: Widget }]
+  pages:
+    - { id: overview, title: Overview }
+`,
+  )
+  const long = 'eu-west-1-payments-production · payments · a destination that goes on and on'
+  const table = {
+    title: 'Syncs',
+    headings: true,
+    leadHeading: 'Name',
+    columns: [
+      { name: 'Sync', kind: 'status' },
+      { name: 'Where', kind: 'text', width: 'wide' },
+      { name: 'Owner', kind: 'text', width: 'wide' },
+    ],
+    rows: [
+      {
+        key: 'payments',
+        lead: { name: 'payments' },
+        cells: [
+          { kind: 'status', level: 'progressing', word: 'Syncing', since },
+          { kind: 'text', text: long },
+          { kind: 'text', text: long },
+        ],
+      },
+    ],
+  }
+  writeFileSync(
+    join(folder, 'stuck.js'),
+    `box.then(({ post, listen }) => {
+  listen((text) => {
+    if (JSON.parse(text).open) post(JSON.stringify({ commit: [['make', 1, 'Table', ${JSON.stringify(table)}], ['put', 0, 1]] }))
+  })
+})
+`,
+  )
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder, LUMOVI_E2E_WINDOW: '1024x768' },
+    fullLayout: false,
+  })
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/stuck/overview'
+  })
+  const pill = page.getByRole('grid', { name: 'Syncs' }).locator('[data-health="progressing"]')
+  await expect(pill).toHaveText(/^Syncing123h \d\dm$/)
+  // Neither its word nor its time runs past the pill.
+  expect(
+    await pill.evaluate((drawn) =>
+      [drawn, ...drawn.children].some((part) => part.scrollWidth > part.clientWidth),
+    ),
+  ).toBe(false)
 })
 
 test('where it doesn’t all fit, a row has one tooltip, Lumovi’s own: where it goes, then what gave way; and a row with nothing to say has none', async ({
