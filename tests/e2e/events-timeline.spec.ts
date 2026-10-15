@@ -5,7 +5,7 @@
  */
 import type { Page } from '@playwright/test'
 import { placed } from '../placed.ts'
-import { expect, goTo, openCluster, test } from './fixtures.ts'
+import { DEMO, expect, goTo, openCluster, test } from './fixtures.ts'
 
 const grid = (page: Page) => page.getByRole('grid', { name: /^Events on a timeline/ })
 const tooltip = (page: Page) => page.getByRole('tooltip')
@@ -243,9 +243,11 @@ test('a short bar’s count goes where it covers nothing: after it, before its f
   await expect(count).toHaveText('×31')
   // So it's before the bar's first mark, 4 px from it, clear of NodeNotReady's.
   await expect(count).toHaveAttribute('data-count', 'before')
-  const [box, first, mark] = await Promise.all(
-    [count, unhealthy.locator('svg'), notReady.locator('svg')].map((one) => placed(one)),
-  )
+  const [box, first, mark] = await Promise.all([
+    placed(count),
+    placed(unhealthy.locator('svg')),
+    placed(notReady.locator('svg')),
+  ])
   expect(first.x - (box.x + box.width)).toBeCloseTo(4, 0)
   expect(box.x + box.width <= mark.x || mark.x + mark.width <= box.x).toBe(true)
   // Nowhere in view is a count over another's mark or bar, or off the track: at the last hour,
@@ -257,6 +259,101 @@ test('a short bar’s count goes where it covers nothing: after it, before its f
     'true',
   )
   expect(await countsInTheWay(page)).toEqual([])
+})
+
+test('a card stays with its row: a zoom lets it go, and rows coming in above don’t hand it to another', async ({
+  lumovi,
+  clusters,
+}) => {
+  const { page } = lumovi
+  await incident(page)
+  // Held by the keys on the second row's first event: its pod's Scheduled.
+  await grid(page).focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(tooltip(page)).toContainText('Scheduled')
+  await expect(tooltip(page)).toContainText('hqnnn')
+  // An object whose events began before all of theirs comes in: a row above the rest.
+  const at = new Date(Date.now() - 50 * 60_000).toISOString()
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Event',
+    metadata: {
+      name: 'checkout-early.1',
+      namespace: 'shop',
+      uid: 'checkout-early-1',
+      creationTimestamp: at,
+    },
+    involvedObject: {
+      kind: 'ConfigMap',
+      namespace: 'shop',
+      name: 'checkout-early',
+      apiVersion: 'v1',
+    },
+    reason: 'Synced',
+    message: 'checkout settings synced',
+    source: { component: 'tests' },
+    firstTimestamp: at,
+    lastTimestamp: at,
+    count: 1,
+    type: 'Normal',
+  } as never)
+  await expect(grid(page).getByRole('rowheader').first()).toContainText('checkout-early')
+  // The card is still its pod's, now a row further down.
+  await expect(tooltip(page)).toContainText('hqnnn')
+  await expect(tooltip(page)).toContainText('Scheduled')
+  // An event of the pod's own from before it comes in: the card is still on the one it was on.
+  const pod = DEMO.pods.checkout.find((name) => name.endsWith('hqnnn'))!
+  const before = new Date(Date.now() - 49 * 60_000).toISOString()
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Event',
+    metadata: {
+      name: `${pod}.early`,
+      namespace: 'shop',
+      uid: `${pod}-early`,
+      creationTimestamp: before,
+    },
+    involvedObject: { kind: 'Pod', namespace: 'shop', name: pod, apiVersion: 'v1' },
+    reason: 'FailedScheduling',
+    message: '0/3 nodes are available: 3 Insufficient cpu.',
+    source: { component: 'default-scheduler' },
+    firstTimestamp: before,
+    lastTimestamp: before,
+    count: 1,
+    type: 'Warning',
+  } as never)
+  await expect(
+    grid(page).getByRole('button', { name: /^FailedScheduling on Pod \S+-hqnnn/ }),
+  ).toBeVisible()
+  await expect(tooltip(page)).toContainText('Scheduled')
+  await expect(tooltip(page)).not.toContainText('FailedScheduling')
+  // Marks close together (every event there is, over months), pressed, zoom in: the card is let
+  // go, not left naming what the row it was on shows now.
+  await page.keyboard.press('Escape')
+  await page.getByPlaceholder('Filter events').fill('')
+  await page.getByRole('button', { name: 'All', exact: true }).click()
+  const together = grid(page)
+    .getByRole('row')
+    .filter({ hasText: 'hqnnn' })
+    .getByRole('button', { name: /^\d+ events close together/ })
+    .first()
+  await together.hover()
+  await expect(tooltip(page)).toContainText('hqnnn')
+  await together.click()
+  await expect(grid(page)).toHaveAccessibleName(/zoomed in/)
+  await expect(tooltip(page)).toHaveCount(0)
+  // And from Reset zoom and the range's buttons alike.
+  await grid(page).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(tooltip(page)).toBeVisible()
+  await page.getByRole('button', { name: 'Reset zoom' }).first().click()
+  await expect(tooltip(page)).toHaveCount(0)
+  await grid(page).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(tooltip(page)).toBeVisible()
+  await page.getByRole('button', { name: '1h', exact: true }).click()
+  await expect(tooltip(page)).toHaveCount(0)
 })
 
 test('a timeline zooms into what’s dragged across, and says when a stretch, or a filter, has nothing', async ({
