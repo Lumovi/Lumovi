@@ -33,9 +33,12 @@ import {
   startTestClusters,
   writeKubeconfig,
 } from '../../tests/mock-cluster/kubeconfig.ts'
-import { SHOWN_AS } from '../../tests/mock-cluster/server.ts'
+import { SHOWN_AS, STAND_IN } from '../../tests/mock-cluster/server.ts'
 import { startNamesProxy } from './proxy.ts'
 import { EPOCH, stopClock } from './still.ts'
+
+/** The cloud cluster's address: shown, never reached (its row says it signs in when opened). */
+const CLOUD_AT = 'api.payments.eu-west-1.example.com'
 
 /** The ports they answer on in the screenshots, and one where nothing does. */
 const PORTS = { demo: 46443, sandbox: 46444, large: 46445, offline: 46446 }
@@ -163,6 +166,8 @@ export const CLUSTERS = {
   loadTest: 'load-test',
   /** Nothing answers. */
   edge: 'edge',
+  /** In a cloud, signing in through its CLI: never asked until it's opened. */
+  cloud: 'payments-eu',
 } as const
 
 if (import.meta.main && process.argv[2] === 'stop') {
@@ -216,13 +221,28 @@ if (import.meta.main && process.argv[2] === 'stop') {
     await clusters.close()
     clusters = await start()
   }
+  // The Service the Prometheus Operator makes for its servers, a stand-in server behind it: its
+  // plugin's Target health has something to ask.
+  clusters.demo.upsert({
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+      name: 'prometheus-operated',
+      namespace: 'monitoring',
+      creationTimestamp: new Date(Date.now() - 88 * 86_400_000).toISOString(),
+      labels: { [STAND_IN]: 'prometheus', 'operated-prometheus': 'true' },
+    },
+    spec: { clusterIP: 'None', ports: [{ name: 'web', port: 9090 }] },
+  })
   const used = portsOf(clusters)
-  // Each by the name it's shown by, through the proxy to its own port.
+  // Each by the name it's shown by, through the proxy to its own port; the cloud's, never opened
+  // in a screen, where nothing answers.
   const proxy = await startNamesProxy({
     [SHOWN_AS.demo]: used[0]!,
     [SHOWN_AS.sandbox]: used[1]!,
     [SHOWN_AS.large]: used[2]!,
     [SHOWN_AS.offline]: used[3]!,
+    [CLOUD_AT]: used[3]!,
   })
   const shown = (name: string) => ({ server: `https://${name}`, proxyUrl: proxy.url })
   mkdirSync(join(dir, '.kube'))
@@ -235,8 +255,21 @@ if (import.meta.main && process.argv[2] === 'stop') {
         { name: 'staging', ...shown(SHOWN_AS.sandbox), insecure: true },
         { name: 'load-test', ...shown(SHOWN_AS.large), insecure: true },
         { name: 'edge', ...shown(SHOWN_AS.offline) },
+        { name: 'payments-eu', ...shown(CLOUD_AT) },
       ],
-      users: [{ name: 'admin', token: DEMO_TOKEN }, { name: 'developer' }],
+      users: [
+        { name: 'admin', token: DEMO_TOKEN },
+        { name: 'developer' },
+        // (A cloud's credential plugin, which nothing starts until the cluster is opened.)
+        {
+          name: 'aws-payments',
+          exec: {
+            command: 'aws',
+            args: ['--region', 'eu-west-1', 'eks', 'get-token', '--cluster-name', 'payments'],
+            apiVersion: 'client.authentication.k8s.io/v1beta1',
+          },
+        },
+      ],
       contexts: [
         { name: CLUSTERS.production, cluster: 'production', user: 'admin' },
         { name: CLUSTERS.staging, cluster: 'staging', user: 'developer' },
@@ -247,6 +280,7 @@ if (import.meta.main && process.argv[2] === 'stop') {
           namespace: LARGE.namespace,
         },
         { name: CLUSTERS.edge, cluster: 'edge', user: 'admin' },
+        { name: CLUSTERS.cloud, cluster: 'payments-eu', user: 'aws-payments' },
       ],
     },
     'config',

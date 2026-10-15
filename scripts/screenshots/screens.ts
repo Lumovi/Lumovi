@@ -49,16 +49,21 @@ const moreActions = async (page: Page, action: string) => {
   await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('menuitem', { name: action }).click()
 }
-/** Scrolls until all of `locator` is in view, at the top or the bottom, with a little room. */
-const reveal = (locator: Locator, at: 'start' | 'end' = 'end') =>
-  locator.evaluate((element, at) => {
-    element.scrollIntoView({ block: at })
-    let scroller = element.parentElement
-    while (scroller && scroller.scrollHeight <= scroller.clientHeight) {
-      scroller = scroller.parentElement
-    }
-    scroller?.scrollBy(0, at === 'end' ? 24 : -24)
-  }, at)
+/** What's kept open below the cluster's pages, beside the terminals. */
+const below = (page: Page) => page.getByRole('region', { name: 'Tabs below', exact: true })
+/** Scrolls until all of `locator` is in view, at the top or the bottom, with `room` px to spare. */
+const reveal = (locator: Locator, at: 'start' | 'end' = 'end', room = 24) =>
+  locator.evaluate(
+    (element, { at, room }) => {
+      element.scrollIntoView({ block: at })
+      let scroller = element.parentElement
+      while (scroller && scroller.scrollHeight <= scroller.clientHeight) {
+        scroller = scroller.parentElement
+      }
+      scroller?.scrollBy(0, at === 'end' ? room : -room)
+    },
+    { at, room },
+  )
 /** How long each cluster takes to answer, as the desktop's screenshots show it (see harness.cjs). */
 const LATENCY_MS: Record<string, number> = { production: 18, staging: 9, 'load-test': 24 }
 
@@ -232,6 +237,38 @@ export const SCREENS: Screen[] = [
     path: '/',
   },
   {
+    name: 'warning-notifications',
+    title: 'Warning notifications',
+    description:
+      "A cluster's settings: new warnings told while Lumovi runs, in the namespaces it watches.",
+    app: 'desktop',
+    path: '/',
+    async steps(page) {
+      await page.getByPlaceholder('Search clusters and labels…').fill(CLUSTERS.production)
+      // Its own row, not the first one found (another's label says production too).
+      const own = `[cmdk-item][data-value="${CLUSTERS.production}"]`
+      await page.locator(own).hover()
+      await page.locator(`${own}[data-selected="true"]`).waitFor()
+      await page.keyboard.press('ControlOrMeta+i')
+      const settings = page.getByRole('dialog')
+      const notify = settings.getByRole('switch', { name: 'Notify me of new warnings' })
+      await notify.click()
+      await settings.getByRole('group', { name: 'Namespaces to watch' }).waitFor()
+      // Two of them, picked from the list.
+      await settings.getByRole('radio', { name: 'These namespaces' }).check()
+      await settings.getByRole('button', { name: 'Add', exact: true }).click()
+      const list = settings.getByRole('group', { name: 'Namespaces', exact: true })
+      for (const name of ['shop', 'data']) {
+        await list.getByRole('checkbox', { name, exact: true }).check()
+      }
+      await reveal(notify, 'start')
+    },
+    async after(page) {
+      await page.keyboard.press('Escape')
+      await page.getByPlaceholder('Search clusters and labels…').fill('')
+    },
+  },
+  {
     name: 'overview',
     title: 'Overview',
     description:
@@ -249,6 +286,15 @@ export const SCREENS: Screen[] = [
     steps: (page) => reveal(page.getByRole('region', { name: 'Needs attention' }), 'start'),
   },
   {
+    name: 'alerts',
+    title: 'Alerts',
+    description:
+      "Prometheus's alerts, firing and pending, with one opened beside the list: what it says, since when, and its runbook.",
+    app: 'desktop',
+    path: `${cluster}/alerts`,
+    steps: (page) => page.getByRole('grid', { name: 'Alerts' }).getByRole('row').nth(1).click(),
+  },
+  {
     name: 'workloads',
     title: 'Workloads',
     description: 'Every workload, whatever its kind, in one list, with its health.',
@@ -262,6 +308,17 @@ export const SCREENS: Screen[] = [
     app: 'desktop',
     path: `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.checkout}`,
     steps: (page) => tab(page, 'Pods'),
+  },
+  {
+    name: 'events-timeline',
+    title: 'Events on a timeline',
+    description:
+      "The cluster's events on a timeline, warnings first: each a bar from when it began to when it was last seen.",
+    app: 'desktop',
+    path: `${cluster}/events?as=timeline`,
+    // The last hour: the events of now, apart.
+    steps: (page) =>
+      page.getByRole('group', { name: 'Time range' }).getByRole('button', { name: '1h' }).click(),
   },
   {
     name: 'map',
@@ -316,6 +373,18 @@ export const SCREENS: Screen[] = [
     },
   },
   {
+    name: 'attach',
+    title: 'Attach',
+    description:
+      "Attached to a container's main process, as kubectl attach -it: what it prints, and what you type where it takes input.",
+    app: 'desktop',
+    path: `${cluster}/pods?open=Pod/shop/${storefrontPod}`,
+    async steps(page) {
+      await moreActions(page, 'Attach')
+      await terminalText(page, 'Attached to app', 'is running')
+    },
+  },
+  {
     name: 'node-shell',
     title: 'Node shell',
     description:
@@ -348,6 +417,30 @@ export const SCREENS: Screen[] = [
       await terminalText(page, /^Terminal production/, 'UP-TO-DATE')
       await page.waitForTimeout(250)
     },
+  },
+  {
+    name: 'tabs-below',
+    title: 'Tabs below',
+    description:
+      "A pod's logs kept open below the cluster's pages, beside the terminals, going on while the pages above show something else.",
+    app: 'desktop',
+    path: `${cluster}/pods?open=Pod/shop/${storefrontPod}`,
+    async steps(page) {
+      await tab(page, 'Logs')
+      await page.getByRole('button', { name: 'Keep open below' }).click()
+      // The pages above elsewhere, another object in the panel: it goes on below.
+      await page.evaluate((to) => {
+        window.location.hash = to
+      }, `${cluster}/deployments?open=Deployment/shop/${DEMO.deployments.checkout}`)
+      await page
+        .getByRole('complementary', { name: `Deployment ${DEMO.deployments.checkout}` })
+        .waitFor()
+      await below(page).getByRole('log').waitFor()
+    },
+    after: (page) =>
+      below(page)
+        .getByRole('button', { name: `Close Pod ${storefrontPod}` })
+        .click(),
   },
   {
     name: 'yaml',
@@ -435,8 +528,8 @@ export const SCREENS: Screen[] = [
       await check.getByRole('searchbox', { name: 'Namespace' }).fill('data')
       await check.getByRole('button', { name: /^data/ }).first().click()
       await check.getByText('Database', { exact: true }).first().waitFor()
-      // Every rule in view, the last at the bottom.
-      await reveal(page.getByRole('article', { name: 'Database' }))
+      // Every rule in view, the last at the bottom, and the counts above them whole.
+      await reveal(page.getByRole('article', { name: 'Database' }), 'end', 0)
     },
     after: resetPermissions,
   },
@@ -672,6 +765,24 @@ export const SCREENS: Screen[] = [
     steps: (page) => moreActions(page, 'Drain…'),
   },
   {
+    name: 'taints',
+    title: "A node's taints",
+    description:
+      "A node's taints without YAML: one to add and one to remove, staged, with the kubectl commands they are.",
+    app: 'desktop',
+    path: `${cluster}/nodes?open=Node//${DEMO.nodes.worker1}`,
+    async steps(page) {
+      await moreActions(page, 'Taints…')
+      const taints = page.getByRole('dialog')
+      await taints.getByLabel('Key').fill('gpu')
+      await taints.getByLabel('Value').fill('yes')
+      await taints.getByRole('button', { name: 'Add' }).click()
+      await taints.getByRole('button', { name: 'Remove dedicated=shop:PreferNoSchedule' }).click()
+      await taints.getByText(`gpu=yes:NoSchedule --context`).waitFor()
+    },
+    after: (page) => page.keyboard.press('Escape'),
+  },
+  {
     name: 'events',
     title: 'Events',
     description: 'What happened in the cluster, warnings first.',
@@ -748,6 +859,22 @@ export const SCREENS: Screen[] = [
       "Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.",
     app: 'desktop',
     path: `${cluster}/plugins/karpenter`,
+  },
+  {
+    name: 'argo-cd',
+    title: 'Argo CD',
+    description:
+      "Argo CD's applications: whether each is synced and healthy, and what needs attention.",
+    app: 'desktop',
+    path: `${cluster}/plugins/argo-cd`,
+  },
+  {
+    name: 'prometheus-operator',
+    title: 'Prometheus Operator',
+    description:
+      "Prometheus Operator's Target health: 3 of 5 targets up, 1 down and 1 not scraped yet; the one that's down with its error, then the Prometheus server's scrape pools.",
+    app: 'desktop',
+    path: `${cluster}/plugins/prometheus-operator`,
   },
   {
     name: 'helm-releases',
@@ -932,7 +1059,7 @@ export const SCREENS: Screen[] = [
     name: 'phone-approval',
     title: 'Approving an AI assistant’s change on a phone',
     description:
-      'An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 5:00 more, with Reject… and Approve.',
+      'An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.',
     app: 'server',
     // (A server whose clock is the page's: how long the change still waits reads true.)
     server: 'audit',
