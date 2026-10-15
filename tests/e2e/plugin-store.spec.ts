@@ -195,6 +195,38 @@ test('the Plugins page says what’s newer in Lumovi-plugins’ latest release, 
   await expect(foot(page)).toContainText(`${all!.slice(4)} of ${all!.slice(4)} shown.`)
 })
 
+test('at the narrowest, beside what’s newer, where a plugin came from breaks between words, never inside one', async ({
+  launch,
+  downloads,
+}) => {
+  downloads.pluginStore = newer()
+  const { page } = await launch({
+    env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included(), LUMOVI_E2E_WINDOW: '1024x700' },
+    fullLayout: false,
+  })
+  await openCluster(page)
+  await go(page, pluginsPage)
+  await expect(columns(page)).toHaveCount(4)
+  expect(await page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(1024)
+  await expect(row(page, 'Toys')).toContainText('Comes with Lumovi')
+  const lines = table(page).getByText('Comes with Lumovi')
+  // A word cut in two takes two lines.
+  const cut = await lines.evaluateAll((each) =>
+    each.flatMap((line) => {
+      const text = line.firstChild!
+      return [...text.textContent!.matchAll(/\S+/g)]
+        .filter((word) => {
+          const range = document.createRange()
+          range.setStart(text, word.index)
+          range.setEnd(text, word.index + word[0].length)
+          return range.getClientRects().length > 1
+        })
+        .map((word) => word[0])
+    }),
+  )
+  expect(cut).toEqual([])
+})
+
 test('a release that fails a check is refused, saying which, and the page goes on with the last one that passed', async ({
   launch,
   downloads,

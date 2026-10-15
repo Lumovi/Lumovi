@@ -944,7 +944,9 @@ function From({ row, directory }: { row: Row; directory: string }) {
         className={cn(
           'mt-0.5 font-mono text-xs text-ink-3 selectable',
           // (A file's path breaks anywhere; a line of words, between them, never in a number.)
-          row.installed || row.origin === 'store' ? 'break-words' : 'break-all',
+          row.installed || row.origin === 'lumovi' || row.origin === 'store'
+            ? 'break-words'
+            : 'break-all',
         )}
       >
         {row.installed
