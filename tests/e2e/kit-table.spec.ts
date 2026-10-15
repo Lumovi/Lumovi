@@ -541,8 +541,8 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   clusters,
 }) => {
   // (Laid out at 1728 itself, a laptop's whole screen: there the panel leaves Argo CD's
-  // Applications its Deploys to column, and its last two give way. Where payments deploys to is
-  // long, so the column cuts it whatever the platform's type.)
+  // Applications, its page's list, its Tracks · at column, and its last three give way. What
+  // payments tracks is long, so the column cuts it whatever the platform's type.)
   const { app: electron, page } = await launch({
     env: { LUMOVI_E2E_WINDOW: '1728x995' },
     fullLayout: false,
@@ -556,12 +556,15 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
     win.on('show', fit)
     win.on('resize', fit)
   }, 1728)
-  const DEPLOYS = 'eu-west-1-payments-production · payments'
+  const TRACKS = 'release/2026-10-eu-west-1-payments-production-hotfix'
   const far = structuredClone(
     clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
   )
-  const destination = { name: 'eu-west-1-payments-production', namespace: 'payments' }
-  far.spec = { ...(far.spec as object), destination }
+  const tracking = (app: typeof far, targetRevision: string) => {
+    const spec = app.spec as { source: Record<string, unknown> }
+    app.spec = { ...spec, source: { ...spec.source, targetRevision } }
+  }
+  tracking(far, TRACKS)
   clusters.demo.upsert(far)
   await openCluster(page)
   const tip = (text: string) => page.getByRole('tooltip').filter({ hasText: text })
@@ -578,12 +581,11 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
     'Sync',
     'Operation',
     'Tracks · at',
-    'Deploys to',
   ])
   // A text its column cuts: whole, in its own tooltip.
   const payments = applications.getByRole('row').filter({ hasText: 'payments' }).first()
-  await point(payments.locator('[data-cuts]').filter({ hasText: DEPLOYS }))
-  await expect(tip(DEPLOYS).first()).toBeVisible()
+  await point(payments.locator('[data-cuts]').filter({ hasText: TRACKS.slice(0, 12) }))
+  await expect(tip(TRACKS).first()).toBeVisible()
   // The keyboard's row (payments, opened above): cells can't be pointed at, so its tooltip says
   // the cut one whole too, beside the columns that gave way.
   await page.mouse.move(0, 0)
@@ -591,19 +593,18 @@ test('beside a panel, what a column cuts is said whole in Lumovi’s tooltip, an
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowUp')
   const row = page.getByRole('tooltip').filter({ hasText: 'Last synced' })
-  await expect(row).toContainText(`Deploys to${DEPLOYS}`)
+  await expect(row).toContainText(`Tracks · at${TRACKS}`)
   // Read after the row: what gave way, and not the cut cell again, which is read whole where it is.
   await expect(payments).toHaveAccessibleDescription(/Last synced/)
-  await expect(payments).not.toHaveAccessibleDescription(/Deploys to/)
+  await expect(payments).not.toHaveAccessibleDescription(/Tracks · at/)
   // Its value shortened as the page reads it again: no longer cut, no longer said.
   const app = structuredClone(
     clusters.demo.object('Application.argoproj.io', 'argocd', 'payments')!,
   )
-  const spec = app.spec as { destination: Record<string, string> }
-  spec.destination = { name: 'eu', namespace: 'p' }
+  tracking(app, 'main')
   clusters.demo.upsert(app)
   await expect(page.getByRole('tooltip').filter({ hasText: 'Last synced' })).not.toContainText(
-    'Deploys to',
+    'Tracks · at',
   )
 })
 

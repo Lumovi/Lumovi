@@ -4,7 +4,15 @@
  * declaration (`@shared/kit/page`) says, as the door hands it: a plugin's texts as `Their`.
  */
 import { ArrowLeft } from 'lucide-react'
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { Going, Their } from '@shared/kit/declare'
 import type {
@@ -22,13 +30,20 @@ import { TILE_ROW, tileSpan } from '@renderer/lib/tile-rows'
 import { offered, reachTip } from '@renderer/plugins/reach'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { useUi } from '@renderer/state/ui'
+import { ListPage } from './list-page'
 import { NamedAbove } from './PageHeader'
 import { PickList, standing } from './PickList'
 import { counted, keyOf, NOTHING_WRITTEN, when } from './Table'
 
-/** One under another, 16 px apart: what a page is when nothing else is said. */
+/**
+ * One under another, 16 px apart: what a page is when nothing else is said. A list's page
+ * (`ListPage`) is its list's to the bottom, its header above it.
+ */
 export function Stack({ children }: { children: ReactNode }) {
-  return <div className="flex min-w-0 flex-col gap-4">{children}</div>
+  const list = useContext(ListPage)
+  return (
+    <div className={cn('flex min-w-0 flex-col', list ? 'min-h-0 flex-1' : 'gap-4')}>{children}</div>
+  )
 }
 
 /** A moment as Lumovi says it ("3h", "in 4m"), kept current as time goes on. */

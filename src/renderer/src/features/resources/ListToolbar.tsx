@@ -19,6 +19,7 @@ import { useLayout } from '@renderer/lib/layout'
 import { HEALTH_RANK, type Health } from '@renderer/lib/health'
 import { TheirText } from '@renderer/plugins/TheirText'
 import type { Column } from './columns'
+import { listBar, listChip, listChipCount, listCount } from './list-look'
 
 const HEALTH_ORDER = (Object.keys(HEALTH_RANK) as Health[]).sort(
   (a, b) => HEALTH_RANK[a] - HEALTH_RANK[b],
@@ -45,16 +46,11 @@ export function HealthChips({
         type="button"
         aria-pressed={on}
         onClick={() => onToggle(health)}
-        className={cn(
-          'flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap transition-colors touch:finger',
-          on
-            ? 'border-transparent bg-ink-1 text-surface'
-            : 'border-line text-ink-2 hover:border-line-strong hover:text-ink-1',
-        )}
+        className={listChip(on)}
       >
         <span aria-hidden className={cn('size-1.5 rounded-full', HEALTH_STYLE[health].dot)} />
         {name(health)}
-        <span className="font-semibold tabular-nums">{counts.get(health)}</span>
+        <span className={listChipCount}>{counts.get(health)}</span>
       </button>
     )
   })
@@ -355,17 +351,9 @@ export function ListBar({
     </span>
   ) : null
   return (
-    <div
-      ref={bar}
-      role="group"
-      aria-label="Filters"
-      className="flex shrink-0 flex-col gap-2 border-b border-line px-5 py-3 touch:gap-4"
-    >
+    <div ref={bar} role="group" aria-label="Filters" className={listBar}>
       <div className="flex items-center gap-2">
-        <span
-          ref={counted}
-          className="mr-1 shrink-0 text-[13px] whitespace-nowrap text-ink-2 tabular-nums"
-        >
+        <span ref={counted} className={listCount}>
           {count}
         </span>
         {!stacked && viewed}

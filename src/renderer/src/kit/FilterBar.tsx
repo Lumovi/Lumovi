@@ -17,6 +17,8 @@ import { cn } from '@renderer/lib/cn'
 import { HEALTH_NAMES } from '@renderer/lib/health'
 import type { Chosen, FilterMenu } from '@renderer/lib/table-filters'
 import { TheirText } from '@renderer/plugins/TheirText'
+import { HealthChips } from '../features/resources/ListToolbar'
+import { listBar, listChip, listChipCount, listCount } from '../features/resources/list-look'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
 
 /**
@@ -53,6 +55,7 @@ export function FilterBar({
   search,
   onSearch,
   phone,
+  list,
 }: {
   /** What the table is of, as a screen reader says it: the field's name. */
   title: string
@@ -63,6 +66,16 @@ export function FilterBar({
   search: string
   onSearch: (search: string) => void
   phone: boolean
+  /**
+   * Its table is its page's list: the bar is Lumovi's lists' own, how many there are first, its
+   * filters as chips, and the field that filters them at its end.
+   */
+  list?: {
+    count: string
+    noun: string
+    /** Its status's levels, as chips: how many rows are at each, and the ones pressed. */
+    levels: { counts: Map<Health, number>; active: Health[]; onToggle: (level: Health) => void }
+  }
 }) {
   const [sheet, setSheet] = useState(false)
   const set = (key: string, values: ReadonlySet<string>) => {
@@ -177,6 +190,48 @@ export function FilterBar({
       </div>
     )
   }
+  if (list) {
+    return (
+      <div role="group" aria-label="Filters" className={listBar}>
+        <div className="flex items-center gap-2">
+          <span className={listCount}>{list.count}</span>
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
+            {list.levels.counts.size > 0 && (
+              <HealthChips
+                counts={list.levels.counts}
+                active={list.levels.active}
+                onToggle={list.levels.onToggle}
+                name={(level) => HEALTH_NAMES[level]}
+              />
+            )}
+            {/* (The plugin's own filters, all in one menu, as a list's further filters are.) */}
+            {menus.length > 0 && (
+              <Menu
+                menus={menus}
+                chosen={chosen}
+                onToggle={toggle}
+                label="More filters"
+                called="More filters"
+                chip
+              />
+            )}
+          </span>
+          <div className="flex-1" />
+          {searchable && (
+            <SearchInput
+              value={search}
+              onChange={onSearch}
+              onArrowDown={() => undefined}
+              placeholder={`Filter ${list.noun}`}
+              name={`Filter ${list.noun}`}
+              className="min-w-32 shrink basis-60"
+            />
+          )}
+        </div>
+        {chips}
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-2 px-4 pb-2.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -225,21 +280,32 @@ function Menu({
   onToggle,
   label,
   called,
+  chip = false,
 }: {
   menus: readonly FilterMenu[]
   chosen: Chosen
   onToggle: (key: string, value: string, on: boolean) => void
   label: ReactNode
   called: string
+  /** Drawn as a list's chip: filled while any of its values is set, with how many. */
+  chip?: boolean
 }) {
   const count = menus.reduce((sum, menu) => sum + (chosen.get(menu.filter.key.their)?.size ?? 0), 0)
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger className={trigger} aria-label={called}>
-        <span className="max-w-40 truncate">{label}</span>
-        {count > 0 && <Counted count={count} />}
-        <ChevronDown className="size-3.5 text-ink-3" aria-hidden />
-      </DropdownMenu.Trigger>
+      {chip ? (
+        <DropdownMenu.Trigger className={listChip(count > 0)} aria-label={called}>
+          <span className="max-w-40 truncate">{label}</span>
+          {count > 0 && <span className={listChipCount}>{count}</span>}
+          <ChevronDown className="size-3.5 opacity-60" aria-hidden />
+        </DropdownMenu.Trigger>
+      ) : (
+        <DropdownMenu.Trigger className={trigger} aria-label={called}>
+          <span className="max-w-40 truncate">{label}</span>
+          {count > 0 && <Counted count={count} />}
+          <ChevronDown className="size-3.5 text-ink-3" aria-hidden />
+        </DropdownMenu.Trigger>
+      )}
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="start"
