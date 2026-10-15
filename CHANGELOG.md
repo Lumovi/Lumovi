@@ -8,6 +8,46 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.22.1] - 2026-10-15
+
+1.22.1 makes the pages Lumovi's plugins draw look and work like Lumovi's own: a page that is one
+list, such as Argo CD's Applications, is drawn as Lumovi's lists are, with their count, chips,
+filter and pages of rows, and every plugin's page is framed as Lumovi's are, named in the bar for
+the page that's open. A plugin's page no longer has a line of its own saying whose it is: the bar's
+**More** (⋯) says that, under **What Argo CD may do** for Argo CD's, with what it may read and
+change.
+
+It also fixes CloudNativePG's Backup health, which Lumovi stopped as it opened, and Prometheus
+Operator's Target health, which showed tiles about targets it never read, and it keeps "Comes with
+Lumovi" whole on a narrow Plugins page. It's built with Lumovi-plugins 1.4.3.
+
+### Changed
+
+- Argo CD's **Applications** shows an application's project under its name, with where it's from,
+  as Lumovi's lists show a namespace (Lumovi-plugins 1.4.3).
+- A plugin's page that is one list, such as Argo CD's Applications, is drawn as Lumovi's own
+  lists are: its count and level chips, the filter field, the headings and rows across the page,
+  and its pages of rows. Its other filters are under More filters.
+- A plugin's page is framed as Lumovi's own pages are: no line above it, tabs of words alone, the
+  page's gutter, and the bar named after the page that's open. What a plugin may do is in the bar's
+  new More (⋯), beside Keyboard shortcuts, and in the palette's Actions. A page's header that
+  repeats its tab's title, or a tab's that repeats its object's name, doesn't say it again.
+- A plugin's page, tab or command can't be called by one of Lumovi's own pages, lists or commands,
+  nor as though it said what the plugin may do (with "permissions", "may do", "can do", "may read"
+  or "may change" in its name): the file isn't used, and its problem says why. "Overview" is still
+  a plugin's to use.
+
+### Fixed
+
+- **The Plugins page** no longer cuts "Comes with Lumovi" mid-word in a narrow window while a
+  newer version is shown.
+- Prometheus Operator's Target health draws no tiles about targets it never read: none until a
+  namespace's Prometheus server answers, "from 1 of 2 namespaces" where only some were read, and
+  Up green only where a target is up (Lumovi-plugins 1.4.3).
+- CloudNativePG's **Backup health** draws, and its tiles count as the table under them shows. Lumovi
+  stopped it as it opened, since two of its tiles named icons Lumovi doesn't have (Lumovi-plugins
+  1.4.3).
+
 ## [1.22.0] - 2026-10-15
 
 Add-ons are now **plugins**: a page lists them all, the desktop app installs and updates them from
@@ -1276,7 +1316,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...HEAD
+[1.22.1]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/Lumovi/Lumovi/compare/v1.19.0...v1.20.0
