@@ -1059,7 +1059,7 @@ export const SCREENS: Screen[] = [
     name: 'phone-approval',
     title: 'Approving an AI assistant’s change on a phone',
     description:
-      'An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.',
+      'An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below, how long it still waits, and Reject… and Approve.',
     app: 'server',
     // (A server whose clock is the page's: how long the change still waits reads true.)
     server: 'audit',
