@@ -8,14 +8,34 @@
       "title": "Clusters",
       "description": "Every cluster in the kubeconfig, ready to open.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "clusters-light.webp", "1x": "clusters-light-1x.webp" },
       "dark": { "2x": "clusters-dark.webp", "1x": "clusters-dark-1x.webp" }
+    },
+    {
+      "name": "warning-notifications",
+      "title": "Warning notifications",
+      "description": "A cluster's settings: new warnings told while Lumovi runs, in the namespaces it watches.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": {
+        "2x": "warning-notifications-light.webp",
+        "1x": "warning-notifications-light-1x.webp"
+      },
+      "dark": {
+        "2x": "warning-notifications-dark.webp",
+        "1x": "warning-notifications-dark-1x.webp"
+      }
     },
     {
       "name": "overview",
       "title": "Overview",
       "description": "A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "overview-light.webp", "1x": "overview-light-1x.webp" },
       "dark": { "2x": "overview-dark.webp", "1x": "overview-dark-1x.webp" }
     },
@@ -24,14 +44,28 @@
       "title": "What needs attention",
       "description": "Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "overview-attention-light.webp", "1x": "overview-attention-light-1x.webp" },
       "dark": { "2x": "overview-attention-dark.webp", "1x": "overview-attention-dark-1x.webp" }
+    },
+    {
+      "name": "alerts",
+      "title": "Alerts",
+      "description": "Prometheus's alerts, firing and pending, with one opened beside the list: what it says, since when, and its runbook.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "alerts-light.webp", "1x": "alerts-light-1x.webp" },
+      "dark": { "2x": "alerts-dark.webp", "1x": "alerts-dark-1x.webp" }
     },
     {
       "name": "workloads",
       "title": "Workloads",
       "description": "Every workload, whatever its kind, in one list, with its health.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "workloads-light.webp", "1x": "workloads-light-1x.webp" },
       "dark": { "2x": "workloads-dark.webp", "1x": "workloads-dark-1x.webp" }
     },
@@ -40,14 +74,28 @@
       "title": "A deployment",
       "description": "A deployment that's failing, with its pods and why they're restarting.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "deployment-light.webp", "1x": "deployment-light-1x.webp" },
       "dark": { "2x": "deployment-dark.webp", "1x": "deployment-dark-1x.webp" }
+    },
+    {
+      "name": "events-timeline",
+      "title": "Events on a timeline",
+      "description": "The cluster's events on a timeline, warnings first: each a bar from when it began to when it was last seen.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "events-timeline-light.webp", "1x": "events-timeline-light-1x.webp" },
+      "dark": { "2x": "events-timeline-dark.webp", "1x": "events-timeline-dark-1x.webp" }
     },
     {
       "name": "map",
       "title": "Map",
       "description": "What leads to a deployment, from its gateway to its services, and what it uses and runs on, to the node under memory pressure.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "map-light.webp", "1x": "map-light-1x.webp" },
       "dark": { "2x": "map-dark.webp", "1x": "map-dark-1x.webp" }
     },
@@ -56,6 +104,8 @@
       "title": "Logs",
       "description": "The logs of every pod of a deployment, merged as they happened.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "logs-light.webp", "1x": "logs-light-1x.webp" },
       "dark": { "2x": "logs-dark.webp", "1x": "logs-dark-1x.webp" }
     },
@@ -64,6 +114,8 @@
       "title": "Pods",
       "description": "Every pod, its status and restarts, with the failing ones first.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "pods-light.webp", "1x": "pods-light-1x.webp" },
       "dark": { "2x": "pods-dark.webp", "1x": "pods-dark-1x.webp" }
     },
@@ -72,6 +124,8 @@
       "title": "A pod",
       "description": "A pod's details next to the list: its containers, their usage and state.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "pod-light.webp", "1x": "pod-light-1x.webp" },
       "dark": { "2x": "pod-dark.webp", "1x": "pod-dark-1x.webp" }
     },
@@ -80,14 +134,28 @@
       "title": "Shell",
       "description": "A shell in a running container.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "shell-light.webp", "1x": "shell-light-1x.webp" },
       "dark": { "2x": "shell-dark.webp", "1x": "shell-dark-1x.webp" }
+    },
+    {
+      "name": "attach",
+      "title": "Attach",
+      "description": "Attached to a container's main process, as kubectl attach -it: what it prints, and what you type where it takes input.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "attach-light.webp", "1x": "attach-light-1x.webp" },
+      "dark": { "2x": "attach-dark.webp", "1x": "attach-dark-1x.webp" }
     },
     {
       "name": "node-shell",
       "title": "Node shell",
       "description": "A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "node-shell-light.webp", "1x": "node-shell-light-1x.webp" },
       "dark": { "2x": "node-shell-dark.webp", "1x": "node-shell-dark-1x.webp" }
     },
@@ -96,14 +164,28 @@
       "title": "Terminal",
       "description": "A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "terminal-light.webp", "1x": "terminal-light-1x.webp" },
       "dark": { "2x": "terminal-dark.webp", "1x": "terminal-dark-1x.webp" }
+    },
+    {
+      "name": "tabs-below",
+      "title": "Tabs below",
+      "description": "A pod's logs kept open below the cluster's pages, beside the terminals, going on while the pages above show something else.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "tabs-below-light.webp", "1x": "tabs-below-light-1x.webp" },
+      "dark": { "2x": "tabs-below-dark.webp", "1x": "tabs-below-dark-1x.webp" }
     },
     {
       "name": "yaml",
       "title": "Editing YAML",
       "description": "A change to a ConfigMap's YAML, checked by the cluster and shown before it's saved.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "yaml-light.webp", "1x": "yaml-light-1x.webp" },
       "dark": { "2x": "yaml-dark.webp", "1x": "yaml-dark-1x.webp" }
     },
@@ -112,6 +194,8 @@
       "title": "Several at once",
       "description": "Several pods picked, to act on them at once.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "bulk-light.webp", "1x": "bulk-light-1x.webp" },
       "dark": { "2x": "bulk-dark.webp", "1x": "bulk-dark-1x.webp" }
     },
@@ -120,6 +204,8 @@
       "title": "Scaling",
       "description": "Scaling a deployment, with what will change.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "scale-light.webp", "1x": "scale-light-1x.webp" },
       "dark": { "2x": "scale-dark.webp", "1x": "scale-dark-1x.webp" }
     },
@@ -128,6 +214,8 @@
       "title": "Create",
       "description": "Creating a Deployment from a form, with the YAML it writes beside it.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "create-light.webp", "1x": "create-light-1x.webp" },
       "dark": { "2x": "create-dark.webp", "1x": "create-dark-1x.webp" }
     },
@@ -136,6 +224,8 @@
       "title": "AI assistants",
       "description": "AI assistants on this computer connected to Lumovi, and how to connect others: the AI assistants page’s Connect tab.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "assistants-light.webp", "1x": "assistants-light-1x.webp" },
       "dark": { "2x": "assistants-dark.webp", "1x": "assistants-dark-1x.webp" }
     },
@@ -144,6 +234,8 @@
       "title": "What AI assistants may do",
       "description": "What AI assistants may do, and where: defaults, rules for some clusters and namespaces, any namespace checked, and what assistants are told.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": {
         "2x": "assistant-permissions-light.webp",
         "1x": "assistant-permissions-light-1x.webp"
@@ -158,6 +250,8 @@
       "title": "A rule for AI assistants",
       "description": "A rule for what AI assistants may do: where it applies, by name, pattern or label, with what each matches, and what it says there.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "assistant-rule-light.webp", "1x": "assistant-rule-light-1x.webp" },
       "dark": { "2x": "assistant-rule-dark.webp", "1x": "assistant-rule-dark-1x.webp" }
     },
@@ -166,6 +260,8 @@
       "title": "The audit log",
       "description": "What was done through Lumovi, by whom, and how it went, a day at a time: one of them open, a change an AI assistant made as Jane, as she approved it.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "audit-light.webp", "1x": "audit-light-1x.webp" },
       "dark": { "2x": "audit-dark.webp", "1x": "audit-dark-1x.webp" }
     },
@@ -174,6 +270,8 @@
       "title": "The audit log, checked",
       "description": "The audit log’s changes, checked: each one follows from the one before it, and the newest’s hash is there to compare with a copy kept elsewhere.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "audit-checked-light.webp", "1x": "audit-checked-light-1x.webp" },
       "dark": { "2x": "audit-checked-dark.webp", "1x": "audit-checked-dark-1x.webp" }
     },
@@ -182,6 +280,8 @@
       "title": "Access, for admins",
       "description": "Who may do what through Lumovi: Lumovi’s groups, each the identity provider’s groups and people by name, with who’s in them as they last signed in, and the provider’s groups seen at sign-in.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "access-light.webp", "1x": "access-light-1x.webp" },
       "dark": { "2x": "access-dark.webp", "1x": "access-dark-1x.webp" }
     },
@@ -190,6 +290,8 @@
       "title": "Access profiles",
       "description": "Profiles side by side: what everyone signed in gets, and what developers, operators and auditors get where grants give it, with what shows Secret values or runs code on nodes marked.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "access-profiles-light.webp", "1x": "access-profiles-light-1x.webp" },
       "dark": { "2x": "access-profiles-dark.webp", "1x": "access-profiles-dark-1x.webp" }
     },
@@ -198,6 +300,8 @@
       "title": "Grants and limits",
       "description": "Grants that give groups a profile in some clusters and namespaces, and limits that hold anyone back wherever they match: one open, with who it names and how far it reaches.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "access-rules-light.webp", "1x": "access-rules-light-1x.webp" },
       "dark": { "2x": "access-rules-dark.webp", "1x": "access-rules-dark-1x.webp" }
     },
@@ -206,6 +310,8 @@
       "title": "Check someone",
       "description": "What someone may do in a namespace, and which grant or limit says so: Dan, an on-call developer, in the shop on production.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "access-check-light.webp", "1x": "access-check-light-1x.webp" },
       "dark": { "2x": "access-check-dark.webp", "1x": "access-check-dark-1x.webp" }
     },
@@ -214,6 +320,8 @@
       "title": "Your access",
       "description": "What Lumovi lets someone do, cluster by cluster, and why: their groups, the grants that give them more than everyone gets, and the limits that hold them back.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "your-access-light.webp", "1x": "your-access-light-1x.webp" },
       "dark": { "2x": "your-access-dark.webp", "1x": "your-access-dark-1x.webp" }
     },
@@ -222,6 +330,8 @@
       "title": "An AI assistant’s change",
       "description": "A change Claude Code asks for, waiting for approval: why, the diff it makes, and the kubectl command that does the same.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "assistant-approval-light.webp", "1x": "assistant-approval-light-1x.webp" },
       "dark": { "2x": "assistant-approval-dark.webp", "1x": "assistant-approval-dark-1x.webp" }
     },
@@ -230,6 +340,8 @@
       "title": "AI assistants’ changes",
       "description": "The activity log: a change Claude Code asked for and was approved, and one rejected with a note for it.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "assistant-activity-light.webp", "1x": "assistant-activity-light-1x.webp" },
       "dark": { "2x": "assistant-activity-dark.webp", "1x": "assistant-activity-dark-1x.webp" }
     },
@@ -238,6 +350,8 @@
       "title": "Metrics",
       "description": "Usage over the last six hours from Prometheus, by namespace.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "metrics-light.webp", "1x": "metrics-light-1x.webp" },
       "dark": { "2x": "metrics-dark.webp", "1x": "metrics-dark-1x.webp" }
     },
@@ -246,6 +360,8 @@
       "title": "Right-sizing",
       "description": "What each workload should request from a week of usage, with why, and its week against the request, the recommendation and the limit.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "right-sizing-light.webp", "1x": "right-sizing-light-1x.webp" },
       "dark": { "2x": "right-sizing-dark.webp", "1x": "right-sizing-dark-1x.webp" }
     },
@@ -254,6 +370,8 @@
       "title": "A pod's usage",
       "description": "A pod's CPU and memory over time, against its requests and limits.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "pod-metrics-light.webp", "1x": "pod-metrics-light-1x.webp" },
       "dark": { "2x": "pod-metrics-dark.webp", "1x": "pod-metrics-dark-1x.webp" }
     },
@@ -262,6 +380,8 @@
       "title": "Nodes",
       "description": "Nodes, their usage and conditions: one under memory pressure, one not ready.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "nodes-light.webp", "1x": "nodes-light-1x.webp" },
       "dark": { "2x": "nodes-dark.webp", "1x": "nodes-dark-1x.webp" }
     },
@@ -270,14 +390,28 @@
       "title": "A node",
       "description": "Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "node-light.webp", "1x": "node-light-1x.webp" },
       "dark": { "2x": "node-dark.webp", "1x": "node-dark-1x.webp" }
+    },
+    {
+      "name": "taints",
+      "title": "A node's taints",
+      "description": "A node's taints without YAML: one to add and one to remove, staged, with the kubectl commands they are.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "taints-light.webp", "1x": "taints-light-1x.webp" },
+      "dark": { "2x": "taints-dark.webp", "1x": "taints-dark-1x.webp" }
     },
     {
       "name": "events",
       "title": "Events",
       "description": "What happened in the cluster, warnings first.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "events-light.webp", "1x": "events-light-1x.webp" },
       "dark": { "2x": "events-dark.webp", "1x": "events-dark-1x.webp" }
     },
@@ -286,6 +420,8 @@
       "title": "Services",
       "description": "Services with their ports and endpoints.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "services-light.webp", "1x": "services-light-1x.webp" },
       "dark": { "2x": "services-dark.webp", "1x": "services-dark-1x.webp" }
     },
@@ -294,6 +430,8 @@
       "title": "Port forwarding",
       "description": "Forwarding a local port to a service.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "port-forward-light.webp", "1x": "port-forward-light-1x.webp" },
       "dark": { "2x": "port-forward-dark.webp", "1x": "port-forward-dark-1x.webp" }
     },
@@ -302,6 +440,8 @@
       "title": "A secret",
       "description": "A secret's keys, hidden until asked for.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "secret-light.webp", "1x": "secret-light-1x.webp" },
       "dark": { "2x": "secret-dark.webp", "1x": "secret-dark-1x.webp" }
     },
@@ -310,6 +450,8 @@
       "title": "Storage",
       "description": "Persistent volume claims, their capacity and what uses them.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "storage-light.webp", "1x": "storage-light-1x.webp" },
       "dark": { "2x": "storage-dark.webp", "1x": "storage-dark-1x.webp" }
     },
@@ -318,6 +460,8 @@
       "title": "API resources",
       "description": "Every kind the cluster serves, custom resources included.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "api-resources-light.webp", "1x": "api-resources-light-1x.webp" },
       "dark": { "2x": "api-resources-dark.webp", "1x": "api-resources-dark-1x.webp" }
     },
@@ -326,6 +470,8 @@
       "title": "A custom resource",
       "description": "A cert-manager certificate, shown with Lumovi's view of it.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "custom-resource-light.webp", "1x": "custom-resource-light-1x.webp" },
       "dark": { "2x": "custom-resource-dark.webp", "1x": "custom-resource-dark-1x.webp" }
     },
@@ -334,6 +480,8 @@
       "title": "A plugin",
       "description": "Flux's plugin: everything Flux runs in one list, what's failing first, and a tab for each of its kinds.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "plugin-light.webp", "1x": "plugin-light-1x.webp" },
       "dark": { "2x": "plugin-dark.webp", "1x": "plugin-dark-1x.webp" }
     },
@@ -342,14 +490,41 @@
       "title": "Karpenter",
       "description": "Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "karpenter-light.webp", "1x": "karpenter-light-1x.webp" },
       "dark": { "2x": "karpenter-dark.webp", "1x": "karpenter-dark-1x.webp" }
+    },
+    {
+      "name": "argo-cd",
+      "title": "Argo CD",
+      "description": "Argo CD's applications: whether each is synced and healthy, and what needs attention.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": { "2x": "argo-cd-light.webp", "1x": "argo-cd-light-1x.webp" },
+      "dark": { "2x": "argo-cd-dark.webp", "1x": "argo-cd-dark-1x.webp" }
+    },
+    {
+      "name": "prometheus-operator",
+      "title": "Prometheus Operator",
+      "description": "Prometheus Operator's Target health: 3 of 5 targets up, 1 down and 1 not scraped yet; the one that's down with its error, then the Prometheus server's scrape pools.",
+      "app": "desktop",
+      "width": 1440,
+      "height": 900,
+      "light": {
+        "2x": "prometheus-operator-light.webp",
+        "1x": "prometheus-operator-light-1x.webp"
+      },
+      "dark": { "2x": "prometheus-operator-dark.webp", "1x": "prometheus-operator-dark-1x.webp" }
     },
     {
       "name": "helm-releases",
       "title": "Helm releases",
       "description": "Every Helm release, its chart, version and status.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "helm-releases-light.webp", "1x": "helm-releases-light-1x.webp" },
       "dark": { "2x": "helm-releases-dark.webp", "1x": "helm-releases-dark-1x.webp" }
     },
@@ -358,6 +533,8 @@
       "title": "A Helm release",
       "description": "A Helm release's history, ready to roll back.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "helm-light.webp", "1x": "helm-light-1x.webp" },
       "dark": { "2x": "helm-dark.webp", "1x": "helm-dark-1x.webp" }
     },
@@ -366,6 +543,8 @@
       "title": "Upgrading a release",
       "description": "Upgrading a Helm release with new values.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "helm-upgrade-light.webp", "1x": "helm-upgrade-light-1x.webp" },
       "dark": { "2x": "helm-upgrade-dark.webp", "1x": "helm-upgrade-dark-1x.webp" }
     },
@@ -374,6 +553,8 @@
       "title": "Installing a chart",
       "description": "Finding a chart on Artifact Hub to install.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "helm-install-light.webp", "1x": "helm-install-light-1x.webp" },
       "dark": { "2x": "helm-install-dark.webp", "1x": "helm-install-dark-1x.webp" }
     },
@@ -382,6 +563,8 @@
       "title": "Command palette",
       "description": "Finding anything in the cluster, or anything to do, from the keyboard.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "command-palette-light.webp", "1x": "command-palette-light-1x.webp" },
       "dark": { "2x": "command-palette-dark.webp", "1x": "command-palette-dark-1x.webp" }
     },
@@ -390,6 +573,8 @@
       "title": "Keyboard shortcuts",
       "description": "Every keyboard shortcut.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "shortcuts-light.webp", "1x": "shortcuts-light-1x.webp" },
       "dark": { "2x": "shortcuts-dark.webp", "1x": "shortcuts-dark-1x.webp" }
     },
@@ -398,6 +583,8 @@
       "title": "Deleting safely",
       "description": "Deleting in a production cluster asks for its name first.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "delete-light.webp", "1x": "delete-light-1x.webp" },
       "dark": { "2x": "delete-dark.webp", "1x": "delete-dark-1x.webp" }
     },
@@ -406,6 +593,8 @@
       "title": "Read-only",
       "description": "A cluster made read-only: Lumovi won't change anything in it until allowed.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "read-only-light.webp", "1x": "read-only-light-1x.webp" },
       "dark": { "2x": "read-only-dark.webp", "1x": "read-only-dark-1x.webp" }
     },
@@ -414,6 +603,8 @@
       "title": "An unreachable cluster",
       "description": "A cluster that doesn't answer, and what to try.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "unreachable-light.webp", "1x": "unreachable-light-1x.webp" },
       "dark": { "2x": "unreachable-dark.webp", "1x": "unreachable-dark-1x.webp" }
     },
@@ -422,6 +613,8 @@
       "title": "Thousands of pods",
       "description": "Thousands of pods, listed as fast as a handful.",
       "app": "desktop",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "large-cluster-light.webp", "1x": "large-cluster-light-1x.webp" },
       "dark": { "2x": "large-cluster-dark.webp", "1x": "large-cluster-dark-1x.webp" }
     },
@@ -430,6 +623,8 @@
       "title": "Signing in with a token",
       "description": "Lumovi served from a cluster: signing in with a token.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "server-sign-in-light.webp", "1x": "server-sign-in-light-1x.webp" },
       "dark": { "2x": "server-sign-in-dark.webp", "1x": "server-sign-in-dark-1x.webp" }
     },
@@ -438,6 +633,8 @@
       "title": "Single sign-on",
       "description": "Lumovi served from a cluster: signing in with single sign-on.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": {
         "2x": "server-single-sign-on-light.webp",
         "1x": "server-single-sign-on-light-1x.webp"
@@ -452,6 +649,8 @@
       "title": "Signed in",
       "description": "Lumovi served from a cluster: who's signed in, and their groups.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "server-account-light.webp", "1x": "server-account-light-1x.webp" },
       "dark": { "2x": "server-account-dark.webp", "1x": "server-account-dark-1x.webp" }
     },
@@ -460,6 +659,8 @@
       "title": "A fleet of clusters",
       "description": "Lumovi showing a fleet: every cluster summed up, what needs attention first.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "fleet-light.webp", "1x": "fleet-light-1x.webp" },
       "dark": { "2x": "fleet-dark.webp", "1x": "fleet-dark-1x.webp" }
     },
@@ -468,8 +669,50 @@
       "title": "Finding a workload in every cluster",
       "description": "Workloads found by name or namespace in every cluster of a fleet.",
       "app": "server",
+      "width": 1440,
+      "height": 900,
       "light": { "2x": "fleet-search-light.webp", "1x": "fleet-search-light-1x.webp" },
       "dark": { "2x": "fleet-search-dark.webp", "1x": "fleet-search-dark-1x.webp" }
+    },
+    {
+      "name": "phone-overview",
+      "title": "The overview on a phone",
+      "description": "Lumovi from a cluster, on a phone: the overview of production, in all namespaces. Nodes ready 3/4 with 1 not ready, 28 pods running with 8 unhealthy, workloads healthy 8/12 with 4 degraded, and 12 warnings in the last hour; then CPU at 41%, 11.4 of 27.5 cores in use, and memory at 52%.",
+      "app": "server",
+      "width": 390,
+      "height": 844,
+      "light": { "2x": "phone-overview-light.webp", "1x": "phone-overview-light-1x.webp" },
+      "dark": { "2x": "phone-overview-dark.webp", "1x": "phone-overview-dark-1x.webp" }
+    },
+    {
+      "name": "phone-pods",
+      "title": "A list on a phone",
+      "description": "Pods on a phone, in production across all namespaces: 38, with chips for Failing 5, Warning 3, Running 28 and Completed 2. Each pod takes two lines, its name and status, then its namespace, containers ready, restarts and age; failing pods come first, two of them in CrashLoopBackOff.",
+      "app": "server",
+      "width": 390,
+      "height": 844,
+      "light": { "2x": "phone-pods-light.webp", "1x": "phone-pods-light-1x.webp" },
+      "dark": { "2x": "phone-pods-dark.webp", "1x": "phone-pods-dark-1x.webp" }
+    },
+    {
+      "name": "phone-pod",
+      "title": "A pod on a phone",
+      "description": "A pod’s page on a phone: storefront-cjt7gd2jtx-75pbc in shop, Running, with Restart and the tabs Overview, Logs, Metrics, Events, Audit and YAML. Its details (when it was created, its ReplicaSet, node, IPs, QoS class, service account and restart policy), then its containers, first the init container migrate, completed.",
+      "app": "server",
+      "width": 390,
+      "height": 844,
+      "light": { "2x": "phone-pod-light.webp", "1x": "phone-pod-light-1x.webp" },
+      "dark": { "2x": "phone-pod-dark.webp", "1x": "phone-pod-dark-1x.webp" }
+    },
+    {
+      "name": "phone-approval",
+      "title": "Approving an AI assistant’s change on a phone",
+      "description": "An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.",
+      "app": "server",
+      "width": 390,
+      "height": 844,
+      "light": { "2x": "phone-approval-light.webp", "1x": "phone-approval-light-1x.webp" },
+      "dark": { "2x": "phone-approval-dark.webp", "1x": "phone-approval-dark-1x.webp" }
     }
   ]
 }

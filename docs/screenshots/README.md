@@ -13,6 +13,8 @@ Each comes as WebP in two sizes:
 | `<name>-<theme>.webp`    | 2880 × 1800, lossless, for high-density screens |
 | `<name>-<theme>-1x.webp` | 1440 × 900, near-lossless                       |
 
+A phone's screens (`phone-…`) are a phone's size: 780 × 1688, and 390 × 844 at 1×.
+
 Names don't change, so a link keeps showing the latest screenshot. In this repository, link to the file itself. Elsewhere, link to [jsDelivr](https://www.jsdelivr.com), which serves this repository's `main` (its cache is cleared for every screenshot that changes there):
 
 ```
@@ -67,6 +69,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | [![Every cluster in the kubeconfig, ready to open.](clusters-light-1x.webp)](clusters-light.webp) | [![Every cluster in the kubeconfig, ready to open.](clusters-dark-1x.webp)](clusters-dark.webp) |
 
+### Warning notifications
+
+`warning-notifications`: A cluster's settings: new warnings told while Lumovi runs, in the namespaces it watches.
+
+| Light                                                                                                                                                                | Dark                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![A cluster's settings: new warnings told while Lumovi runs, in the namespaces it watches.](warning-notifications-light-1x.webp)](warning-notifications-light.webp) | [![A cluster's settings: new warnings told while Lumovi runs, in the namespaces it watches.](warning-notifications-dark-1x.webp)](warning-notifications-dark.webp) |
+
 ### Overview
 
 `overview`: A cluster's overview: nodes, pods, workloads and warnings, CPU and memory with their last hour, pod health by namespace, and each node's usage.
@@ -83,6 +93,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.](overview-attention-light-1x.webp)](overview-attention-light.webp) | [![Further down a cluster's overview: what needs attention, the worst first, and the latest warnings.](overview-attention-dark-1x.webp)](overview-attention-dark.webp) |
 
+### Alerts
+
+`alerts`: Prometheus's alerts, firing and pending, with one opened beside the list: what it says, since when, and its runbook.
+
+| Light                                                                                                                                                              | Dark                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Prometheus's alerts, firing and pending, with one opened beside the list: what it says, since when, and its runbook.](alerts-light-1x.webp)](alerts-light.webp) | [![Prometheus's alerts, firing and pending, with one opened beside the list: what it says, since when, and its runbook.](alerts-dark-1x.webp)](alerts-dark.webp) |
+
 ### Workloads
 
 `workloads`: Every workload, whatever its kind, in one list, with its health.
@@ -98,6 +116,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | Light                                                                                                                        | Dark                                                                                                                       |
 | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | [![A deployment that's failing, with its pods and why they're restarting.](deployment-light-1x.webp)](deployment-light.webp) | [![A deployment that's failing, with its pods and why they're restarting.](deployment-dark-1x.webp)](deployment-dark.webp) |
+
+### Events on a timeline
+
+`events-timeline`: The cluster's events on a timeline, warnings first: each a bar from when it began to when it was last seen.
+
+| Light                                                                                                                                                                       | Dark                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![The cluster's events on a timeline, warnings first: each a bar from when it began to when it was last seen.](events-timeline-light-1x.webp)](events-timeline-light.webp) | [![The cluster's events on a timeline, warnings first: each a bar from when it began to when it was last seen.](events-timeline-dark-1x.webp)](events-timeline-dark.webp) |
 
 ### Map
 
@@ -139,6 +165,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [![A shell in a running container.](shell-light-1x.webp)](shell-light.webp) | [![A shell in a running container.](shell-dark-1x.webp)](shell-dark.webp) |
 
+### Attach
+
+`attach`: Attached to a container's main process, as kubectl attach -it: what it prints, and what you type where it takes input.
+
+| Light                                                                                                                                                                | Dark                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![Attached to a container's main process, as kubectl attach -it: what it prints, and what you type where it takes input.](attach-light-1x.webp)](attach-light.webp) | [![Attached to a container's main process, as kubectl attach -it: what it prints, and what you type where it takes input.](attach-dark-1x.webp)](attach-dark.webp) |
+
 ### Node shell
 
 `node-shell`: A shell on a node itself, as root, through a pod Lumovi starts there and deletes when the shell ends.
@@ -154,6 +188,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | Light                                                                                                                                         | Dark                                                                                                                                        |
 | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.](terminal-light-1x.webp)](terminal-light.webp) | [![A terminal on this computer under the cluster’s pages, with kubectl pointed at the cluster.](terminal-dark-1x.webp)](terminal-dark.webp) |
+
+### Tabs below
+
+`tabs-below`: A pod's logs kept open below the cluster's pages, beside the terminals, going on while the pages above show something else.
+
+| Light                                                                                                                                                                             | Dark                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A pod's logs kept open below the cluster's pages, beside the terminals, going on while the pages above show something else.](tabs-below-light-1x.webp)](tabs-below-light.webp) | [![A pod's logs kept open below the cluster's pages, beside the terminals, going on while the pages above show something else.](tabs-below-dark-1x.webp)](tabs-below-dark.webp) |
 
 ### Editing YAML
 
@@ -323,6 +365,14 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.](node-light-1x.webp)](node-light.webp) | [![Draining a node under memory pressure: the pods it evicts, those that stay, and what has to be allowed first.](node-dark-1x.webp)](node-dark.webp) |
 
+### A node's taints
+
+`taints`: A node's taints without YAML: one to add and one to remove, staged, with the kubectl commands they are.
+
+| Light                                                                                                                                                 | Dark                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A node's taints without YAML: one to add and one to remove, staged, with the kubectl commands they are.](taints-light-1x.webp)](taints-light.webp) | [![A node's taints without YAML: one to add and one to remove, staged, with the kubectl commands they are.](taints-dark-1x.webp)](taints-dark.webp) |
+
 ### Events
 
 `events`: What happened in the cluster, warnings first.
@@ -394,6 +444,22 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | Light                                                                                                                                                                      | Dark                                                                                                                                                                     |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [![Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.](karpenter-light-1x.webp)](karpenter-light.webp) | [![Karpenter's node pools against their limits, the nodes they launched, and what's being replaced or waiting for a node.](karpenter-dark-1x.webp)](karpenter-dark.webp) |
+
+### Argo CD
+
+`argo-cd`: Argo CD's applications: whether each is synced and healthy, and what needs attention.
+
+| Light                                                                                                                                 | Dark                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [![Argo CD's applications: whether each is synced and healthy, and what needs attention.](argo-cd-light-1x.webp)](argo-cd-light.webp) | [![Argo CD's applications: whether each is synced and healthy, and what needs attention.](argo-cd-dark-1x.webp)](argo-cd-dark.webp) |
+
+### Prometheus Operator
+
+`prometheus-operator`: Prometheus Operator's Target health: 3 of 5 targets up, 1 down and 1 not scraped yet; the one that's down with its error, then the Prometheus server's scrape pools.
+
+| Light                                                                                                                                                                                                                                        | Dark                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [![Prometheus Operator's Target health: 3 of 5 targets up, 1 down and 1 not scraped yet; the one that's down with its error, then the Prometheus server's scrape pools.](prometheus-operator-light-1x.webp)](prometheus-operator-light.webp) | [![Prometheus Operator's Target health: 3 of 5 targets up, 1 down and 1 not scraped yet; the one that's down with its error, then the Prometheus server's scrape pools.](prometheus-operator-dark-1x.webp)](prometheus-operator-dark.webp) |
 
 ### Helm releases
 
@@ -514,3 +580,35 @@ Screens are listed in [`scripts/screenshots/screens.ts`](../../scripts/screensho
 | Light                                                                                                                       | Dark                                                                                                                      |
 | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | [![Workloads found by name or namespace in every cluster of a fleet.](fleet-search-light-1x.webp)](fleet-search-light.webp) | [![Workloads found by name or namespace in every cluster of a fleet.](fleet-search-dark-1x.webp)](fleet-search-dark.webp) |
+
+### The overview on a phone
+
+`phone-overview`, served from a cluster, on a phone: Lumovi from a cluster, on a phone: the overview of production, in all namespaces. Nodes ready 3/4 with 1 not ready, 28 pods running with 8 unhealthy, workloads healthy 8/12 with 4 degraded, and 12 warnings in the last hour; then CPU at 41%, 11.4 of 27.5 cores in use, and memory at 52%.
+
+| Light                                                                                                                                                                                                                                                                                                                                                        | Dark                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Lumovi from a cluster, on a phone: the overview of production, in all namespaces. Nodes ready 3/4 with 1 not ready, 28 pods running with 8 unhealthy, workloads healthy 8/12 with 4 degraded, and 12 warnings in the last hour; then CPU at 41%, 11.4 of 27.5 cores in use, and memory at 52%.](phone-overview-light-1x.webp)](phone-overview-light.webp) | [![Lumovi from a cluster, on a phone: the overview of production, in all namespaces. Nodes ready 3/4 with 1 not ready, 28 pods running with 8 unhealthy, workloads healthy 8/12 with 4 degraded, and 12 warnings in the last hour; then CPU at 41%, 11.4 of 27.5 cores in use, and memory at 52%.](phone-overview-dark-1x.webp)](phone-overview-dark.webp) |
+
+### A list on a phone
+
+`phone-pods`, served from a cluster, on a phone: Pods on a phone, in production across all namespaces: 38, with chips for Failing 5, Warning 3, Running 28 and Completed 2. Each pod takes two lines, its name and status, then its namespace, containers ready, restarts and age; failing pods come first, two of them in CrashLoopBackOff.
+
+| Light                                                                                                                                                                                                                                                                                                                                             | Dark                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Pods on a phone, in production across all namespaces: 38, with chips for Failing 5, Warning 3, Running 28 and Completed 2. Each pod takes two lines, its name and status, then its namespace, containers ready, restarts and age; failing pods come first, two of them in CrashLoopBackOff.](phone-pods-light-1x.webp)](phone-pods-light.webp) | [![Pods on a phone, in production across all namespaces: 38, with chips for Failing 5, Warning 3, Running 28 and Completed 2. Each pod takes two lines, its name and status, then its namespace, containers ready, restarts and age; failing pods come first, two of them in CrashLoopBackOff.](phone-pods-dark-1x.webp)](phone-pods-dark.webp) |
+
+### A pod on a phone
+
+`phone-pod`, served from a cluster, on a phone: A pod’s page on a phone: storefront-cjt7gd2jtx-75pbc in shop, Running, with Restart and the tabs Overview, Logs, Metrics, Events, Audit and YAML. Its details (when it was created, its ReplicaSet, node, IPs, QoS class, service account and restart policy), then its containers, first the init container migrate, completed.
+
+| Light                                                                                                                                                                                                                                                                                                                                                                                | Dark                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![A pod’s page on a phone: storefront-cjt7gd2jtx-75pbc in shop, Running, with Restart and the tabs Overview, Logs, Metrics, Events, Audit and YAML. Its details (when it was created, its ReplicaSet, node, IPs, QoS class, service account and restart policy), then its containers, first the init container migrate, completed.](phone-pod-light-1x.webp)](phone-pod-light.webp) | [![A pod’s page on a phone: storefront-cjt7gd2jtx-75pbc in shop, Running, with Restart and the tabs Overview, Logs, Metrics, Events, Audit and YAML. Its details (when it was created, its ReplicaSet, node, IPs, QoS class, service account and restart policy), then its containers, first the init container migrate, completed.](phone-pod-dark-1x.webp)](phone-pod-dark.webp) |
+
+### Approving an AI assistant’s change on a phone
+
+`phone-approval`, served from a cluster, on a phone: An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.
+
+| Light                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Dark                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.](phone-approval-light-1x.webp)](phone-approval-light.webp) | [![An AI assistant’s change waiting on a phone, in a sheet over the overview: it asks to scale Deployment storefront to 5 replicas, in shop on production, with its reason (checkout latency has doubled and the pods are at 95% CPU). The cluster accepts it; the diff turns replicas: 3 into 5, with the equivalent kubectl command below. It waits 6:00 more, with Reject… and Approve.](phone-approval-dark-1x.webp)](phone-approval-dark.webp) |
