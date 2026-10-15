@@ -45,6 +45,9 @@ jobs:
       docs: ${{ steps.what.outputs.docs }}
       release: ${{ steps.what.outputs.release }}
       macos: ${{ steps.what.outputs.macos }}
+      windows: ${{ steps.what.outputs.windows }}
+      platforms: ${{ steps.what.outputs.platforms }}
+      integration: ${{ steps.what.outputs.integration }}
       e2e: ${{ steps.what.outputs.e2e }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -262,9 +265,10 @@ jobs:
     if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
-      # Each platform's tests, split over machines that run at once (Linux's six, the others' four:
-      # SHARDS in scripts/ci-changes.ts), so that each takes about as long (scripts/e2e-shard.ts);
-      # or on macOS, the smoke set.
+      # Each platform's tests, split over machines that run at once (Linux's fourteen, the others'
+      # four: SHARDS in scripts/ci-changes.ts), so that each takes about as long
+      # (scripts/e2e-shard.ts); or on macOS, the smoke set. A pull request whose changes are alike
+      # on every system runs Linux's alone.
       matrix: ${{ fromJSON(needs.changes.outputs.e2e) }}
     runs-on: ${{ matrix.os }}
     # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
@@ -397,13 +401,15 @@ jobs:
           pattern: coverage-*
           path: .nyc_output
           merge-multiple: true
-      # A run whose macOS ran only its smoke set reached less than a full one does, having lost
-      # nothing. What only macOS reaches is taken from main's newest green run whose macOS ran in
-      # full (its nightly one, or one by hand), so that the gate judges like with like.
-      - name: What macOS alone reaches, from main
-        if: needs.changes.outputs.macos == 'smoke'
+      # A run whose macOS ran only its smoke set, or that ran Linux alone, reached less than a full
+      # one does, having lost nothing. What only the systems that didn't run here reach is taken
+      # from main's newest green run whose macOS ran in full (its nightly one, or one by hand), so
+      # that the gate judges like with like.
+      - name: What the systems that didn't run here reach, from main
+        if: needs.changes.outputs.macos != 'full'
         env:
           GH_TOKEN: ${{ github.token }}
+          WINDOWS: ${{ needs.changes.outputs.windows }}
         run: scripts/judge.sh borrow-coverage.ts
       # One pass: the report, then the gate, from the report's one merged file.
       - name: Report, and require more than 90%
@@ -423,10 +429,12 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  # (Not for a pull request whose changes are alike on every system: main, nightly and a release's
+  # pull request package every time. A plan that says nothing of it packages.)
   package:
     name: Package (${{ matrix.os }})
     needs: [changes, checks]
-    if: needs.changes.outputs.docs != 'true'
+    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.platforms != 'false'
     strategy:
       fail-fast: false
       matrix:
@@ -543,14 +551,15 @@ jobs:
           Remove-AppxPackage $installed.PackageFullName
 
   integration:
-    name: Integration (kind, ${{ matrix.shard }}/2)
+    name: Integration (kind, ${{ matrix.shard }}/4)
     needs: [changes, checks]
-    if: needs.changes.outputs.docs != 'true'
+    # (Not for a pull request that changes nothing they see: scripts/ci-changes.ts.)
+    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.integration != 'false'
     strategy:
       fail-fast: false
-      # Two clusters, each with half the files (a file's tests share theirs, one at a time).
+      # Four clusters, each with a quarter of the files (a file's tests share theirs, one at a time).
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -592,7 +601,7 @@ jobs:
         run: node tests/integration/cluster.ts up
       - name: Run the integration tests
         run: |
-          node scripts/e2e-shard.ts ${{ matrix.shard }}/2 playwright.integration.config.ts > shard.txt
+          node scripts/e2e-shard.ts ${{ matrix.shard }}/4 playwright.integration.config.ts > shard.txt
           xvfb-run --auto-servernum npx playwright test -c playwright.integration.config.ts --test-list shard.txt
       - name: Cluster state
         if: ${{ failure() }}
@@ -616,7 +625,8 @@ jobs:
   browsers:
     name: Browsers (Firefox, WebKit)
     needs: [changes, checks]
-    if: needs.changes.outputs.docs != 'true'
+    # (As the packages: not for a pull request whose changes are alike on every system.)
+    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.platforms != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

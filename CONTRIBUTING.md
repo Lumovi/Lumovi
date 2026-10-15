@@ -56,17 +56,24 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
    one able to bypass it.
 
-On a pull request CI runs every test on Linux; the desktop app's tests on Windows, except those
-alike on every system (`tests/e2e/linux-only.txt`); and on macOS a short set
-(`tests/e2e/smoke.txt`), whatever the change touches: GitHub gives an account five
-macOS machines at a time, and a full run takes all five. The browser's tests (`tests/web`) run
-on Linux, where the server Lumovi ships runs. So for now, macOS's full suite runs nightly on
-`main`, on a release's pull request, on a run by hand, and where the label `macos-full` asks for
-it; and the nightly run, a release's pull request and a run by hand run every test on every
-system. `main` runs the same as a pull request after each merge. Main's
-merges and its nightly run are the ones that count: while either is red, _CI passed_ says so on
-every pull request as a warning, with main's commit and the jobs that failed. A pull request
-fails only for its own jobs.
+On a pull request CI runs every test on Linux, over fourteen machines at once. Windows, macOS,
+the Firefox and WebKit checks and the packages run too where the change touches what differs
+by system: anything outside the pages and what they share (`src/renderer`, `src/shared`), the
+server (`src/backend`, `src/server`), the chart, the tests and the mock clusters, docs and
+changelog entries, or a file there whose text asks which system it's on (`process.platform`,
+`'win32'`, …). Then Windows runs the desktop app's tests, except those alike on every system
+(`tests/e2e/linux-only.txt`), and macOS a short set (`tests/e2e/smoke.txt`): GitHub gives an
+account five macOS machines at a time, and a full run takes all five. Where only Linux ran, the
+coverage gate borrows what macOS and Windows reach from `main`'s newest full run. The integration
+tests run unless the change is only to the other tests, the mock clusters, docs or entries.
+`scripts/ci-changes.ts` says which, in the run's _What changed_ job. The browser's tests
+(`tests/web`) run on Linux, where the server Lumovi ships runs. `main` runs everything but
+macOS's full suite after each merge; macOS's full suite runs nightly on `main`, on a release's
+pull request, on a run by hand, and where the label `macos-full` asks for it; and the nightly
+run, a release's pull request and a run by hand run every test on every system. Main's merges
+and its nightly run are the ones that count: while either is red, _CI passed_ says so on every
+pull request as a warning, with main's commit and the jobs that failed. A pull request fails
+only for its own jobs.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the

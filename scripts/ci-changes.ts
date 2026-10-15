@@ -16,9 +16,16 @@
  *   for a run by hand, and for a pull request whose label (`macos-full`) asks.
  * - `release`: whether this is a release's own pull request, whose branch is named for its version
  *   (`release-1.22.0`): any other branch whose name starts the same is an ordinary one.
- * - `macos`: `full` or `smoke`, for the coverage job: where macOS ran the smoke set, what main's
- *   newest full macOS run reached and its Linux and Windows didn't is borrowed from it
- *   (scripts/borrow-coverage.ts), and nothing else: the rest is this run's own to reach.
+ * - `platforms`: whether Windows, macOS, the Firefox and WebKit job and the packages run. They
+ *   do everywhere but a pull request whose every change is alike on every system
+ *   (alikeOnEverySystem) and doesn't ask which system it's on: Linux alone runs that, in full.
+ *   A path not named as alike runs them all.
+ * - `integration`: whether the integration tests run: everywhere but a pull request that changes
+ *   nothing they see (integrationsSee).
+ * - `macos`: `full`, `smoke` or `none`, and `windows`: `ran` or `none`, for the coverage job:
+ *   what main's newest full run reached on the systems that didn't run here (or ran macOS's
+ *   smoke set), and this run's didn't, is borrowed from it (scripts/borrow-coverage.ts), and
+ *   nothing else: the rest is this run's own to reach.
  *
  * Main's nightly run is the one that counts for macOS: what a merge's run can't see (something
  * only macOS reaches that a change stops being reached) shows there, and a red nightly is a red
@@ -29,7 +36,7 @@
  * tests/web/ci-changes.spec.ts tries it on each kind of run.
  */
 import { execFileSync } from 'node:child_process'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 
 const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
 /**
@@ -37,7 +44,7 @@ const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
  * browser's tests and the desktop tests alike on every system as well.
  */
 export const SHARDS = {
-  'ubuntu-latest': 6,
+  'ubuntu-latest': 14,
   'macos-latest': 4,
   'windows-latest': 4,
 } as const satisfies Record<(typeof OSES)[number], number>
@@ -46,6 +53,44 @@ export const SHARDS = {
 const isDocs = (path: string) =>
   (path.endsWith('.md') && !/^(src|tests)\//.test(path)) ||
   (/\.(png|jpe?g|gif|webp|svg)$/i.test(path) && !/^(src|build|packaging|charts|tests)\//.test(path))
+
+/**
+ * What a change can be, and Linux alone run it in full for a pull request: the pages and what
+ * they share with the rest (src/renderer, src/shared), the server (src/backend, src/server), the
+ * chart, the tests of the desktop app, the browser, the plugins and the clusters, the mock
+ * clusters, the tests' timings, entries and docs. What's left runs every system: Electron's own
+ * process and its preload, packaging, the dependencies, CI and its scripts, the tests' harness, and
+ * any path not named here. So does a file of these whose text asks which system it's on
+ * (namesASystem): a terminal's keys, a shortcut's symbol, a test that waits longer on Windows.
+ */
+const ALIKE_ON_EVERY_SYSTEM = [
+  /^src\/(renderer|shared|backend|server)\//,
+  /^charts\//,
+  /^changelog\.d\//,
+  /^tests\/(e2e|web|integration|plugins)\/.+\.tsx?$/,
+  /^tests\/mock-[\w-]+\//,
+  /^tests\/durations\.json$/,
+]
+export const alikeOnEverySystem = (path: string) =>
+  isDocs(path) || ALIKE_ON_EVERY_SYSTEM.some((alike) => alike.test(path))
+/** A file's text that asks which system it's on: run on every system, wherever it is. */
+export const NAMES_A_SYSTEM =
+  /process\.platform|navigator\.platform|userAgentData|\bisMac\b|\bisWindows\b|'darwin'|'win32'/
+
+/**
+ * What can't change what the integration tests see (a real cluster, Lumovi served from it and the
+ * desktop app beside it): the other tests, the mock clusters, the tests' timings, entries and
+ * docs. Anything else runs them: the server, the chart, the image, the app, CI, a path not named
+ * here.
+ */
+const NOT_INTEGRATIONS = [
+  /^changelog\.d\//,
+  /^tests\/(e2e|web|plugins)\//,
+  /^tests\/mock-[\w-]+\//,
+  /^tests\/durations\.json$/,
+]
+export const integrationsSee = (path: string) =>
+  !isDocs(path) && !NOT_INTEGRATIONS.some((not) => not.test(path))
 
 /** A release's own branch: `release-` and its version (`release-1.22.0`, `release-2.0.0-rc.1`). */
 export const isRelease = (branch: string) =>
@@ -70,6 +115,7 @@ export function plan({
   changed,
   labels = [],
   ranAlready = false,
+  namesASystem = [],
 }: {
   event: string | undefined
   branch?: string
@@ -78,6 +124,8 @@ export function plan({
   labels?: string[]
   /** A nightly run's: its head has run macOS in full, green, already. */
   ranAlready?: boolean
+  /** Of the files changed, those whose text asks which system it's on (NAMES_A_SYSTEM). */
+  namesASystem?: string[]
 }) {
   const pullRequest = event === 'pull_request'
   const release = pullRequest && isRelease(branch)
@@ -90,6 +138,15 @@ export function plan({
     !again && (event === 'schedule' || event === 'workflow_dispatch' || release || asked)
   // Docs alone run no tests on a pull request; main runs its tests for every merge.
   const docs = again || (pullRequest && !release && changed.length > 0 && changed.every(isDocs))
+  // Windows, macOS, the other browsers' engines and the packages: everywhere but a pull request
+  // whose every change is alike on every system (and doesn't ask which it's on), or a release's.
+  const platforms =
+    !pullRequest ||
+    release ||
+    asked ||
+    changed.some((path) => !alikeOnEverySystem(path) || namesASystem.includes(path))
+  // The integration tests: everywhere but a pull request that changes nothing they see.
+  const integration = !pullRequest || release || changed.some(integrationsSee)
   // The browser's tests on every system: the nightly run, a run by hand, a release's pull request.
   // Otherwise on Linux alone, where the server Lumovi ships runs.
   const everySystem = !again && (event === 'schedule' || event === 'workflow_dispatch' || release)
@@ -100,15 +157,17 @@ export function plan({
   const onlyOn = (os: (typeof OSES)[number]) =>
     os === 'ubuntu-latest' || everySystem || (os === 'macos-latest' && asked) ? '' : 'system'
   const e2e = OSES.flatMap((os) =>
-    os === 'macos-latest' && !macos
-      ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '' }]
-      : Array.from({ length: SHARDS[os] }, (_, i) => ({
-          os,
-          shard: `${i + 1}/${SHARDS[os]}`,
-          part: String(i + 1),
-          projects: projectsOn(os),
-          only: onlyOn(os),
-        })),
+    os !== 'ubuntu-latest' && !platforms
+      ? []
+      : os === 'macos-latest' && !macos
+        ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '' }]
+        : Array.from({ length: SHARDS[os] }, (_, i) => ({
+            os,
+            shard: `${i + 1}/${SHARDS[os]}`,
+            part: String(i + 1),
+            projects: projectsOn(os),
+            only: onlyOn(os),
+          })),
   )
   const said = [
     again
@@ -123,7 +182,13 @@ export function plan({
               ? 'Main’s merge: every test on Linux, the desktop app’s on Windows, and macOS its smoke set (everything runs on every system nightly).'
               : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
     docs && !again ? 'Docs only: no E2E, packaging or integration tests.' : '',
-    pullRequest && !release && !docs
+    pullRequest && !release && !docs && !platforms
+      ? 'Linux alone: nothing it changes is a system’s own (Windows, macOS, Firefox and WebKit, and the packages, run on main, nightly and for a release).'
+      : '',
+    pullRequest && !release && !docs && !integration
+      ? 'No integration tests: nothing it changes is theirs.'
+      : '',
+    pullRequest && !release && !docs && platforms
       ? asked
         ? `The desktop app’s tests in full on macOS, as its label asks (${MACOS_FULL}).`
         : `macOS runs its smoke set (its full suite runs nightly; the label ${MACOS_FULL} asks for it here).`
@@ -134,7 +199,7 @@ export function plan({
   ]
     .filter(Boolean)
     .join(' ')
-  return { docs, release, macos, e2e, said }
+  return { docs, release, macos, platforms, integration, e2e, said }
 }
 
 /**
@@ -200,19 +265,37 @@ if (import.meta.main) {
           .split('\n')
           .filter(Boolean)
   const event = process.env.GITHUB_EVENT_NAME
-  const { docs, release, macos, e2e, said } = plan({
+  // (A file taken away has no text to ask: what took it away is read as anything else is.)
+  const namesASystem = changed.filter((path) => {
+    try {
+      return NAMES_A_SYSTEM.test(readFileSync(path, 'utf8'))
+    } catch {
+      return false
+    }
+  })
+  const { docs, release, macos, platforms, integration, e2e, said } = plan({
     event,
     branch: process.env.GITHUB_HEAD_REF,
     changed,
     labels: labelsNow(),
     ranAlready: event === 'schedule' && ranInFullAlready(),
+    namesASystem,
   })
   console.log(said)
   const output = process.env.GITHUB_OUTPUT
   if (output) {
     appendFileSync(
       output,
-      `docs=${docs}\nrelease=${release}\nmacos=${macos ? 'full' : 'smoke'}\ne2e=${JSON.stringify({ include: e2e })}\n`,
+      [
+        `docs=${docs}`,
+        `release=${release}`,
+        `platforms=${platforms}`,
+        `integration=${integration}`,
+        `macos=${!platforms ? 'none' : macos ? 'full' : 'smoke'}`,
+        `windows=${platforms ? 'ran' : 'none'}`,
+        `e2e=${JSON.stringify({ include: e2e })}`,
+        '',
+      ].join('\n'),
     )
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
