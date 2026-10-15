@@ -1601,6 +1601,28 @@ export const LUMOVIS_COMMANDS = [
   'Keyboard shortcuts',
 ]
 /**
+ * The pages Lumovi's own bar names, but its Overview (a plugin's page may be one, and Lumovi's own
+ * mark for it isn't one a plugin can choose): a plugin's page or tab can't be called one of them,
+ * nor a kind's list, nor one of the palette's own. Keep it the bar's own
+ * (features/shell/Header.tsx's PAGES); a test holds the two to it.
+ */
+export const LUMOVIS_PAGES = [
+  'Workloads',
+  'Metrics',
+  'Alerts',
+  'API resources',
+  'Helm releases',
+  'Plugins',
+]
+/**
+ * What a plugin may do is Lumovi's to say, in its own places (the bar's More, the palette's
+ * Actions): no page, tab or command of a plugin's can read as it. Not "What … may do", nor any
+ * "may do", "can do", "may read" or "may change" (the Plugins page's own words for what it asks),
+ * nor its permissions, by any words round them: failing closed, a plugin about access calls its
+ * pages "Bindings" or "Policies".
+ */
+const SAYS_WHAT_IT_MAY_DO = /\b(?:may\s+(?:do|read|change)|can\s+do|permissions?)\b/iu
+/**
  * What a command's name may not start with: a command only opens a page, and a name that says it
  * changes something would tell a lie in the palette, where a person types to act.
  */
@@ -1769,6 +1791,14 @@ function addedProblems(
     if (squeezed(name).startsWith('lumovi')) {
       return [`${where}: ${quoted(name)} starts with Lumovi’s own name`]
     }
+    // (Anywhere in it, whatever's before it, its letters as they read: as `squeezed` takes them,
+    // its spaces kept.)
+    const read = [...name.normalize('NFKC')].map((letter) => LOOKALIKES[letter] ?? letter).join('')
+    if (SAYS_WHAT_IT_MAY_DO.test(read)) {
+      return [
+        `${where}: ${quoted(name)} reads as Lumovi’s own word on what the plugin may do, which is Lumovi’s alone to say: name it after the page`,
+      ]
+    }
     if (theirs.some((own) => squeezed(own) === squeezed(name))) {
       return [
         `${where}: ${quoted(name)} is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s`,
@@ -1797,6 +1827,13 @@ function addedProblems(
     'All',
     ...((place.kinds ?? []) as NamedKind[]).flatMap(({ kind }) => [kind, `${kind}s`]),
   ]
+  // Lumovi's own pages, kinds' lists and palette's: never a plugin's page's or tab's, whose title
+  // the bar and the tabs say as their own.
+  const lumovis = [
+    ...LUMOVIS_PAGES,
+    ...LUMOVIS_COMMANDS.filter((name) => name !== 'Overview'),
+    ...RESOURCES.map(({ label }) => label),
+  ]
   const titles = new Map<string, string>()
   // A page that takes a kind's tab: of a kind of the plugin's own place, one page a kind; and its
   // title may be that kind's own, as the tab it stands in was.
@@ -1812,11 +1849,10 @@ function addedProblems(
         ? (page.takes as NamedKind)
         : undefined
     const its = takes ? [takes.kind, `${takes.kind}s`] : []
-    const wrong = nameProblem(
-      page.title,
-      `spec.pages[${p}].title`,
-      entrysOwn.filter((name) => !its.includes(name)),
-    )
+    const wrong = nameProblem(page.title, `spec.pages[${p}].title`, [
+      ...entrysOwn.filter((name) => !its.includes(name)),
+      ...lumovis,
+    ])
     if (wrong) problems.push(...wrong)
     else once(titles, page.title, `spec.pages[${p}].title`)
     if (takes) {
@@ -1835,7 +1871,7 @@ function addedProblems(
   const tabbed = new Map<ResourceKind, string>()
   tabs.forEach((tab, t) => {
     id(tab.id, `spec.tabs[${t}].id`)
-    const wrong = nameProblem(tab.title, `spec.tabs[${t}].title`, LUMOVIS_TABS)
+    const wrong = nameProblem(tab.title, `spec.tabs[${t}].title`, [...LUMOVIS_TABS, ...lumovis])
     if (wrong) problems.push(...wrong)
     else once(tabTitles, tab.title, `spec.tabs[${t}].title`)
     tab.kinds.forEach((kind, k) => {

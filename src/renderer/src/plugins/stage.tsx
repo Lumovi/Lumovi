@@ -183,13 +183,7 @@ function Stage({ shown }: { shown: Shown }) {
       className="fixed inset-0 z-[1000] flex flex-col bg-surface text-[13px]"
     >
       {forced ? (
-        <PluginFrame
-          name={shown.name}
-          version={shown.version}
-          end={forced}
-          onAgain={again}
-          onFault={() => undefined}
-        >
+        <PluginFrame name={shown.name} end={forced} onAgain={again} onFault={() => undefined}>
           {null}
         </PluginFrame>
       ) : (

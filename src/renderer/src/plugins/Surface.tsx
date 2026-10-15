@@ -92,7 +92,10 @@ export function PluginSurface({ page }: { page: OpenPage }) {
     <div
       data-testid="plugin-surface"
       // A list's page is the list's: its rows scroll under its headings, as a list of Lumovi's.
-      className={list === undefined ? 'flex flex-col gap-4 p-4' : 'flex h-full min-h-0 flex-col'}
+      // Any other's gutter is a cluster page's own: 24 px; on a phone, 16.
+      className={
+        list === undefined ? 'flex flex-col gap-4 p-6 phone:p-4' : 'flex h-full min-h-0 flex-col'
+      }
     >
       <PageKey.Provider value={key}>
         <PageIdentity.Provider value={identityOf(page)}>

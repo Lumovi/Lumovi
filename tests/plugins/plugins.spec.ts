@@ -15,6 +15,7 @@ import {
   clashes,
   EXPRESSION,
   LUMOVIS_COMMANDS,
+  LUMOVIS_PAGES,
   LUMOVIS_TABS,
   namedKinds,
   parsePlugin,
@@ -2156,7 +2157,9 @@ test('a page that takes one of the plugin’s own kinds stands in its tab, and m
   expect(refusedWith(takes('    - { id: rollouts, title: Rollouts }\n'))).toEqual([
     'rollouts.yaml: spec.pages[0].title: "Rollouts" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
   ])
+  // (Nor may it be called one of Lumovi's own kinds' lists, whatever it takes.)
   expect(refusedWith(takes('    - { id: pods, title: Pods, takes: { kind: Pod } }\n'))).toEqual([
+    'rollouts.yaml: spec.pages[0].title: "Pods" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s',
     'rollouts.yaml: spec.pages[0].takes: "Pod" isn’t one of the plugin’s own kinds (spec.kinds)',
   ])
   expect(
@@ -2249,4 +2252,100 @@ test('what a change harms, said in the file for a kind it changes: a path, the v
   ] as const) {
     expect(refusedWith(withHarm(harm)).join('\n'), harm).toContain(why)
   }
+})
+
+test('a plugin’s page, tab or command can’t be called what Lumovi says it may do, nor one of Lumovi’s own pages or lists', () => {
+  const page = (title: string) =>
+    refusedWith(adding(`  pages:\n    - { id: here, title: '${title}' }\n`))
+  const said = (where: string, title: string) =>
+    `rollouts.yaml: ${where}: "${title}" is a name Lumovi itself uses there, so a person pressing it would expect Lumovi’s`
+  // Lumovi's own pages in its bar, a kind's list, and the palette's own: the bar and the tabs
+  // would say a plugin's title as theirs, with whatever mark it chose.
+  for (const title of ['Alerts', 'Workloads', 'Plugins', 'Pods', 'Deployments', 'All plugins']) {
+    expect(page(title)).toEqual([said('spec.pages[0].title', title)])
+  }
+  // Overview stays a plugin's to have: Lumovi's own mark for it is none a plugin can choose.
+  expect(page('Overview')).toEqual([])
+  expect(
+    refusedWith(
+      adding(
+        `${PAGES}  tabs:\n    - { id: steps, title: Deployments, kinds: [{ group: example.com, kind: Rollout }] }\n`,
+      ),
+    ),
+  ).toEqual([said('spec.tabs[0].title', 'Deployments')])
+  // What a plugin may do is Lumovi's to say: as a page, a tab or a command, however it's put.
+  const mayDo = (where: string, name: string) =>
+    `rollouts.yaml: ${where}: "${name}" reads as Lumovi’s own word on what the plugin may do, which is Lumovi’s alone to say: name it after the page`
+  expect(page('What Rollouts may do')).toEqual([
+    mayDo('spec.pages[0].title', 'What Rollouts may do'),
+  ])
+  expect(page('what it MAY  DO, in short')).toEqual([
+    mayDo('spec.pages[0].title', 'what it MAY  DO, in short'),
+  ])
+  expect(
+    refusedWith(
+      adding(
+        `${PAGES}  tabs:\n    - { id: asks, title: What Argo CD may do, kinds: [{ group: example.com, kind: Rollout }] }\n`,
+      ),
+    ),
+  ).toEqual([mayDo('spec.tabs[0].title', 'What Argo CD may do')])
+  expect(
+    refusedWith(
+      adding(`${PAGES}  commands:\n    - { name: What Rollouts may do, page: history }\n`),
+    ),
+  ).toEqual([mayDo('spec.commands[0].name', 'What Rollouts may do')])
+  // Wherever in it, whatever stands before it, and in letters drawn alike.
+  for (const name of [
+    '“What Argo CD may do”',
+    '→ What Argo CD may do',
+    '· What Argo CD may do',
+    '(What Argo CD may do)',
+    'See what Argo CD may do',
+    // (Each word of one alphabet, so not two mixed: Cyrillic letters that read as "WHAT", "MAY", "do".)
+    '\u051C\u041D\u0410\u0422 Argo CD \u041C\u0410\u04AE \u0501\u043E',
+  ]) {
+    expect(
+      refusedWith(adding(`${PAGES}  commands:\n    - { name: '${name}', page: history }\n`)),
+    ).toEqual([mayDo('spec.commands[0].name', name)])
+  }
+  // Nor its permissions, nor what it may do in other words: failing closed.
+  for (const title of [
+    'Permissions',
+    'Argo CD permissions',
+    'Its permissions',
+    'Permission',
+    'May do',
+    'What it can and may do',
+    'What Argo CD can do',
+    'What it may read',
+    'May change',
+    'Whatever it may do next',
+  ]) {
+    expect(page(title)).toEqual([mayDo('spec.pages[0].title', title)])
+  }
+  // A plugin about access names its pages after what they show (not "Roles": Lumovi's own list).
+  expect(page('Bindings')).toEqual([])
+  expect(page('Policies')).toEqual([])
+  // (Only the words themselves: not inside others.)
+  for (const title of ['Whatever it does', 'Mayday dose', 'Can-doer']) {
+    expect(page(title)).toEqual([])
+  }
+})
+
+test('the pages Lumovi keeps for itself are its bar’s, and none of their marks is a plugin’s to choose', () => {
+  const source = (path: string) => readFileSync(join('src/renderer/src', path), 'utf8')
+  const header = source('features/shell/Header.tsx')
+  const pages = header.slice(
+    header.indexOf('const PAGES'),
+    header.indexOf('}', header.indexOf('const PAGES')),
+  )
+  const titles = [...pages.matchAll(/\['([^']+)', [A-Z]\w*\]/g)].map((match) => match[1])
+  expect(new Set(titles.filter((title) => title !== 'Overview'))).toEqual(new Set(LUMOVIS_PAGES))
+  // Lumovi's own Overview's mark: never one of the marks a plugin's file may choose.
+  const icons = source('components/KindIcon.tsx')
+  const viewIcons = icons.slice(
+    icons.indexOf('VIEW_ICONS'),
+    icons.indexOf('}', icons.indexOf('VIEW_ICONS')),
+  )
+  expect(viewIcons).not.toContain('LayoutDashboard')
 })

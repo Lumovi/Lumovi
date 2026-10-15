@@ -65,23 +65,14 @@ test('what a plugin describes is drawn with Lumovi’s parts, under a strip that
       ],
     ),
   })
-  // (As it's shown: a phone's shorter words are in the strip too, and hidden here.)
-  await expect(page.getByTestId('plugin-whose')).toHaveText(
-    'This page is from the plugin Karpenter 1.0.0. Lumovi draws it from its own parts; what it shows and says is the plugin’s.',
-    { useInnerText: true },
-  )
+  // Drawn as Lumovi's own pages are: no line above it says whose it is (the bar's More says what
+  // it may do: plugin-body.spec.ts).
+  await expect(stage(page)).not.toContainText('This page is from')
   await expect(surface(page).locator('[data-part="Label"]')).toHaveText('Node pools')
   await expect(surface(page).locator('[data-part="Field"]')).toHaveText([
     /^Zone\s*eu-west-1a/,
     /^Capacity\s*32 of 64 cores/,
   ])
-  // The strip is above the page and outside it: it stays where it is as the page scrolls.
-  const strip = await page.getByTestId('plugin-whose').boundingBox()
-  const drawn = await surface(page).boundingBox()
-  expect(strip!.y + strip!.height).toBeLessThanOrEqual(drawn!.y)
-  expect(
-    await surface(page).evaluate((el) => el.closest('[data-testid="plugin-whose"]')),
-  ).toBeNull()
   await expect(ended(page)).toHaveCount(0)
 })
 
@@ -233,8 +224,6 @@ test('a page that says what it can’t, or too much, is stopped whole: its place
   await expect(ended(page)).toContainText(STILL)
   await expect(surface(page)).toHaveCount(0)
   await expect(stage(page)).not.toContainText('half a page')
-  // The strip stays.
-  await expect(page.getByTestId('plugin-whose')).toContainText('Karpenter 1.0.0')
   // For whoever writes the plugin, a line with the thing itself, quoted.
   await expect
     .poll(() => log)
@@ -249,10 +238,11 @@ test('a page that says what it can’t, or too much, is stopped whole: its place
   const long = 'Platform Team’s Reconciliation and Settlement Workflows'
   await show(page, { name: long, version: '12.104.3', code: sends([['eval', '1']]) })
   await expect(ended(page).getByRole('heading')).toHaveText(`Lumovi stopped ${long}’ page.`)
-  await expect(page.getByTestId('plugin-whose')).toContainText(`${long} 12.104.3`)
-  for (const part of [ended(page).getByRole('heading'), page.getByTestId('plugin-whose')]) {
-    expect(await part.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
-  }
+  expect(
+    await ended(page)
+      .getByRole('heading')
+      .evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+  ).toBe(true)
 })
 
 test('a page that fails by itself says so in its plugin’s words, shown as the plugin’s and as text', async ({

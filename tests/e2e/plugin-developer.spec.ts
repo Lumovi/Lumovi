@@ -113,15 +113,10 @@ test('off as Lumovi starts: a folder’s plugin with code says its pages don’t
   await go(page, PAGE)
   const waiting = body(page).getByTestId('plugin-waiting')
   await expect(waiting).toContainText('Toys’ code waits for you')
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('your plugin Toys 1.2.0')
   await waiting.getByRole('button', { name: 'See what it may do…' }).click()
   await dialog(page).getByRole('button', { name: 'Run its code' }).click()
-  // Agreed: its page draws, said to be the person's own; and the history says so.
+  // Agreed: its page draws; and the history says it's the person's own.
   await expect(body(page).getByRole('region', { name: 'Widgets' })).toBeVisible({ timeout: 20_000 })
-  // (As it reads, at this width: the strip holds a phone's words too, hidden.)
-  await expect
-    .poll(() => body(page).getByTestId('plugin-whose').innerText())
-    .toContain('This page is from your plugin Toys 1.2.0, from your own folder.')
   const agreed = await events(page, { actions: ['plugin.code-agreed'] })
   expect(agreed).toHaveLength(1)
   expect(agreed[0]).toMatchObject({

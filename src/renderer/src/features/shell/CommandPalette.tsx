@@ -71,6 +71,7 @@ import {
   workloadsPath,
   parseRef,
   listedKind,
+  pluginAsksPath,
 } from '@renderer/lib/routes'
 import { api, KubeApiError } from '@renderer/lib/api'
 import { statusOf } from '@renderer/lib/health'
@@ -190,6 +191,21 @@ function Palette({ onDone }: { onDone: () => void }) {
   }
   const go = useGo()
   const access = useMyAccess()
+  // On a plugin's page, what it may do: Lumovi's own, with what's done with the open object.
+  const [section, named] = useLocation().pathname.split('/').slice(3)
+  const pluginHere =
+    section === 'plugins' && named
+      ? plugins.find((each) => each.plugin.name === decodeURIComponent(named))?.plugin
+      : undefined
+  const asks = pluginHere && (
+    <Item
+      icon={<ShieldCheck />}
+      value={`What ${pluginHere.label} may do permissions plugin`}
+      onSelect={run(() => go(pluginAsksPath(context, pluginHere.name)))}
+    >
+      What {pluginHere.label} may do
+    </Item>
+  )
   const numbered = PINS_NUMBERED && !touch
   // The saved views: the open list's kind's first; all of them once something's typed.
   const here = listedKind(context, useLocation().pathname)
@@ -382,7 +398,11 @@ function Palette({ onDone }: { onDone: () => void }) {
         {viewsElsewhere.length > 0 && (
           <Command.Group heading="Views">{viewItems(viewsElsewhere)}</Command.Group>
         )}
-        {open && <ObjectActions open={open} run={run} />}
+        {open ? (
+          <ObjectActions open={open} run={run} after={asks} />
+        ) : (
+          asks && <Command.Group heading="Actions">{asks}</Command.Group>
+        )}
         {matches.length > 0 && (
           <Command.Group heading="Objects">
             {matches.map((object) => {
@@ -827,25 +847,30 @@ function PinnedOption({
   )
 }
 
-/** Actions for the object in the detail panel, listed first. */
+/** Actions for the object in the detail panel, listed first; and `after` them, the page's. */
 function ObjectActions({
   open,
   run,
+  after,
 }: {
   open: string
   run: (action: () => unknown) => () => void
+  after?: ReactNode
 }) {
   const target = parseRef(open)
   const object = useObject(target.kind, target.name, target.namespace).data
-  return object ? <ObjectActionItems object={object} run={run} /> : null
+  if (object) return <ObjectActionItems object={object} run={run} after={after} />
+  return after ? <Command.Group heading="Actions">{after}</Command.Group> : null
 }
 
 function ObjectActionItems({
   object,
   run,
+  after,
 }: {
   object: KubeObject
   run: (action: () => unknown) => () => void
+  after?: ReactNode
 }) {
   const available = useObjectActions(object)
   const start = useRunAction()
@@ -860,8 +885,10 @@ function ObjectActionItems({
   const on = pinned(pin)
   const { context } = useCluster()
   const kept = useDock((dock) => Boolean(dock.keptOf(context, pin)))
-  // (Nothing to do to it and nothing to pin: no Actions at all. Its panel keeps it below.)
-  if (available.length === 0 && !pinnable(kind)) return null
+  // (Nothing to do to it and nothing to pin: no Actions of its own. Its panel keeps it below.)
+  if (available.length === 0 && !pinnable(kind)) {
+    return after ? <Command.Group heading="Actions">{after}</Command.Group> : null
+  }
   return (
     <Command.Group heading="Actions">
       {available.map(({ action, disabled }) => (
@@ -899,6 +926,7 @@ function ObjectActionItems({
           {kept ? 'Show below' : 'Keep open below'}
         </Item>
       )}
+      {after}
     </Command.Group>
   )
 }

@@ -31,7 +31,6 @@ import {
   developerModePath,
   formatRef,
   listPath,
-  pluginAsksPath,
   pluginPagePath,
   pluginSwitchPath,
 } from '@renderer/lib/routes'
@@ -143,7 +142,6 @@ export function PluginBody({
       <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
         <PluginFrame
           name={plugin.label}
-          version={plugin.version}
           end={{ why: 'not-handed', refused: handOver.data }}
           plugins={developerModePath(context)}
           onAgain={() => undefined}
@@ -160,9 +158,6 @@ export function PluginBody({
       <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
         <PluginFrame
           name={plugin.label}
-          version={plugin.version}
-          yours
-          asks={pluginAsksPath(context, plugin.name)}
           end={{ why: 'not-handed', refused: handOver.data as NotHanded }}
           waiting={{
             icon: <PluginIcon plugin={plugin} className="size-5" />,
@@ -182,7 +177,6 @@ export function PluginBody({
       <div className="flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
         <PluginFrame
           name={plugin.label}
-          version={plugin.version}
           end={{ why: 'not-handed', refused: off }}
           plugins={pluginSwitchPath(context, plugin.name)}
           onAgain={() => undefined}
@@ -204,7 +198,6 @@ export function PluginBody({
                 plugin: plugin.name,
                 name: plugin.label,
                 version: plugin.version,
-                yours,
                 context,
                 opening: page !== undefined ? { page } : { tab, object },
                 // (Its Logs part only where its file says its pages show logs, or its code reads them:
@@ -232,7 +225,6 @@ export function PluginBody({
                     proposal,
                     layout,
                   ),
-                asks: pluginAsksPath(context, plugin.name),
               }}
               onAgain={() => setAgain((n) => n + 1)}
             />

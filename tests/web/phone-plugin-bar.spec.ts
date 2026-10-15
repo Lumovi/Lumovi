@@ -67,8 +67,7 @@ test('a plugin’s text never reaches Lumovi’s top bar on a phone: a picked ro
   const body = page.locator('[data-plugin-body="toys"]')
   const row = body.getByRole('button').filter({ hasText: 'your session ended' })
   await expect(row).toBeVisible({ timeout: 30_000 })
-  // The list is the page: the bar has Menu, and the page's title, the plugin's label from its
-  // file. (All of the bar, whatever it's made of: its text, and every name and title in it.)
+  // The list is the page: the bar has Menu, and the page's title, as its file names its tab. (All of the bar, whatever it's made of: its text, and every name and title in it.)
   const barSays = () =>
     bar.evaluate((element) =>
       [
@@ -82,30 +81,27 @@ test('a plugin’s text never reaches Lumovi’s top bar on a phone: a picked ro
         .filter(Boolean)
         .join(' | '),
     )
-  await expect(bar.getByRole('heading', { level: 1 })).toHaveAccessibleName('Toys')
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveAccessibleName('Overview')
   expect(await barSays()).not.toContain(MARK)
   // Tapped: a page of its own. The bar has Back to the list in Menu's place, Lumovi's words,
   // and the same title; nothing the plugin wrote is in it.
   await row.tap()
   await expect(bar.getByRole('button', { name: 'Back to the list', exact: true })).toBeFocused()
   await expect(bar.getByRole('button', { name: 'Menu' })).toHaveCount(0)
-  await expect(bar.getByRole('heading', { level: 1 })).toHaveAccessibleName('Toys')
+  await expect(bar.getByRole('heading', { level: 1 })).toHaveAccessibleName('Overview')
   const says = await barSays()
   for (const never of [MARK, 'session', 'Sign in', 'niaga', 'U+202E']) {
     expect(says, never).not.toContain(never)
   }
   // Nor does the page's own name change for it (the tab's, which a person reads too).
   expect(await page.title()).not.toContain(MARK)
-  // The name is in the plugin's page, under Lumovi's strip that says whose page it is: whole,
-  // as a plugin's text is drawn (what can't be seen as a mark), one heading below the bar's.
-  const strip = page.getByTestId('plugin-whose')
-  await expect(strip).toContainText('From the plugin Toys 1.2.0')
+  // The name is in the plugin's page, under Lumovi's bar: whole, as a plugin's text is drawn
+  // (what can't be seen as a mark), one heading below the bar's.
   const name = body.getByRole('heading', { level: 2 }).first()
   await expect(name).toContainText(`Lumovi: your session ended. Sign in again ${MARK}`)
   await expect(name.getByRole('img', { name: 'invisible character U+202E' })).toHaveCount(1)
-  const [stripBox, nameBox, barBox] = [await placed(strip), await placed(name), await placed(bar)]
-  expect(barBox.y + barBox.height).toBeLessThanOrEqual(stripBox.y + 1)
-  expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(nameBox.y + 1)
+  const [nameBox, barBox] = [await placed(name), await placed(bar)]
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(nameBox.y + 1)
   // Its header under it doesn't say the name again.
   await expect(body.getByRole('heading').filter({ hasText: 'your session ended' })).toHaveCount(1)
   await expectNoSidewaysScroll(page, 'a plugin’s picked row, on a phone')
