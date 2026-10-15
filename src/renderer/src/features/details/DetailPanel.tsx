@@ -15,6 +15,7 @@ import { useObject } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
 import { useClusterName } from '@renderer/hooks/settings'
 import { usePlugins, useServedPlugins } from '@renderer/hooks/plugins'
+import { PageTitle } from '@renderer/kit/page-title'
 import { api, type KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
@@ -455,15 +456,19 @@ export function DetailTabs({
       </TabContent>
       {pluginTabs.map(({ plugin, tab: each, value }) => (
         <TabContent key={value} value={value} className={own}>
-          <PluginBody
-            plugin={plugin}
-            tab={each.id}
-            object={{
-              kind,
-              name: object.metadata.name,
-              namespace: object.metadata.namespace,
-            }}
-          />
+          {/* (Its object's name the panel says already: a header of the tab's that names it doesn't
+              say it again, as Lumovi's own tabs don't.) */}
+          <PageTitle.Provider value={object.metadata.name}>
+            <PluginBody
+              plugin={plugin}
+              tab={each.id}
+              object={{
+                kind,
+                name: object.metadata.name,
+                namespace: object.metadata.namespace,
+              }}
+            />
+          </PageTitle.Provider>
         </TabContent>
       ))}
       {gone && (
