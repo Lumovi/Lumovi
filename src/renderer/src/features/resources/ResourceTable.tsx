@@ -41,9 +41,19 @@ import { useLayout } from '@renderer/lib/layout'
 import { ALWAYS_SHOWN, fitInOrder, NARROWEST, NARROWEST_NAME, WIDTH_STEP } from './column-choices'
 import type { TableLayout } from './ColumnsMenu'
 import { TheirCell, type CellContext, type Column } from './columns'
+import {
+  LIST_ROW_HEIGHT,
+  listCell,
+  listHead,
+  listHeadButton,
+  listHeadCell,
+  listHeadRow,
+  listHeadWords,
+  listRow,
+} from './list-look'
 import { ResourceRows } from './ResourceRows'
 
-const ROW_HEIGHT = 46
+const ROW_HEIGHT = LIST_ROW_HEIGHT
 /** The checkbox column of tables that can pick rows. */
 const PICK_WIDTH = 40
 /** The pin's column, last, of tables of the cluster's objects: its 16 px pin, 6 px each side. */
@@ -402,16 +412,12 @@ function ResourceGrid({
         picked?.size && 'pb-16',
       )}
     >
-      <div
-        role="rowgroup"
-        className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur"
-        style={{ minWidth: grid.minWidth }}
-      >
+      <div role="rowgroup" className={listHead} style={{ minWidth: grid.minWidth }}>
         <ContextMenu.Root>
           <ContextMenu.Trigger asChild disabled={!layout}>
             <div
               role="row"
-              className="grid h-9 items-center px-3 touch:h-11"
+              className={listHeadRow}
               style={grid}
               onContextMenu={(event: MouseEvent) => {
                 const at = (event.target as HTMLElement).closest('[data-column]')
@@ -476,20 +482,14 @@ function ResourceGrid({
                     onKeyDown={(event) => sizeKeys(event, column)}
                     // (Sized another way meanwhile, the keys go on from what's drawn.)
                     onBlur={() => (keyed.current = undefined)}
-                    className={cn(
-                      'group/head relative flex h-full min-w-0 items-center px-3',
-                      column.align === 'right' && 'justify-end',
-                    )}
+                    className={cn(listHeadCell, column.align === 'right' && 'justify-end')}
                   >
                     {column.sort ? (
                       <button
                         type="button"
                         onClick={() => onSort(column.id)}
                         // A header keeps to its line: cut short in a narrow column, its arrow kept.
-                        className={cn(
-                          'flex min-w-0 items-center gap-1 text-2xs font-medium tracking-wider whitespace-nowrap uppercase transition-colors hover:text-ink-1 touch:finger touch:h-11',
-                          isSorted ? 'text-ink-1' : 'text-ink-3',
-                        )}
+                        className={listHeadButton(isSorted)}
                         title={title}
                       >
                         {words}
@@ -504,7 +504,7 @@ function ResourceGrid({
                       <span
                         // (A stop of its own where it can be sized from the keyboard.)
                         tabIndex={layout ? 0 : undefined}
-                        className="flex min-w-0 text-2xs font-medium tracking-wider whitespace-nowrap text-ink-3 uppercase outline-none focus-visible:text-ink-1"
+                        className={cn(listHeadWords, 'outline-none focus-visible:text-ink-1')}
                         title={title}
                       >
                         {words}
@@ -566,7 +566,7 @@ function ResourceGrid({
                     setActive(item.index)
                     onOpen(object)
                   }}
-                  className="group/row absolute inset-x-0 top-0 grid cursor-default items-center border-b border-line px-3 transition-colors duration-75 hover:bg-surface-3/50 aria-selected:bg-accent-soft group-focus/grid:data-[active=true]:bg-surface-3/70 group-focus/grid:data-[active=true]:shadow-[inset_2px_0_0_var(--accent)] data-[picked=true]:bg-accent-soft/60"
+                  className={cn(listRow, 'absolute inset-x-0 top-0')}
                   style={{ ...grid, height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
                 >
                   {selectable && (
@@ -590,10 +590,7 @@ function ResourceGrid({
                       key={column.id}
                       role="gridcell"
                       // What a column's cell can't fit is cut at its edge, never drawn over the next.
-                      className={cn(
-                        'flex min-w-0 items-center overflow-hidden px-3',
-                        column.align === 'right' && 'justify-end',
-                      )}
+                      className={cn(listCell, column.align === 'right' && 'justify-end')}
                     >
                       {column.cell(object, ctx)}
                     </div>

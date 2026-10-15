@@ -3,8 +3,9 @@
  * as a text that isn't Lumovi's. Nothing here is the plugin's code: it only said which parts,
  * with which properties, and the door checked every word.
  */
-import { createContext, memo, useCallback, useId, useSyncExternalStore } from 'react'
+import { createContext, memo, useCallback, useContext, useId, useSyncExternalStore } from 'react'
 import { ROOT } from '@shared/plugin-door'
+import { IsPageList, ListPage, listOf, stackOf } from '@renderer/kit/list-page'
 import type { OpenPage } from './page'
 import { TheirText } from './TheirText'
 
@@ -25,6 +26,31 @@ const identityOf = (page: OpenPage) => {
   return identity
 }
 
+/** The page's list, where it's one (`listOf`), told to the Table that is it. */
+const ListId = createContext<number | undefined>(undefined)
+
+/**
+ * The page's list, where it's one: heard again as the page's parts, or its one Stack's, change.
+ */
+function useListOf(page: OpenPage): number | undefined {
+  const stack = stackOf(page.tree, ROOT)
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      const top = page.subscribeTo(ROOT, changed)
+      const inStack = stack === undefined ? undefined : page.subscribeTo(stack, changed)
+      return () => {
+        top()
+        inStack?.()
+      }
+    },
+    [page, stack],
+  )
+  const shape = () =>
+    `${page.tree.changedAt(ROOT)}:${stack === undefined ? '' : page.tree.changedAt(stack)}`
+  useSyncExternalStore(subscribe, shape)
+  return listOf(page.tree, ROOT)
+}
+
 /**
  * A part or a text of the page, drawn again only when it has something new to draw: what a part
  * holds is drawn by its own, each of them likewise, so a change deep in the page draws that and
@@ -36,6 +62,7 @@ const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) 
     // (What Lumovi holds of it beside: a button held busy, which the plugin didn't draw.)
     () => `${page.tree.changedAt(id)}:${page.heldAt(id)}`,
   )
+  const listId = useContext(ListId)
   const node = page.tree.node(id)
   if (!node) return null
   const inside = node.children.map((child) => <Drawn key={child} page={page} id={child} />)
@@ -44,25 +71,36 @@ const Drawn = memo(function Drawn({ page, id }: { page: OpenPage; id: number }) 
   if (node.part === undefined) return <TheirText text={node.text ?? ''} lines inline />
   const { draw: Part } = page.parts[node.part]!
   return (
-    <Part
-      props={page.handed(node.part, node.props, id)}
-      go={page.go}
-      {...(page.by ? { by: page.by } : {})}
-      {...(page.code ? { code: page.code } : {})}
-    >
-      {inside}
-    </Part>
+    <IsPageList.Provider value={listId === id}>
+      <Part
+        props={page.handed(node.part, node.props, id)}
+        go={page.go}
+        {...(page.by ? { by: page.by } : {})}
+        {...(page.code ? { code: page.code } : {})}
+      >
+        {inside}
+      </Part>
+    </IsPageList.Provider>
   )
 })
 
 /** The page of `page`, as it is now. */
 export function PluginSurface({ page }: { page: OpenPage }) {
   const key = useId()
+  const list = useListOf(page)
   return (
-    <div data-testid="plugin-surface" className="flex flex-col gap-4 p-4">
+    <div
+      data-testid="plugin-surface"
+      // A list's page is the list's: its rows scroll under its headings, as a list of Lumovi's.
+      className={list === undefined ? 'flex flex-col gap-4 p-4' : 'flex h-full min-h-0 flex-col'}
+    >
       <PageKey.Provider value={key}>
         <PageIdentity.Provider value={identityOf(page)}>
-          <Drawn page={page} id={ROOT} />
+          <ListPage.Provider value={list !== undefined}>
+            <ListId.Provider value={list}>
+              <Drawn page={page} id={ROOT} />
+            </ListId.Provider>
+          </ListPage.Provider>
         </PageIdentity.Provider>
       </PageKey.Provider>
     </div>

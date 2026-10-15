@@ -3,7 +3,7 @@ import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { Health } from '@renderer/lib/health'
 
 export const PAGE_SIZES = [50, 100, 250, 500]
-const DEFAULT_PAGE_SIZE = 100
+export const DEFAULT_PAGE_SIZE = 100
 
 export interface ListState {
   /** Free-text filter over names, namespaces and labels. */

@@ -310,9 +310,10 @@ test('a plugin’s tab is handed the object it’s on, read for it as its own ki
   )
   const widget = panel(page, 'Widget', CUSTOM.widget)
   await widget.getByRole('tab', { name: 'Parts' }).click()
+  // (Its one part is its table: a list, as Lumovi's own tabs' are, named by its title.)
   await expect(
     widget
       .locator('[data-plugin-body]')
-      .getByRole('heading', { name: new RegExp(`^Parts of ${CUSTOM.widget}`) }),
+      .getByRole('region', { name: new RegExp(`^Parts of ${CUSTOM.widget}`) }),
   ).toBeVisible()
 })

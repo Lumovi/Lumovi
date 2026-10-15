@@ -28,6 +28,7 @@ import { Steps } from '@renderer/kit/Steps'
 import { useSettings } from '@renderer/hooks/settings'
 import { useLogSlot, toldOnce } from './log-slots'
 import { PageKey } from './Surface'
+import { ListPage } from '@renderer/kit/list-page'
 import { Table } from '@renderer/kit/Table'
 import type { HandedWith, KitPart, PageBy } from './page'
 import { secretPart } from './secret-part'
@@ -113,11 +114,11 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
     const { tiles, onOpen } = props as TilesProps
     return <Tiles tiles={tiles} {...(go ? { go } : {})} {...(onOpen ? { onOpen } : {})} />
   },
-  Header: ({ props, go }) => {
+  Header: function Header({ props, go }) {
     const header = props as HeaderProps
     // (A button Lumovi holds busy, the change it led to sent: the page's, never the plugin's.)
     const { held } = props as { held?: unknown }
-    return (
+    const drawn = (
       <PageHeader
         header={header}
         {...(typeof held === 'string' ? { held } : {})}
@@ -125,6 +126,8 @@ const DRAWN: { readonly [Name in keyof typeof DECLARED]: KitPart['draw'] } = {
         {...(go ? { go } : {})}
       />
     )
+    // (Above a page's list, which runs to the page's edges, it keeps the page's room.)
+    return useContext(ListPage) ? <div className="shrink-0 px-4 pt-4 pb-3">{drawn}</div> : drawn
   },
   // A pod's logs, read and drawn by Lumovi: the plugin's code never holds a line.
   Logs: ({ props, by }) => <PluginLogs props={props} {...(by ? { by } : {})} />,

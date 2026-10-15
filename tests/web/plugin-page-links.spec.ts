@@ -106,7 +106,8 @@ test('a count opens its plugin’s own page with the table filtered as the link 
   await body.getByRole('button', { name: /^Small/ }).click()
   await expect(page).toHaveURL(/\/plugins\/tinker\/widgets$/)
   const again = body.getByRole('region', { name: /^Widgets, told 1 table$/ })
-  await expect(again.getByRole('textbox', { name: /^Search Widgets/ })).toHaveValue('w')
+  // (Its page is its list: Lumovi's list's field.)
+  await expect(again.getByRole('textbox', { name: /^Filter Widgets/ })).toHaveValue('w')
   await expect(
     again.getByRole('row').filter({ hasNot: page.getByRole('columnheader') }),
   ).toHaveText([/wee/])

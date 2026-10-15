@@ -27,7 +27,7 @@ import {
   ChevronRight,
   CircleCheck,
   CornerDownLeft,
-  Search,
+  SearchX,
   TriangleAlert,
 } from 'lucide-react'
 import {
@@ -61,17 +61,34 @@ import { Popover } from 'radix-ui'
 import { Button } from '@renderer/components/Button'
 import { Elapsed } from '@renderer/components/Busy'
 import { Sheet } from '@renderer/components/Sheet'
+import { EmptyState } from '@renderer/components/States'
 import { HEALTH_STYLE } from '@renderer/components/Status'
 import { filtering, keptRows, menusOf, startOf } from '@renderer/lib/table-filters'
 import { TIP, Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
+import { formatRef } from '@renderer/lib/routes'
 import { offered, reachTip } from '@renderer/plugins/reach'
 import { MARK_CLASS, Pieces, TheirText } from '@renderer/plugins/TheirText'
+import {
+  LIST_CELL_SIDE,
+  LIST_ROW_HEIGHT,
+  LIST_ROW_SIDE,
+  listCell,
+  listHead,
+  listHeadButton,
+  listHeadCell,
+  listHeadRow,
+  listHeadWords,
+  listRow,
+} from '../features/resources/list-look'
+import { DEFAULT_PAGE_SIZE } from '../features/resources/list-state'
+import { Pagination } from '../features/resources/Pagination'
 import { InCard } from './Card'
 import { CARD, HEADING, Lead, leadIsCut, said } from './Lead'
 import { FilterBar, StartFilters } from './FilterBar'
+import { IsPageList, OpenBeside } from './list-page'
 import { TickedRows, tickKey } from './Ticks'
 import { tooltip } from './MiddleCut'
 
@@ -99,11 +116,11 @@ const WINDOWED_FROM = 200
  * than its least (`LEAST`, put in place of the word).
  */
 const WIDTHS = {
-  narrow: 'minmax(LEAST,88px)',
-  normal: 'minmax(LEAST,1fr)',
-  wide: 'minmax(LEAST,1.4fr)',
+  narrow: (least: number, pad: number) => `minmax(${least}px,${88 + pad}px)`,
+  normal: (least: number) => `minmax(${least}px,1fr)`,
+  wide: (least: number) => `minmax(${least}px,1.4fr)`,
 } as const
-const STATUS_WIDTH = '144px'
+const STATUS_WIDTH = 144
 /**
  * The most a column's least is (its natural width, where that's less), and the name's floor
  * (about eighteen of its characters, cut in the middle past that): where they don't all fit at
@@ -116,6 +133,10 @@ const EXTRA: Partial<Record<TableColumn['kind'], number>> = { status: 22, meter:
 /** The room between a row's columns, and each side of a row. */
 const COLUMN_GAP = 16
 const ROW_SIDES = 16
+/** A page's list (`IsPageList`): its cells' room each side, as Lumovi's lists keep it. */
+const LIST_PAD = 2 * LIST_CELL_SIDE
+/** A tick's column, in a page's list: as wide as Lumovi's lists' own. */
+const LIST_TICK = 40
 
 /**
  * The columns that fit beside the name in `room` pixels, each at its least (`least`, by its
@@ -128,9 +149,12 @@ export function fittingColumns(
   statusAt: number,
   room: number,
   buttonAt = -1,
+  /** Between two columns, and the name's own least: a page's list keeps them in its cells. */
+  gap = COLUMN_GAP,
+  lead: number = LEAST.lead,
 ): number[] {
   const kept = new Set(least.map((_, c) => c))
-  const need = () => [...kept].reduce((sum, c) => sum + least[c]! + COLUMN_GAP, LEAST.lead)
+  const need = () => [...kept].reduce((sum, c) => sum + least[c]! + gap, lead)
   const order = least.map((_, c) => c).filter((c) => c !== statusAt && c !== buttonAt)
   order.reverse()
   if (statusAt >= 0) order.push(statusAt)
@@ -450,9 +474,11 @@ function useScreenWidth(wanted: boolean): number {
   return width
 }
 
-function height(line: Line): number {
+function height(line: Line, list = false): number {
   if (line.is === 'group') return 28
   if (line.is === 'more') return 32
+  // (A page's list: a row as Lumovi's lists have it, its name and the line under, and a note.)
+  if (list) return LIST_ROW_HEIGHT + (line.row.note?.their ? 2 * NOTE_LINE : 0)
   if (line.row.again) return (line.row.lead?.under?.their ? ROW_WITH_LINE : ROW) + GAP
   // (A meter is its words over its bar: a row of one line with one is a little taller.)
   const meter = line.row.cells.some((cell) => cell.kind === 'meter')
@@ -498,6 +524,21 @@ export function Table({
   const id = useId()
   const layout = useLayout()
   const phone = layout === 'phone'
+  // The page's list (`IsPageList`): drawn as Lumovi's own lists are, across the page, and paged
+  // as they are. (On a phone, its cards, as ever.)
+  const asList = useContext(IsPageList) && !bare && !phone
+  const pad = asList ? LIST_PAD : 0
+  const hasStatus = columns.some((column) => column.kind === 'status')
+  // The row whose object is open beside a page's list: picked out as Lumovi's lists pick theirs.
+  const openBeside = useContext(OpenBeside)
+  const openNow = asList ? openBeside : null
+  const isOpen = (row: DrawnRow) =>
+    openNow !== null &&
+    row.opens !== undefined &&
+    !row.again &&
+    formatRef(row.opens as Parameters<typeof formatRef>[0]) === openNow
+  const [pageAt, setPageAt] = useState(1)
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE)
   const scroll = useRef<HTMLDivElement>(null)
   // Whether the keyboard has the table: its active row then shows what its cells hold whole.
   const [keyed, setKeyed] = useState(false)
@@ -551,11 +592,34 @@ export function Table({
     setFiltered(startOf(filters ?? [], start))
   }, [start, filters])
   const menus = useMemo(() => menusOf(rows, filters ?? []), [rows, filters])
-  const matching = useMemo(
-    () => keptRows(rows, filters ?? [], chosen, search),
-    [rows, filters, chosen, search],
+  // A page's list's chips, as Lumovi's lists have them: its first status's levels, with how many
+  // rows are at each, any of them pressed keeping those. Lumovi's alone, never told the plugin.
+  const statusAt = columns.findIndex((column) => column.kind === 'status')
+  const levelOf = useCallback(
+    (row: DrawnRow) => {
+      const cell = statusAt < 0 ? undefined : cellAt(row, statusAt)
+      return cell?.kind === 'status' ? cell.level : undefined
+    },
+    [statusAt],
   )
-  const narrowed = filtering(chosen, search)
+  const [levels, setLevels] = useState<Health[]>([])
+  const levelCounts = useMemo(() => {
+    const counts = new Map<Health, number>()
+    for (const row of rows) {
+      const level = levelOf(row)
+      if (level) counts.set(level, (counts.get(level) ?? 0) + 1)
+    }
+    return counts
+  }, [rows, levelOf])
+  const matching = useMemo(() => {
+    const kept = keptRows(rows, filters ?? [], chosen, search)
+    if (levels.length === 0) return kept
+    return kept.filter((row) => {
+      const level = levelOf(row)
+      return level !== undefined && levels.includes(level)
+    })
+  }, [rows, filters, chosen, search, levels, levelOf])
+  const narrowed = filtering(chosen, search) || levels.length > 0
   const hasBar = (filters?.length ?? 0) > 0 || searchable === true
   // Rows that follow each other with the same group stand under one heading.
   const groups = useMemo(() => {
@@ -574,9 +638,14 @@ export function Table({
   /** Whether any rows stand under a heading: then each group has its own "Show all". */
   const grouped = groups.some((group) => group.by !== '')
   const limitOf = useCallback(
-    (g: number) => (whole === 'all' || whole.has(g) || shows === undefined ? Infinity : shows),
-    [whole, shows],
+    (g: number) =>
+      // (A page's list has its pages instead.)
+      asList || whole === 'all' || whole.has(g) || shows === undefined ? Infinity : shows,
+    [whole, shows, asList],
   )
+  // The page of a page's list that's shown: past its last, its last.
+  const pages = Math.max(1, Math.ceil(total / size))
+  const shownPage = Math.min(pageAt, pages)
   const showWhole = (g: number) => setWhole((was) => (was === 'all' ? was : new Set([...was, g])))
 
   // Sorted, then cut to what shows first: the same rows on every draw, whatever is scrolled.
@@ -594,9 +663,18 @@ export function Table({
       })
     }
     const out: Line[] = []
+    // (A page's list draws its page's rows, counted across its groups.)
+    const from = (shownPage - 1) * size
+    let at = 0
+    const onPage = () => {
+      const here = at++
+      return here >= from && here < from + size
+    }
     for (const [g, group] of groups.entries()) {
       // (Each group alike shows `shows` rows, and has its own "Show all" for the rest.)
-      const rows = ordered(group.rows).slice(0, limitOf(g))
+      const all = ordered(group.rows).slice(0, limitOf(g))
+      const rows = asList ? all.filter(onPage) : all
+      if (rows.length === 0) continue
       if (group.by)
         out.push({
           is: 'group',
@@ -621,12 +699,12 @@ export function Table({
           todo.push({ row: inside[n]!, parent: key, depth: depth + 1 })
         }
       }
-      if (grouped && rows.length < group.rows.length) {
+      if (!asList && grouped && rows.length < group.rows.length) {
         out.push({ is: 'more', key: `more:${g}`, group: g, count: group.rows.length })
       }
     }
     return out
-  }, [groups, sort, turned, startOpen, limitOf, grouped, lineKeyOf])
+  }, [groups, sort, turned, startOpen, limitOf, grouped, lineKeyOf, asList, shownPage, size])
 
   // Each column's natural width: its widest value, as drawn (of all the rows it was given, not of
   // the ones drawn, so nothing shifts as a long table scrolls), and its heading where headings
@@ -644,16 +722,17 @@ export function Table({
             fonts,
           ),
         ) + (EXTRA[column.kind] ?? 0)
+      // (In a page's list, each with its cell's room each side: `pad`.)
       if (column.kind === 'status') {
-        const least = Math.min(natural, LEAST.status)
-        return { track: `minmax(${least}px,${STATUS_WIDTH})`, least }
+        const least = Math.min(natural, LEAST.status) + pad
+        return { track: `minmax(${least}px,${STATUS_WIDTH + pad}px)`, least }
       }
-      if (column.width === 'text') return { track: `${natural}px`, least: natural }
+      if (column.width === 'text') return { track: `${natural + pad}px`, least: natural + pad }
       const width = column.width ?? 'normal'
-      const least = Math.min(natural, LEAST[width])
-      return { track: WIDTHS[width].replace('LEAST', `${least}px`), least }
+      const least = Math.min(natural, LEAST[width]) + pad
+      return { track: WIDTHS[width](least, pad), least }
     })
-  }, [columns, groups, headings, fonts])
+  }, [columns, groups, headings, fonts, pad])
   // The columns there's room for beside the name, as wide as the table is laid out: the rest
   // give way whole (said in the row's tooltip, and to a screen reader). Before it's measured, all.
   const [laidOut, setLaidOut] = useState(0)
@@ -673,23 +752,25 @@ export function Table({
     observer.observe(grid)
     return () => observer.disconnect()
   }, [grid])
+  // Ticks, where the page keeps them and this isn't a phone (nothing is picked there): Lumovi's
+  // own, by the objects the rows open.
+  const tickPlace = useContext(TickedRows)
+  const ticking = ticks === true && !phone && tickPlace !== undefined
   const kept = useMemo(
     () =>
       laidOut > 0
         ? fittingColumns(
             sizes.map((size) => size.least),
             columns.findIndex((column) => column.kind === 'status'),
-            laidOut - ROW_SIDES,
+            asList ? laidOut - 2 * LIST_ROW_SIDE - (ticking ? LIST_TICK : 0) : laidOut - ROW_SIDES,
             columns.findIndex((column) => column.kind === 'button'),
+            asList ? 0 : COLUMN_GAP,
+            LEAST.lead + pad,
           )
         : columns.map((_, c) => c),
-    [sizes, columns, laidOut],
+    [sizes, columns, laidOut, asList, ticking, pad],
   )
   const gone = columns.flatMap((_, c) => (kept.includes(c) ? [] : [c]))
-  // Ticks, where the page keeps them and this isn't a phone (nothing is picked there): Lumovi's
-  // own, by the objects the rows open.
-  const tickPlace = useContext(TickedRows)
-  const ticking = ticks === true && !phone && tickPlace !== undefined
   const tickable = (row: DrawnRow) => (row.opens && !row.again ? row.opens : undefined)
   const isTicked = (row: DrawnRow) => {
     const object = tickable(row)
@@ -709,8 +790,8 @@ export function Table({
   }
   const tick = (row: DrawnRow, on: boolean) => tickRows([row], on)
   const template = [
-    ...(ticking ? ['20px'] : []),
-    `minmax(${LEAST.lead}px,1.4fr)`,
+    ...(ticking ? [asList ? `${LIST_TICK}px` : '20px'] : []),
+    `minmax(${LEAST.lead + pad}px,1.4fr)`,
     ...kept.map((c) => sizes[c]!.track),
   ].join(' ')
 
@@ -769,13 +850,14 @@ export function Table({
     )
   }, [phone, screen, inCard, groups, columns, fonts])
 
-  const windowed = lines.length > WINDOWED_FROM
+  // (A page's list always: its rows scroll under its headings, as Lumovi's lists' do.)
+  const windowed = asList || lines.length > WINDOWED_FROM
   // The React Compiler is not used, so the virtualizer's unmemoizable API is fine here.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => scroll.current,
-    estimateSize: (index) => height(lines[index]!),
+    estimateSize: (index) => height(lines[index]!, asList),
     overscan: 12,
     enabled: windowed && !phone,
   })
@@ -957,19 +1039,56 @@ export function Table({
     <ShowAll count={total} onShow={() => showWhole(0)} />
   )
 
-  const bar = hasBar && !state && rows.length > 0 && (
+  // What a page's list is of, as it's called: "Filter Applications", "No Applications match".
+  const noun = named
+  // (Its filters changed, a page's list shows its first page.)
+  const bar = (hasBar || asList) && !state && rows.length > 0 && (
     <FilterBar
       title={named}
       menus={menus}
       chosen={chosen}
-      onChosen={(next) => setFiltered((was) => ({ ...was, chosen: next }))}
+      onChosen={(next) => {
+        setFiltered((was) => ({ ...was, chosen: next }))
+        setPageAt(1)
+      }}
       searchable={searchable === true}
       search={search}
-      onSearch={(next) => setFiltered((was) => ({ ...was, search: next }))}
+      onSearch={(next) => {
+        setFiltered((was) => ({ ...was, search: next }))
+        setPageAt(1)
+      }}
       phone={phone}
+      {...(asList
+        ? {
+            list: {
+              count: `${counted(rows.length)} ${rows.length === 1 ? 'item' : 'items'}`,
+              noun,
+              levels: {
+                counts: levelCounts,
+                active: levels,
+                onToggle: (level: Health) => {
+                  setLevels((was) =>
+                    was.includes(level) ? was.filter((each) => each !== level) : [...was, level],
+                  )
+                  setPageAt(1)
+                },
+              },
+            },
+          }
+        : {})}
     />
   )
   // Nothing kept: said so in Lumovi's words, with the way back.
+  if (narrowed && total === 0 && !state && asList) {
+    return (
+      <section aria-label={`${named} table`} className="flex min-h-0 flex-1 flex-col">
+        {bar}
+        <EmptyState icon={SearchX} title="Nothing matches">
+          No {noun} match the current filters.
+        </EmptyState>
+      </section>
+    )
+  }
   if (narrowed && total === 0 && !state) {
     return (
       // (Named as it was with its rows, so it's the same region while its filters change.)
@@ -996,8 +1115,11 @@ export function Table({
   if (total === 0 || state) {
     return (
       // (Bare in a card too while it reads, or has nothing: the card says the title, once.)
-      <section aria-label={bare ? undefined : named} className={cn(!phone && !bare && CARD)}>
-        {!bare && heading}
+      <section
+        aria-label={bare ? undefined : named}
+        className={asList ? 'flex min-h-0 flex-1 flex-col' : cn(!phone && !bare && CARD)}
+      >
+        {!bare && !asList && heading}
         {ceiling}
         {bar}
         <Nothing state={state ?? { is: 'empty' }} of={title} onRetry={() => onRetry?.({})} />
@@ -1097,12 +1219,78 @@ export function Table({
   const shown = windowed
     ? virtualizer.getVirtualItems().map((item) => ({ index: item.index, top: item.start }))
     : lines.map((_, index) => ({ index, top: 0 }))
+  // The headings: a page's list's in its band, as Lumovi's lists' are, which stays as it scrolls.
+  const headRow = (
+    <div
+      role="row"
+      // (Read first by a screen reader; reached by Tab after the rows, as in Lumovi's lists.)
+      className={
+        asList
+          ? listHeadRow
+          : cn(
+              'grid h-7 items-center gap-4 px-2',
+              !headings && 'sr-only',
+              // Its headings stay as a long table scrolls under them.
+              headings && windowed && 'sticky top-0 z-10 bg-surface-2',
+            )
+      }
+      style={{ gridTemplateColumns: template }}
+    >
+      {ticking && (
+        <span
+          role="columnheader"
+          className={asList ? 'flex h-full items-center justify-center' : 'flex items-center'}
+        >
+          <TickAll rows={lines} tickable={tickable} isTicked={isTicked} tickRows={tickRows} />
+        </span>
+      )}
+      <span
+        role="columnheader"
+        aria-sort={sort?.column === NAME ? (sort.down ? 'descending' : 'ascending') : undefined}
+        className={asList ? listHeadCell : 'flex min-w-0'}
+      >
+        <HeadingWords
+          sorts={Boolean(nameSorts && (headings || asList))}
+          onSort={() => sortBy(NAME)}
+          sorted={sort?.column === NAME ? sort : undefined}
+          list={asList}
+        >
+          {leading}
+        </HeadingWords>
+      </span>
+      {kept.map((c) => {
+        const column = columns[c]!
+        const sorted = sort?.column === c
+        const right = column.kind === 'number' || column.kind === 'age'
+        return (
+          <span
+            key={c}
+            role="columnheader"
+            aria-sort={sorted ? (sort.down ? 'descending' : 'ascending') : undefined}
+            className={cn(asList ? listHeadCell : 'flex min-w-0', right && 'justify-end')}
+          >
+            <HeadingWords
+              sorts={column.sorts === true && (headings || asList)}
+              onSort={() => sortBy(c)}
+              sorted={sorted ? sort : undefined}
+              list={asList}
+            >
+              <TheirText text={column.name} inline />
+            </HeadingWords>
+          </span>
+        )
+      })}
+    </div>
+  )
   return (
-    <section aria-label={bare ? undefined : `${named} table`} className={cn(!bare && CARD)}>
-      {!bare && heading}
+    <section
+      aria-label={bare ? undefined : `${named} table`}
+      className={asList ? 'flex min-h-0 flex-1 flex-col' : cn(!bare && CARD)}
+    >
+      {!bare && !asList && heading}
       {ceiling}
       {bar}
-      <div className="flex flex-col px-2 pb-3">
+      <div className={asList ? 'flex min-h-0 flex-1 flex-col' : 'flex flex-col px-2 pb-3'}>
         <div
           ref={gridRef}
           // A table whose rows nest is a tree of rows: each says how deep it is, at any depth.
@@ -1120,61 +1308,13 @@ export function Table({
           onBlur={(event) => event.target === event.currentTarget && setKeyed(false)}
           // (A pointer's press is no keyboard's: what the keyboard's row shows, it stops showing.)
           onPointerDown={() => setKeyed(false)}
-          className={cn('group/table outline-none', windowed && 'max-h-[32rem] overflow-y-auto')}
+          className={
+            asList
+              ? 'group/grid min-h-0 flex-1 overflow-auto outline-none'
+              : cn('group/table outline-none', windowed && 'max-h-[32rem] overflow-y-auto')
+          }
         >
-          <div
-            role="row"
-            // (Read first by a screen reader; reached by Tab after the rows, as in Lumovi's lists.)
-            className={cn(
-              'grid h-7 items-center gap-4 px-2',
-              !headings && 'sr-only',
-              // Its headings stay as a long table scrolls under them.
-              headings && windowed && 'sticky top-0 z-10 bg-surface-2',
-            )}
-            style={{ gridTemplateColumns: template }}
-          >
-            {ticking && (
-              <span role="columnheader" className="flex items-center">
-                <TickAll rows={lines} tickable={tickable} isTicked={isTicked} tickRows={tickRows} />
-              </span>
-            )}
-            <span
-              role="columnheader"
-              aria-sort={
-                sort?.column === NAME ? (sort.down ? 'descending' : 'ascending') : undefined
-              }
-              className="flex min-w-0"
-            >
-              <HeadingWords
-                sorts={Boolean(nameSorts && headings)}
-                onSort={() => sortBy(NAME)}
-                sorted={sort?.column === NAME ? sort : undefined}
-              >
-                {leading}
-              </HeadingWords>
-            </span>
-            {kept.map((c) => {
-              const column = columns[c]!
-              const sorted = sort?.column === c
-              const right = column.kind === 'number' || column.kind === 'age'
-              return (
-                <span
-                  key={c}
-                  role="columnheader"
-                  aria-sort={sorted ? (sort.down ? 'descending' : 'ascending') : undefined}
-                  className={cn('flex min-w-0', right && 'justify-end')}
-                >
-                  <HeadingWords
-                    sorts={column.sorts === true && headings}
-                    onSort={() => sortBy(c)}
-                    sorted={sorted ? sort : undefined}
-                  >
-                    <TheirText text={column.name} inline />
-                  </HeadingWords>
-                </span>
-              )
-            })}
-          </div>
+          {asList ? <div className={listHead}>{headRow}</div> : headRow}
           <div
             role="rowgroup"
             className="relative"
@@ -1246,29 +1386,44 @@ export function Table({
                   aria-describedby={describedBy.length > 0 ? describedBy.join(' ') : undefined}
                   // (Active, not picked: nothing here picks rows.)
                   data-active={active === index}
+                  aria-selected={asList ? isOpen(row) : undefined}
                   aria-expanded={line.holds ? line.open : undefined}
                   onClick={() => {
                     setActive(index)
                     open(line)
                   }}
-                  style={{
-                    gridTemplateColumns: template,
-                    // (A note may be one line; in a windowed table every row keeps the height it was placed by.)
-                    minHeight: height(line) - GAP - (row.note?.their && !windowed ? NOTE_LINE : 0),
-                    marginBottom: GAP,
-                    ...place,
-                  }}
-                  className={cn(
-                    'grid items-center gap-x-4 rounded-lg px-2 py-2',
-                    row.note?.their && 'content-start items-start gap-y-0.5',
-                    (row.opens || row.goes) && 'cursor-default hover:bg-surface-3/60',
-                    // The ring of the keyboard, when the table has the focus.
-                    active === index &&
-                      'group-focus-visible/table:ring-2 group-focus-visible/table:ring-accent',
-                  )}
+                  style={
+                    asList
+                      ? { gridTemplateColumns: template, height: height(line, true), ...place }
+                      : {
+                          gridTemplateColumns: template,
+                          // (A note may be one line; in a windowed table every row keeps the height it was placed by.)
+                          minHeight:
+                            height(line) - GAP - (row.note?.their && !windowed ? NOTE_LINE : 0),
+                          marginBottom: GAP,
+                          ...place,
+                        }
+                  }
+                  className={
+                    asList
+                      ? cn(listRow, row.note?.their && 'content-start pt-1.5')
+                      : cn(
+                          'grid items-center gap-x-4 rounded-lg px-2 py-2',
+                          row.note?.their && 'content-start items-start gap-y-0.5',
+                          (row.opens || row.goes) && 'cursor-default hover:bg-surface-3/60',
+                          // The ring of the keyboard, when the table has the focus.
+                          active === index &&
+                            'group-focus-visible/table:ring-2 group-focus-visible/table:ring-accent',
+                        )
+                  }
                 >
                   {ticking && (
-                    <span role="gridcell" className="flex items-center">
+                    <span
+                      role="gridcell"
+                      className={
+                        asList ? 'flex h-full items-center justify-center' : 'flex items-center'
+                      }
+                    >
                       {tickable(row) && (
                         <input
                           type="checkbox"
@@ -1284,8 +1439,14 @@ export function Table({
                   )}
                   <span
                     role="gridcell"
-                    style={{ paddingLeft: Math.min(line.depth, DEEPEST) * INDENT }}
-                    className="relative flex min-w-0 items-center gap-2.5"
+                    style={{
+                      paddingLeft:
+                        Math.min(line.depth, DEEPEST) * INDENT + (asList ? LIST_CELL_SIDE : 0),
+                    }}
+                    className={cn(
+                      asList ? listCell : 'flex min-w-0 items-center',
+                      'relative gap-2.5',
+                    )}
                   >
                     <Deeper depth={line.depth} deepest={DEEPEST} step={INDENT} />
                     {line.holds && (
@@ -1311,13 +1472,18 @@ export function Table({
                       top={Boolean(row.note?.their)}
                       quiet={Boolean(row.again)}
                       tip={false}
+                      // (A page's list says a row's health in its status, as Lumovi's lists do.)
+                      dot={!(asList && hasStatus)}
                     />
                   </span>
                   {row.again ? (
                     <span
                       role="gridcell"
                       style={{ gridColumn: '2 / -1' }}
-                      className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3"
+                      className={cn(
+                        asList ? listCell : 'flex min-w-0 items-center',
+                        'gap-1.5 text-xs text-ink-3',
+                      )}
                     >
                       <Again again={row.again} onGo={() => goFirst(row.again!.first)} />
                     </span>
@@ -1329,26 +1495,42 @@ export function Table({
                             key={c}
                             role="gridcell"
                             style={{ gridColumn: `${at + 2} / -1` }}
-                            className="min-w-0 truncate text-right text-xs text-ink-3"
+                            className={cn(
+                              'min-w-0 truncate text-right text-xs text-ink-3',
+                              asList && 'px-3',
+                            )}
                           >
                             <Rest rest={row.rest} />
                           </span>
                         )
                       ) : (
-                        <span key={c} role="gridcell" data-column={c} className="min-w-0">
-                          <Cell
-                            column={columns[c]!}
-                            cell={cellAt(row, c)}
-                            shown={keyed && active === index}
-                            whole={wholeOf(c)}
-                            onPress={() => press(row)}
-                          />
+                        <span
+                          key={c}
+                          role="gridcell"
+                          data-column={c}
+                          className={asList ? listCell : 'min-w-0'}
+                        >
+                          {/* (In a page's list's cell, it takes the cell's width, less its room.) */}
+                          <span className={asList ? 'min-w-0 flex-1' : 'contents'}>
+                            <Cell
+                              column={columns[c]!}
+                              cell={cellAt(row, c)}
+                              shown={keyed && active === index}
+                              whole={wholeOf(c)}
+                              onPress={() => press(row)}
+                            />
+                          </span>
                         </span>
                       ),
                     )
                   )}
                   {row.note?.their && (
-                    <span className="col-span-full -mt-0.5 ml-[18px] line-clamp-2 text-xs leading-[19px] text-ink-2">
+                    <span
+                      className={cn(
+                        'col-span-full -mt-0.5 line-clamp-2 text-xs leading-[19px] text-ink-2',
+                        asList ? 'px-3' : 'ml-[18px]',
+                      )}
+                    >
                       <TheirText text={row.note} inline />
                     </span>
                   )}
@@ -1383,6 +1565,18 @@ export function Table({
           </div>
         </div>
         {more}
+        {asList && (
+          <Pagination
+            page={shownPage}
+            size={size}
+            count={total}
+            onPage={setPageAt}
+            onSize={(next) => {
+              setSize(next)
+              setPageAt(1)
+            }}
+          />
+        )}
       </div>
     </section>
   )
@@ -1480,11 +1674,14 @@ function HeadingWords({
   sorts,
   onSort,
   sorted,
+  list = false,
   children,
 }: {
   sorts: boolean
   onSort: () => void
   sorted?: { down: boolean }
+  /** A page's list's heading: as Lumovi's lists' are. */
+  list?: boolean
   children: ReactNode
 }) {
   const words = useRef<HTMLSpanElement>(null)
@@ -1495,13 +1692,17 @@ function HeadingWords({
         <button
           type="button"
           onClick={onSort}
-          className={cn(
-            HEADING,
-            'flex min-w-0 items-center gap-1 hover:text-ink-1',
-            sorted && 'text-ink-1',
-          )}
+          className={
+            list
+              ? cn(listHeadButton(sorted !== undefined), PLAIN_MARKS)
+              : cn(
+                  HEADING,
+                  'flex min-w-0 items-center gap-1 hover:text-ink-1',
+                  sorted && 'text-ink-1',
+                )
+          }
         >
-          <span ref={words} className="truncate">
+          <span ref={words} className="min-w-0 truncate">
             {children}
           </span>
           {sorted &&
@@ -1511,6 +1712,12 @@ function HeadingWords({
               <ArrowUp className="size-3 shrink-0" />
             ))}
         </button>
+      ) : list ? (
+        <span className={cn(listHeadWords, PLAIN_MARKS)}>
+          <span ref={words} className="min-w-0 truncate">
+            {children}
+          </span>
+        </span>
       ) : (
         <span ref={words} className={cn(HEADING, 'truncate')}>
           {children}
@@ -1519,6 +1726,9 @@ function HeadingWords({
     </Tooltip>
   )
 }
+
+/** A mark in a heading stays as it's built: never uppercased or spaced out. */
+const PLAIN_MARKS = '[&_[data-mark]]:tracking-normal [&_[data-mark]]:normal-case'
 
 /** A text, cut at its end by its column's width: whole in Lumovi's own tooltip while it's cut. */
 function CutText({ cell }: { cell: Extract<TableCell, { kind: 'text' }> }) {
@@ -1639,7 +1849,11 @@ function GroupHeading({
   style?: React.CSSProperties
 }) {
   return (
-    <h4 style={style} className={cn(HEADING, 'flex items-baseline gap-2', className)}>
+    // (Its name as it was written, never re-cased: a group is often an object's.)
+    <h4
+      style={style}
+      className={cn(HEADING, 'flex items-baseline gap-2 tracking-normal normal-case', className)}
+    >
       <TheirText text={name} inline />
       <small className="text-[11px] font-normal tracking-normal normal-case tabular-nums">
         {count}
@@ -2319,15 +2533,18 @@ export function Nothing({
       </div>
     )
   }
-  const Icon = state.is === 'failed' ? TriangleAlert : Search
+  const Icon = TriangleAlert
   return (
     <div
       role={state.is === 'failed' ? 'alert' : undefined}
       className="flex min-h-[132px] flex-col items-center justify-center gap-1 p-4 text-center text-ink-3"
     >
-      <span className="mb-1.5 grid size-9 place-items-center rounded-[10px] bg-surface-3 text-ink-2">
-        <Icon className="size-4" aria-hidden />
-      </span>
+      {/* (Empty, its words alone, as Lumovi's cards say they have none: a failure has its mark.) */}
+      {state.is === 'failed' && (
+        <span className="mb-1.5 grid size-9 place-items-center rounded-[10px] bg-surface-3 text-ink-2">
+          <Icon className="size-4" aria-hidden />
+        </span>
+      )}
       <b className="text-[13px] font-medium text-ink-1">
         {state.is === 'empty' && !state.title ? (
           <>

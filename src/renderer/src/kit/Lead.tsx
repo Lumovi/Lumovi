@@ -41,6 +41,7 @@ export function Lead({
   top = false,
   quiet = false,
   tip = true,
+  dot = true,
 }: {
   lead?: TableLead | WrittenTableLead
   /** Its dot stands on the name's line, not in the middle: where a note runs under the row. */
@@ -49,11 +50,13 @@ export function Lead({
   quiet?: boolean
   /** Its name's own tooltip, once it's cut: not where what it's in says the lead whole (a row). */
   tip?: boolean
+  /** Its level's dot before it (or its room): not where its row's status says it. */
+  dot?: boolean
 }) {
   const { level, name, beside, under } = lead ?? {}
   return (
     <span className={cn('flex min-w-0 flex-1 items-center gap-2.5', top && 'items-start')}>
-      {level ? (
+      {!dot ? null : level ? (
         <StatusDot health={level} className={cn(top && 'mt-1.5')} />
       ) : (
         <span className="w-2 shrink-0" />
