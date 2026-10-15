@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { placed } from '../placed.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 
 const LEVELS = ['critical', 'healthy', 'healthy', 'progressing'] as const
@@ -88,6 +89,11 @@ test('a page that is one table is a list: its bar, its headings, square rows, it
   await expect(bar.getByRole('button', { name: 'Healthy 60' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'More filters' })).toBeVisible()
   await expect(bar.getByPlaceholder('Filter Apps')).toBeVisible()
+  // With room for them all, the chips are on the field's row.
+  const field = await placed(bar.getByPlaceholder('Filter Apps').locator('..'))
+  const chip = await placed(bar.getByRole('button', { name: 'More filters' }))
+  expect(chip.y + chip.height / 2).toBeGreaterThan(field.y)
+  expect(chip.y + chip.height / 2).toBeLessThan(field.y + field.height)
   // No card round it, and no title of its own: the page is the list.
   await expect(page.getByRole('heading', { name: 'Apps', level: 3 })).toHaveCount(0)
 
@@ -235,4 +241,48 @@ test('nothing chosen or typed in a list’s bar reaches its plugin; a row’s bu
     .getByRole('button', { name: 'Poke' })
     .click()
   await expect(grid).toHaveAttribute('aria-label', 'Apps, heard open poke')
+})
+
+type Box = { x: number; y: number; width: number; height: number }
+
+/** Two boxes share no pixel. */
+const apart = (a: Box, b: Box) =>
+  a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y
+
+test('beside a row’s panel at 1024, a list’s chips take a row of their own under its filter, and nothing in its bar covers another', async ({
+  launch,
+}) => {
+  // (A real 1024 window: Argo CD's Applications, payments' panel open, leave the list under 300 px.)
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x768' }, fullLayout: false })
+  await openCluster(page)
+  await page.evaluate(() => {
+    window.location.hash = '#/cluster/demo/plugins/argo-cd/applications'
+  })
+  const applications = page.getByRole('grid', { name: 'Applications' })
+  await applications.getByRole('row').filter({ hasText: 'payments' }).first().click()
+  await page.waitForFunction(() => window.location.hash.includes('open='))
+  const bar = page.getByRole('group', { name: 'Filters' })
+  // That narrow, the field says "Filter" alone, without its key, as Lumovi's lists' do; its name
+  // is whole.
+  const input = bar.getByRole('textbox', { name: 'Filter Applications' })
+  await expect(input).toHaveAttribute('placeholder', 'Filter')
+  await expect(input.locator('..')).not.toContainText('/')
+  // (The field as drawn: its box, and the icon in it.)
+  const field = await placed(input.locator('..'))
+  const chips = bar.getByRole('button', {
+    name: /^(Failing|In progress|Healthy) \d+$|^More filters$/,
+  })
+  await expect(chips).toHaveCount(4)
+  const whole = await placed(bar)
+  // The field keeps its least, the room to type in.
+  expect(Math.round(field.width)).toBeGreaterThanOrEqual(128)
+  for (const chip of await chips.all()) {
+    const box = await placed(chip)
+    // Under the field, clear of it, and in the bar: none past its edge, into the panel.
+    expect(box.y).toBeGreaterThanOrEqual(field.y + field.height)
+    expect(apart(box, field)).toBe(true)
+    expect(box.x + box.width).toBeLessThanOrEqual(whole.x + whole.width)
+    // Each whole, its words not cut.
+    expect(await chip.evaluate((drawn) => drawn.scrollWidth <= drawn.clientWidth)).toBe(true)
+  }
 })

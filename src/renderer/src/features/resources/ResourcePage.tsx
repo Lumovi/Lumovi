@@ -6,6 +6,7 @@ import type { KubeObject } from '@shared/api'
 import {
   apiKindOf,
   isBuiltinKind,
+  listNoun,
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
@@ -108,7 +109,7 @@ export function CustomResourcePage() {
 export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const kind = resource.kind
   const builtin = isBuiltinKind(kind)
-  const noun = builtin ? resource.label.toLowerCase() : resource.label
+  const noun = listNoun(resource.label, builtin)
   const { context, namespace, namespaces } = useCluster()
   const touchKind = usePrefs((prefs) => prefs.touchKind)
   // Custom kinds opened lately stay at hand in the sidebar.

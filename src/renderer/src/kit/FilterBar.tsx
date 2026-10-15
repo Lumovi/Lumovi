@@ -7,7 +7,7 @@
  */
 import { Check, ChevronDown, SlidersHorizontal, X } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { createContext, useState, type ReactNode } from 'react'
+import { createContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { spelled } from '@shared/kit/characters'
 import type { PageDestination } from '@shared/kit/declare'
 import type { Health } from '@shared/health'
@@ -192,10 +192,10 @@ export function FilterBar({
   }
   if (list) {
     return (
-      <div role="group" aria-label="Filters" className={listBar}>
-        <div className="flex items-center gap-2">
-          <span className={listCount}>{list.count}</span>
-          <span className="flex min-w-0 flex-wrap items-center gap-2">
+      <ListFilters
+        count={list.count}
+        filters={
+          <>
             {list.levels.counts.size > 0 && (
               <HealthChips
                 counts={list.levels.counts}
@@ -215,21 +215,24 @@ export function FilterBar({
                 chip
               />
             )}
-          </span>
-          <div className="flex-1" />
-          {searchable && (
+          </>
+        }
+        field={
+          searchable &&
+          ((narrow: boolean) => (
             <SearchInput
               value={search}
               onChange={onSearch}
               onArrowDown={() => undefined}
-              placeholder={`Filter ${list.noun}`}
+              placeholder={narrow ? 'Filter' : `Filter ${list.noun}`}
               name={`Filter ${list.noun}`}
+              hint={!narrow}
               className="min-w-32 shrink basis-60"
             />
-          )}
-        </div>
-        {chips}
-      </div>
+          ))
+        }
+        set={chips}
+      />
     )
   }
   return (
@@ -257,6 +260,86 @@ export function FilterBar({
         )}
       </div>
       {chips}
+    </div>
+  )
+}
+
+/** The least the field that filters a list takes (its `min-w-32`), and the room between parts. */
+const FIELD_LEAST = 128
+const GAP = 8
+/** A bar narrower than this has its field say "Filter" alone, without its key, as `ListBar`'s. */
+const NARROW = 480
+
+/**
+ * A list's bar, as Lumovi's lists' own (`ListBar`): how many, its chips and the field at its end,
+ * on one row while it holds the chips whole beside the field at its least; where it doesn't (a
+ * page beside a row's panel), the chips take a row of their own under it, and wrap there. Then
+ * what's set, as chips.
+ *
+ * (That is measured: wrapping alone would send the field under the chips, or the chips out of
+ * their room and under the field.)
+ */
+function ListFilters({
+  count,
+  filters,
+  field,
+  set,
+}: {
+  count: string
+  filters: ReactNode
+  /** The field, drawn as the bar's width has it: `narrow` under `NARROW`. None where there's none. */
+  field: false | ((narrow: boolean) => ReactNode)
+  set: ReactNode
+}) {
+  const bar = useRef<HTMLDivElement>(null)
+  const counted = useRef<HTMLSpanElement>(null)
+  const chipRow = useRef<HTMLSpanElement>(null)
+  const [width, setWidth] = useState(Infinity)
+  const [stacked, setStacked] = useState(false)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const style = getComputedStyle(bar.current!)
+      setWidth(
+        bar.current!.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+      )
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(bar.current!)
+    return () => observer.disconnect()
+  }, [])
+  useLayoutEffect(() => {
+    const each = [...(chipRow.current?.children ?? [])].map(
+      (chip) => (chip as HTMLElement).offsetWidth,
+    )
+    const parts = [
+      counted.current!.offsetWidth + 4,
+      ...(each.length > 0 ? [each.reduce((sum, w) => sum + w, 0) + GAP * (each.length - 1)] : []),
+      ...(field ? [FIELD_LEAST] : []),
+    ]
+    setStacked(parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width)
+  }, [width, count, filters, field])
+  // (On the second row its chips are that row's own, wrapping.)
+  const chips = (
+    <span
+      ref={chipRow}
+      className={cn('flex items-center gap-2', stacked ? 'contents' : 'shrink-0')}
+    >
+      {filters}
+    </span>
+  )
+  return (
+    <div ref={bar} role="group" aria-label="Filters" className={listBar}>
+      <div className="flex items-center gap-2">
+        <span ref={counted} className={listCount}>
+          {count}
+        </span>
+        {!stacked && chips}
+        <div className="flex-1" />
+        {field && field(width < NARROW)}
+      </div>
+      {stacked && <div className="flex flex-wrap items-center gap-2">{chips}</div>}
+      {set}
     </div>
   )
 }
