@@ -56,26 +56,48 @@ const isDocs = (path: string) =>
 
 /**
  * What a change can be, and Linux alone run it in full for a pull request: the pages and what
- * they share with the rest (src/renderer, src/shared), the server (src/backend, src/server), the
- * chart, the tests of the desktop app, the browser, the plugins and the clusters, the mock
- * clusters, the tests' timings, entries and docs. What's left runs every system: Electron's own
- * process and its preload, packaging, the dependencies, CI and its scripts, the tests' harness, and
- * any path not named here. So does a file of these whose text asks which system it's on
- * (namesASystem): a terminal's keys, a shortcut's symbol, a test that waits longer on Windows.
+ * they share with the rest (src/renderer, src/shared), the server's own (src/server, which runs
+ * in the image, on Linux), the chart, the tests themselves of the desktop app, the browser, the
+ * plugins and the clusters (their spec files: not the harness they run in, nor the mock
+ * clusters), the tests' timings, entries and docs. What's left runs every
+ * system: Electron's own process and what it runs (src/main, src/preload, and src/backend, whose
+ * kubeconfig, credential plugins and helm are the desktop app's on each system), packaging, the
+ * dependencies, CI and its scripts, the tests' harness, and any path not named here. So does a
+ * file of these whose text asks which system it's on, or reaches for what differs by system
+ * (namesASystem): a terminal's keys, a shortcut's symbol (MOD_KEY), a path's separator, a process
+ * started, a test that waits longer on Windows.
  */
 const ALIKE_ON_EVERY_SYSTEM = [
-  /^src\/(renderer|shared|backend|server)\//,
+  /^src\/(renderer|shared|server)\//,
   /^charts\//,
   /^changelog\.d\//,
-  /^tests\/(e2e|web|integration|plugins)\/.+\.tsx?$/,
-  /^tests\/mock-[\w-]+\//,
+  /^tests\/(e2e|web|integration|plugins)\/.+\.spec\.tsx?$/,
   /^tests\/durations\.json$/,
 ]
 export const alikeOnEverySystem = (path: string) =>
   isDocs(path) || ALIKE_ON_EVERY_SYSTEM.some((alike) => alike.test(path))
-/** A file's text that asks which system it's on: run on every system, wherever it is. */
+/**
+ * A file's text that asks which system it's on (anything's `.platform`, a system's name, the
+ * shortcut key that differs by it), or reaches for what differs by system (the home folder, a
+ * path's separators, starting a process, Windows' own folders and programs): run on every
+ * system, wherever it is.
+ */
 export const NAMES_A_SYSTEM =
-  /process\.platform|navigator\.platform|userAgentData|\bisMac\b|\bisWindows\b|'darwin'|'win32'/
+  /\.platform\b|userAgentData|\bMOD_KEY\b|\bisMac\b|\bisWindows\b|'(darwin|win32|linux)'|\bhomedir\b|\bdelimiter\b|\bsep\b|child_process|\bspawn\b|\bexecFile|USERPROFILE|APPDATA|\.exe\b/
+
+/**
+ * Of the files changed, those whose text names a system (NAMES_A_SYSTEM): as each is now, or, for
+ * one taken away, as it was (`textOf` gives a file's text, or nothing where there's none).
+ */
+export function namingASystem(
+  changed: string[],
+  textOf: (path: string, at: 'now' | 'before') => string | undefined,
+): string[] {
+  return changed.filter((path) => {
+    const text = textOf(path, 'now') ?? textOf(path, 'before')
+    return text !== undefined && NAMES_A_SYSTEM.test(text)
+  })
+}
 
 /**
  * What can't change what the integration tests see (a real cluster, Lumovi served from it and the
@@ -265,12 +287,17 @@ if (import.meta.main) {
           .split('\n')
           .filter(Boolean)
   const event = process.env.GITHUB_EVENT_NAME
-  // (A file taken away has no text to ask: what took it away is read as anything else is.)
-  const namesASystem = changed.filter((path) => {
+  // (A file taken away is read as it was, in the commit this one is merged into.)
+  const namesASystem = namingASystem(changed, (path, at) => {
     try {
-      return NAMES_A_SYSTEM.test(readFileSync(path, 'utf8'))
+      return at === 'now'
+        ? readFileSync(path, 'utf8')
+        : execFileSync('git', ['show', `HEAD^1:${path}`], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          })
     } catch {
-      return false
+      return undefined
     }
   })
   const { docs, release, macos, platforms, integration, e2e, said } = plan({
