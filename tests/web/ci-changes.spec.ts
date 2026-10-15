@@ -8,7 +8,14 @@
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { borrowedOf, onlyIn, shardsIn, withoutChanged } from '../../scripts/borrow-coverage.ts'
+import {
+  borrowedOf,
+  fitOf,
+  onlyIn,
+  pick,
+  shardsIn,
+  withoutChanged,
+} from '../../scripts/borrow-coverage.ts'
 import {
   isRelease,
   NAMES_A_SYSTEM,
@@ -493,6 +500,72 @@ test('where Linux alone ran, what main’s macOS and Windows reached and its Lin
     kept: { 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } },
   })
   expect(borrowedOf(texts, ['src/main/menu.ts'], shards, false)).toEqual({ kept: {} })
+})
+
+test('a run of main is borrowed from only whole: every Linux and Windows shard, and macOS in full or its smoke set', () => {
+  const jobs = [
+    ...Array.from({ length: 14 }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/14)`),
+    ...Array.from({ length: 4 }, (_, i) => `E2E (windows-latest, ${i + 1}/4)`),
+  ]
+  const files = (system: string, count: number) =>
+    Array.from({ length: count }, (_, i) => `coverage-${system}-${i + 1}`)
+  const merge = [...files('Linux', 14), ...files('Windows', 4), 'coverage-macOS-smoke']
+  const nightly = [...files('Linux', 14), ...files('Windows', 4), ...files('macOS', 4)]
+  expect(fitOf(merge, jobs)).toEqual({ linux: 14, windows: 4, mac: 1, full: false })
+  expect(fitOf(nightly, jobs)).toEqual({ linux: 14, windows: 4, mac: 4, full: true })
+  // A shard's file missing, or macOS's: not whole, so not borrowed from.
+  expect(
+    fitOf(
+      merge.filter((name) => name !== 'coverage-Windows-3'),
+      jobs,
+    ),
+  ).toBeUndefined()
+  expect(
+    fitOf(
+      merge.filter((name) => name !== 'coverage-Linux-14'),
+      jobs,
+    ),
+  ).toBeUndefined()
+  expect(
+    fitOf(
+      merge.filter((name) => name !== 'coverage-macOS-smoke'),
+      jobs,
+    ),
+  ).toBeUndefined()
+  expect(fitOf(merge, jobs.slice(0, 14))).toBeUndefined()
+
+  const runs = [
+    { run: 'newest merge', fit: fitOf(merge, jobs) },
+    { run: 'a merge with a file gone', fit: undefined },
+    { run: 'nightly', fit: fitOf(nightly, jobs) },
+    { run: 'older merge', fit: fitOf(merge, jobs) },
+  ]
+  // macOS ran its smoke set here: only a full macOS run says what only macOS reaches.
+  expect(pick(runs, true)?.run).toBe('nightly')
+  expect(pick([runs[0]!, runs[3]!], true)).toBeUndefined()
+  // Linux alone: a full run where one is kept; else the newest merge's, which every day has.
+  expect(pick(runs, false)?.run).toBe('nightly')
+  expect(pick([runs[0]!, runs[1]!, runs[3]!], false)?.run).toBe('newest merge')
+  expect(pick([runs[1]!], false)).toBeUndefined()
+  // And from a merge's run, macOS's one smoke file is all of macOS's there is to borrow.
+  const coverage = (s: number) =>
+    JSON.stringify({ 'src/main/mcp-node.ts': { s: { 0: s }, f: {}, b: {} } })
+  expect(
+    borrowedOf(
+      { mac: [coverage(2)], linux: [coverage(0)], windows: [coverage(1)] },
+      [],
+      { linux: 1, windows: 1, mac: 1 },
+      false,
+    ),
+  ).toEqual({ kept: { 'src/main/mcp-node.ts': { s: { 0: 3 }, f: {}, b: {} } } })
+  expect(
+    borrowedOf(
+      { mac: [], linux: [coverage(0)], windows: [coverage(1)] },
+      [],
+      { linux: 1, windows: 1, mac: 1 },
+      false,
+    ),
+  ).toEqual({ nothing: '0 of macOS’s 1 coverage files are there, not all of them' })
 })
 
 test('how many of Linux’s and Windows’ coverage files a run of main has: as its E2E jobs say each was split', () => {

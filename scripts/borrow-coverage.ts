@@ -11,7 +11,10 @@
  *
  * A pull request whose changes are alike on every system runs Linux alone (no Windows, no macOS:
  * CI's "What changed" says `windows=none`, in WINDOWS). There, what main's macOS and Windows
- * reached and its Linux didn't is borrowed alike, and this run's Linux is judged for the rest.
+ * reached and its Linux didn't is borrowed alike, and this run's Linux is judged for the rest:
+ * from main's newest green run whose macOS ran in full where one is kept, else from its newest
+ * merge's (whose macOS ran its smoke set), so that a Linux-only pull request has something to
+ * borrow every day, not only after a full macOS run (pick).
  *
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
  * run's own systems speak for it. What this still can't see: something only macOS reaches (or,
@@ -112,6 +115,47 @@ export function shardsIn(jobs: string[]): { linux: number; windows: number } | u
   if (linux.length === 0 || windows.length === 0) return undefined
   return { linux: Math.max(...linux), windows: Math.max(...windows) }
 }
+/** How many of each system's coverage files a run of main has kept, and whether macOS's are whole. */
+export interface Fit {
+  linux: number
+  windows: number
+  mac: number
+  full: boolean
+}
+
+/**
+ * Whether a run of main can be borrowed from, and from how many of each system's coverage files:
+ * every one of Linux's and Windows' shards kept (as its jobs say it was split: shardsIn), and
+ * macOS's, every shard or its smoke set's one file. Nothing where any of them is missing.
+ */
+export function fitOf(names: string[], jobs: string[]): Fit | undefined {
+  const shards = shardsIn(jobs)
+  if (!shards) return undefined
+  const all = (system: string, count: number) =>
+    Array.from({ length: count }, (_, i) => `coverage-${system}-${i + 1}`).every((name) =>
+      names.includes(name),
+    )
+  if (!all('Linux', shards.linux) || !all('Windows', shards.windows)) return undefined
+  if (ranMacosInFull(names)) return { ...shards, mac: SHARDS['macos-latest'], full: true }
+  if (names.includes('coverage-macOS-smoke')) return { ...shards, mac: 1, full: false }
+  return undefined
+}
+
+/**
+ * Which of main's runs (newest first) is borrowed from. Where macOS ran its smoke set here, the
+ * newest whose macOS ran in full: what only macOS reaches is what its full suite reaches. Where
+ * Linux alone ran, the newest whose macOS ran in full too, if one is kept; else the newest whose
+ * Windows and macOS ran as main's merges run them (macOS's smoke set), which every merge has.
+ * Never a run with a file missing; none, where no run fits.
+ */
+export function pick<T>(
+  runs: { run: T; fit: Fit | undefined }[],
+  windowsRan: boolean,
+): { run: T; fit: Fit } | undefined {
+  const fitting = runs.flatMap(({ run, fit }) => (fit ? [{ run, fit }] : []))
+  return fitting.find(({ fit }) => fit.full) ?? (windowsRan ? undefined : fitting[0])
+}
+
 /**
  * What's borrowed of the files a run of main keeps (their texts, by system): what macOS's shards
  * reached, and Windows' too where Windows didn't run here (`windowsRan`), that the systems that did
@@ -123,10 +167,11 @@ export function shardsIn(jobs: string[]): { linux: number; windows: number } | u
 export function borrowedOf(
   texts: { mac: string[]; linux: string[]; windows: string[] },
   changed: string[],
-  shards: { linux: number; windows: number },
+  shards: { linux: number; windows: number; mac?: number },
   windowsRan = true,
 ): { kept: Coverage } | { nothing: string } {
-  const macShards = SHARDS['macos-latest']
+  // (macOS's every shard, or its smoke set's one file: as the run borrowed from ran it.)
+  const macShards = shards.mac ?? SHARDS['macos-latest']
   for (const [name, have, want] of [
     ['macOS’s', texts.mac.length, macShards],
     ['Linux’s', texts.linux.length, shards.linux],
@@ -170,11 +215,11 @@ if (import.meta.main) {
     console.log(`Nothing borrowed from main: ${why}. What ran here is judged as it is.`)
     process.exit(0)
   }
-  // Main's newest green run whose macOS ran in full, whatever started it (for now, its
-  // nightly one or one by hand; a merge's runs macOS's smoke set), and whose coverage is kept.
-  let run: { databaseId: number; headSha: string } | undefined
-  // (And how many of Linux's and Windows' shards it had, by its jobs.)
-  let shards: { linux: number; windows: number } | undefined
+  // Whether Windows ran here (CI's "What changed": `windows`); as a plan that says nothing of it,
+  // it did.
+  const windowsRan = process.env.WINDOWS !== 'none'
+  // Main's newest green run that fits (pick), whatever started it, and whose coverage is kept.
+  let chosen: { run: { databaseId: number; headSha: string }; fit: Fit } | undefined
   try {
     const runs = JSON.parse(
       gh(
@@ -182,45 +227,48 @@ if (import.meta.main) {
         ...['--status', 'success', '--limit', '30', '--json', 'databaseId,headSha'],
       ),
     ) as { databaseId: number; headSha: string }[]
-    run = runs.find(({ databaseId }) =>
-      ranMacosInFull(
+    const judged = runs.map((run) => ({
+      run,
+      fit: fitOf(
         gh(
-          ...['api', `repos/${repo}/actions/runs/${databaseId}/artifacts?per_page=100`],
+          ...['api', `repos/${repo}/actions/runs/${run.databaseId}/artifacts?per_page=100`],
           ...['--jq', '.artifacts[] | select(.expired | not) | .name'],
         ).split('\n'),
-      ),
-    )
-    if (run) {
-      shards = shardsIn(
         gh(
           ...['run', 'view', String(run.databaseId), '--repo', repo],
           ...['--json', 'jobs', '--jq', '.jobs[].name'],
         ).split('\n'),
-      )
-    }
+      ),
+    }))
+    chosen = pick(judged, windowsRan)
   } catch (error) {
     nothing(`its runs couldn’t be asked for (${(error as Error).message.split('\n')[0]})`)
   }
-  if (!run) nothing('no green run of CI there whose macOS ran in full, and whose coverage is kept')
-  if (shards === undefined)
-    nothing(`run ${run!.databaseId}’s jobs don’t say how its Linux and Windows were split`)
+  if (!chosen) {
+    nothing(
+      windowsRan
+        ? 'no green run of CI there whose macOS ran in full, and whose coverage is kept whole'
+        : 'no green run of CI there whose Linux, Windows and macOS coverage is kept whole',
+    )
+  }
+  const { run, fit: shards } = chosen!
   const borrowed = 'borrowed-coverage'
   rmSync(borrowed, { recursive: true, force: true })
   try {
     gh(
-      ...['run', 'download', String(run!.databaseId), '--repo', repo],
+      ...['run', 'download', String(run.databaseId), '--repo', repo],
       ...['--pattern', 'coverage-macOS-*', '--pattern', 'coverage-Linux-*'],
       ...['--pattern', 'coverage-Windows-*', '--dir', borrowed],
     )
   } catch {
-    nothing(`run ${run!.databaseId} keeps no coverage any more`)
+    nothing(`run ${run.databaseId} keeps no coverage any more`)
   }
   let changed: string[] = []
   const texts = { mac: [] as string[], linux: [] as string[], windows: [] as string[] }
   try {
     // What differs from that run's commit, here: fetched alone, to compare with.
-    execFileSync('git', ['fetch', '--quiet', '--depth=1', 'origin', run!.headSha])
-    changed = execFileSync('git', ['diff', '--name-only', '--no-renames', run!.headSha, 'HEAD'], {
+    execFileSync('git', ['fetch', '--quiet', '--depth=1', 'origin', run.headSha])
+    changed = execFileSync('git', ['diff', '--name-only', '--no-renames', run.headSha, 'HEAD'], {
       encoding: 'utf8',
     })
       .split('\n')
@@ -233,13 +281,10 @@ if (import.meta.main) {
       else if (name.includes('coverage-Windows-')) texts.windows.push(text)
     }
   } catch (error) {
-    nothing(`what run ${run!.databaseId} keeps couldn’t be used (${(error as Error).message})`)
+    nothing(`what run ${run.databaseId} keeps couldn’t be used (${(error as Error).message})`)
   }
-  // Whether Windows ran here (CI's "What changed": `windows`); as a plan that says nothing of it,
-  // it did.
-  const windowsRan = process.env.WINDOWS !== 'none'
-  const result = borrowedOf(texts, changed, shards!, windowsRan)
-  if ('nothing' in result) nothing(`of run ${run!.databaseId}, ${result.nothing}`)
+  const result = borrowedOf(texts, changed, shards, windowsRan)
+  if ('nothing' in result) nothing(`of run ${run.databaseId}, ${result.nothing}`)
   const { kept } = result as { kept: Coverage }
   mkdirSync('.nyc_output', { recursive: true })
   writeFileSync(join('.nyc_output', 'main-borrowed.json'), JSON.stringify(kept))
@@ -248,6 +293,6 @@ if (import.meta.main) {
     .filter(Boolean).length
   const what = windowsRan ? 'macOS' : 'macOS and Windows'
   console.log(
-    `${windowsRan ? 'macOS ran its smoke set here' : 'Linux alone ran here'}: what only ${what} reached on main is borrowed (${run!.headSha.slice(0, 7)}, run ${run!.databaseId}: ${arms} branch arms that its ${windowsRan ? 'Linux and Windows' : 'Linux'} shards didn’t reach), less the ${changed.length} files that differ from it. Everything else is this run’s own.`,
+    `${windowsRan ? 'macOS ran its smoke set here' : 'Linux alone ran here'}: what only ${what} reached on main is borrowed (${run.headSha.slice(0, 7)}, run ${run.databaseId}${shards.full ? '' : ', macOS’s smoke set'}: ${arms} branch arms that its ${windowsRan ? 'Linux and Windows' : 'Linux'} shards didn’t reach), less the ${changed.length} files that differ from it. Everything else is this run’s own.`,
   )
 }
