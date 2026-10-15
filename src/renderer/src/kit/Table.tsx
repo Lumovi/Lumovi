@@ -125,11 +125,21 @@ const STATUS_WIDTH = 144
  * The most a column's least is (its natural width, where that's less), and the name's floor
  * (about eighteen of its characters, cut in the middle past that): where they don't all fit at
  * their least, a column gives way whole, as in Lumovi's own lists, rather than every one
- * shrinking until none can be read.
+ * shrinking until none can be read. A status's is its pill as drawn, up to `status`: other
+ * columns give way before one is cut.
  */
-const LEAST = { narrow: 88, normal: 120, wide: 168, status: 144, lead: 160 } as const
-/** What a cell draws beside its words: a status's icon, a meter's label. */
-const EXTRA: Partial<Record<TableColumn['kind'], number>> = { status: 22, meter: 40, button: 20 }
+const LEAST = { narrow: 88, normal: 120, wide: 168, status: 240, lead: 160 } as const
+/** What a cell draws beside its words: a meter's label, a button's room. */
+const EXTRA: Partial<Record<TableColumn['kind'], number>> = { meter: 40, button: 20 }
+/** A status pill's word, as `Pill` sets it; and its room beside the word: pl-1.5, its icon, gap-1, pr-2. */
+const PILL_SET = 'text-xs font-medium'
+const PILL_ROOM = 6 + 14 + 4 + 8
+/**
+ * The widest the time after a pill's word draws, in its figures: hours have no end ("123h 05m",
+ * a sync stuck for days), so three of them. And the gap before it.
+ */
+const PILL_SINCE = '888h 88m'
+const PILL_SINCE_GAP = 4
 /** The room between a row's columns, and each side of a row. */
 const COLUMN_GAP = 16
 const ROW_SIDES = 16
@@ -406,7 +416,7 @@ const SET = {
   age: 'text-xs tabular-nums',
   number: 'text-[13px] tabular-nums',
   text: 'text-[13px]',
-  status: 'text-[13px]',
+  status: PILL_SET,
   meter: 'text-[11px] tabular-nums',
   button: 'text-xs font-medium',
 } as const
@@ -713,6 +723,21 @@ export function Table({
   const sizes = useMemo(() => {
     const everyRow = groups.flatMap((group) => group.rows.flatMap(withInside))
     return columns.map((column, c) => {
+      if (column.kind === 'status') {
+        // As its pills draw: the word in their type, the icon and the padding, and the time after
+        // the word where a row says since when.
+        const cells = everyRow.map((row) => cellAt(row, c))
+        const since = cells.some((cell) => sinceOf(cell) !== undefined)
+          ? PILL_SINCE_GAP + widest([drawn(PILL_SINCE)], cn(PILL_SET, 'tabular-nums'), fonts)
+          : 0
+        const pill = Math.max(
+          headings ? widest([drawn(column.name)], HEADING, fonts) : 0,
+          widestCells(cells, PILL_SET, fonts) + PILL_ROOM + since,
+        )
+        // (In a page's list, each column with its cell's room each side: `pad`.)
+        const least = Math.ceil(Math.min(pill, LEAST.status)) + pad
+        return { track: `minmax(${least}px,${Math.max(least, STATUS_WIDTH + pad)}px)`, least }
+      }
       const natural =
         Math.max(
           headings ? widest([drawn(column.name)], HEADING, fonts) : 0,
@@ -722,11 +747,6 @@ export function Table({
             fonts,
           ),
         ) + (EXTRA[column.kind] ?? 0)
-      // (In a page's list, each with its cell's room each side: `pad`.)
-      if (column.kind === 'status') {
-        const least = Math.min(natural, LEAST.status) + pad
-        return { track: `minmax(${least}px,${STATUS_WIDTH + pad}px)`, least }
-      }
       if (column.width === 'text') return { track: `${natural + pad}px`, least: natural + pad }
       const width = column.width ?? 'normal'
       const least = Math.min(natural, LEAST[width]) + pad
@@ -806,11 +826,7 @@ export function Table({
   const [cutHere, setCutHere] = useState<{ index: number; columns: number[]; lead: boolean }>()
   useLayoutEffect(() => {
     const row = keyed && active >= 0 ? document.getElementById(`${id}-${active}`) : null
-    const columns = [...(row?.querySelectorAll<HTMLElement>('[data-column]') ?? [])]
-      .filter((cell) => isCut(cell.querySelector('[data-cuts]')))
-      .map((cell) => Number(cell.dataset.column))
-    // (Its lead is in its first cell.)
-    const lead = leadIsCut(row?.firstElementChild ?? null)
+    const { columns, lead } = cutIn(row)
     setCutHere((was) =>
       was?.index === active && was.columns.join() === columns.join() && was.lead === lead
         ? was
@@ -1355,13 +1371,17 @@ export function Table({
               )
               // What the columns that gave way say of it: in its tooltip, and after it.
               const restAt = from === undefined ? undefined : kept.find((c) => c >= from)
-              const cut = keyed && cutHere?.index === index ? cutHere.columns : []
               const goneHere = row.again ? [] : gone.filter((c) => from === undefined || c < from)
-              // (In its tooltip, what gave way and what's cut where it stands, in its columns'
-              // order. Read after it, only what gave way: a cut cell is read whole where it is.)
-              const away = [...goneHere, ...(row.again ? [] : cut)].sort((a, b) => a - b)
               const restAway = !row.again && from !== undefined && restAt === undefined
-              const said = away.length > 0 || restAway
+              // (In its tooltip, what gave way and what's cut where it stands, in its columns'
+              // order, as the keyboard's row or the pointer's finds them cut. Read after it, only
+              // what gave way: a cut cell is read whole where it is.)
+              const awayWith = (cut: readonly number[]) => {
+                const away = [...goneHere, ...(row.again ? [] : cut)].sort((a, b) => a - b)
+                return away.length > 0 || restAway ? (
+                  <Away columns={columns} row={row} away={away} rest={restAway} />
+                ) : undefined
+              }
               const read = goneHere.length > 0 || restAway
               const awayId = `${id}-${index}-away`
               // Where it goes, if it links to a place of Lumovi's: first in its tooltip, and the
@@ -1552,11 +1572,9 @@ export function Table({
                   row={`${id}-${index}`}
                   lead={row.lead}
                   shown={keyed && active === index}
-                  cut={keyed && cutHere?.index === index && cutHere.lead}
+                  {...(keyed && cutHere?.index === index ? { cut: cutHere } : {})}
                   {...(goesTip ? { goes: goesTip } : {})}
-                  {...(said
-                    ? { away: <Away columns={columns} row={row} away={away} rest={restAway} /> }
-                    : {})}
+                  away={awayWith}
                 >
                   {drawnRow}
                 </RowTip>
@@ -1586,6 +1604,17 @@ export function Table({
 const isCut = (element: Element | null) =>
   element !== null && element.scrollWidth > element.clientWidth
 
+/** A drawn row's cells cut by their columns' width, by column, and whether its lead is cut. */
+function cutIn(row: Element | null): { columns: number[]; lead: boolean } {
+  const columns = [...(row?.querySelectorAll<HTMLElement>('[data-column]') ?? [])]
+    .filter((cell) => isCut(cell.querySelector('[data-cuts]')))
+    .map((cell) => Number(cell.dataset.column))
+  // (Its lead is in its first cell.)
+  return { columns, lead: leadIsCut(row?.firstElementChild ?? null) }
+}
+
+const NOTHING_CUT = { columns: [], lead: false }
+
 /**
  * A row's one tooltip, Lumovi's own, under the pointer and while the keyboard's on the row: where
  * the row goes, if it links; then its lead whole (its name, the words beside it, and the line
@@ -1605,19 +1634,21 @@ function RowTip({
   row: string
   goes?: string
   lead: DrawnRow['lead']
-  away?: ReactNode
+  /** What gave way, and what of its cells is cut: none where there's neither. */
+  away: (cut: readonly number[]) => ReactNode
   /** The keyboard's on it, */
   shown: boolean
-  /** and its lead is cut, as the table measured it then. */
-  cut: boolean
+  /** and what of it's cut, as the table measured it then. */
+  cut?: { columns: number[]; lead: boolean }
   children: ReactNode
 }) {
-  // Under the pointer, whether its lead is cut is asked as the tooltip would open: what's cut is
-  // the width's to say. (And not again while it's open: a window resized under a resting pointer
-  // keeps what it said until the pointer comes back. The keyboard's row, which can stay open for
-  // long, is measured again as the table's width changes.)
-  const [pointedCut, setPointedCut] = useState(false)
-  const leadCut = shown ? cut : pointedCut
+  // Under the pointer, what of it's cut (its lead, its cells) is asked as the tooltip would open:
+  // what's cut is the width's to say. (And not again while it's open: a window resized under a
+  // resting pointer keeps what it said until the pointer comes back. The keyboard's row, which
+  // can stay open for long, is measured again as the table's width changes.)
+  const [pointedCut, setPointedCut] = useState<{ columns: number[]; lead: boolean }>(NOTHING_CUT)
+  const { lead: leadCut, columns: cutColumns } = shown ? (cut ?? NOTHING_CUT) : pointedCut
+  const awayHere = away(cutColumns)
   const parts = [
     goes !== undefined && <span className="block">{goes}</span>,
     leadCut && (
@@ -1640,7 +1671,7 @@ function RowTip({
         )}
       </span>
     ),
-    away,
+    awayHere,
   ].filter(Boolean)
   return (
     <Tooltip
@@ -1656,9 +1687,9 @@ function RowTip({
       }
       shown={shown && parts.length > 0}
       when={() => {
-        const now = leadIsCut(document.getElementById(row)?.firstElementChild ?? null)
+        const now = cutIn(document.getElementById(row))
         setPointedCut(now)
-        return goes !== undefined || away !== undefined || now
+        return goes !== undefined || away(now.columns) !== undefined || now.lead
       }}
     >
       {children}
