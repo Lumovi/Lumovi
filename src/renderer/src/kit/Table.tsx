@@ -44,6 +44,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Health } from '@shared/health'
+import { listNoun } from '@shared/resources'
 import { inPieces, spelled, type Piece } from '@shared/kit/characters'
 import type { Going, Their } from '@shared/kit/declare'
 import {
@@ -1055,8 +1056,9 @@ export function Table({
     <ShowAll count={total} onShow={() => showWhole(0)} />
   )
 
-  // What a page's list is of, as it's called: "Filter Applications", "No Applications match".
-  const noun = named
+  // What a page's list is of, as Lumovi's lists say theirs: "Filter Applications", "No Applications
+  // match"; one called as a built-in's list ("Pods"), as that list, "Filter pods".
+  const noun = listNoun(named)
   // (Its filters changed, a page's list shows its first page.)
   const bar = (hasBar || asList) && !state && rows.length > 0 && (
     <FilterBar

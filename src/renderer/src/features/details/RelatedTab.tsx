@@ -4,6 +4,7 @@ import {
   apiKindOf,
   isBuiltinKind,
   kindOf,
+  listNoun,
   type ResourceDefinition,
   type ResourceKind,
 } from '@shared/resources'
@@ -78,7 +79,7 @@ function RelatedList({
     return <ErrorState error={list.error as KubeApiError} onRetry={() => void list.refetch()} />
   }
   const items = list.data.items
-  const noun = builtin ? resource.label.toLowerCase() : resource.label
+  const noun = listNoun(resource.label, builtin)
   if (items.length === 0) {
     return (
       <EmptyState icon={kindIcon(kind)} title={`No ${related.name.toLowerCase()}`}>

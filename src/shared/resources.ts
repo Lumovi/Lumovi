@@ -149,6 +149,17 @@ export function builtinResource(kind: ResourceKind): ResourceDefinition | undefi
   return BY_KIND.get(kind)
 }
 
+const BUILTIN_LABELS = new Set(RESOURCES.map((r) => r.label))
+
+/**
+ * What a list says it's of ("Filter pods", "No Applications match"): a built-in kind's label in
+ * lower case, any other as it's written. Where nothing says whether it's a built-in's, its label
+ * does: a plugin's list called as one of Lumovi's is said as that list.
+ */
+export function listNoun(label: string, builtin = BUILTIN_LABELS.has(label)): string {
+  return builtin ? label.toLowerCase() : label
+}
+
 export function resourceByPlural(plural: string): ResourceDefinition | undefined {
   return BY_PLURAL.get(plural)
 }
