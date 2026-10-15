@@ -551,15 +551,16 @@ jobs:
           Remove-AppxPackage $installed.PackageFullName
 
   integration:
-    name: Integration (kind, ${{ matrix.shard }}/4)
-    needs: [changes, checks]
+    name: Integration (kind, ${{ matrix.shard }}/6)
+    # (Not after the lint: it starts as soon as the plan says, and CI passed waits for both.)
+    needs: changes
     # (Not for a pull request that changes nothing they see: scripts/ci-changes.ts.)
     if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.integration != 'false'
     strategy:
       fail-fast: false
-      # Four clusters, each with a quarter of the files (a file's tests share theirs, one at a time).
+      # Six clusters, each with a sixth of the files (a file's tests share theirs, one at a time).
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -601,7 +602,7 @@ jobs:
         run: node tests/integration/cluster.ts up
       - name: Run the integration tests
         run: |
-          node scripts/e2e-shard.ts ${{ matrix.shard }}/4 playwright.integration.config.ts > shard.txt
+          node scripts/e2e-shard.ts ${{ matrix.shard }}/6 playwright.integration.config.ts > shard.txt
           xvfb-run --auto-servernum npx playwright test -c playwright.integration.config.ts --test-list shard.txt
       - name: Cluster state
         if: ${{ failure() }}
