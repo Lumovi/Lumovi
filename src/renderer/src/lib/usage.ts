@@ -48,9 +48,11 @@ export function podReservations(pods: KubeObject[]): { cpu: Reservations; memory
   for (const pod of pods) {
     if (pod.status?.phase === 'Succeeded' || pod.status?.phase === 'Failed') continue
     for (const container of pod.spec.containers as {
-      resources: { requests?: Record<string, string>; limits?: Record<string, string> }
+      resources?: { requests?: Record<string, string>; limits?: Record<string, string> }
     }[]) {
-      const { requests = {}, limits = {} } = container.resources
+      // (The API server gives every container its resources, if only {}: a pod read some other
+      // way may have none.)
+      const { requests = {}, limits = {} } = container.resources ?? {}
       result.cpu.requests += parseQuantity(requests.cpu)
       result.cpu.limits += parseQuantity(limits.cpu)
       result.memory.requests += parseQuantity(requests.memory)
