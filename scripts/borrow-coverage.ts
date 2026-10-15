@@ -5,18 +5,18 @@
  * reaches. So the coverage job (CI's "Coverage (all platforms)") borrows exactly that from the
  * newest green run of CI on main whose macOS ran in full (its nightly run, or one by hand): each
  * statement, function and branch that its macOS shards reached and its Linux and Windows shards
- * did not. Everything else is measured by this run's own Linux and Windows,
- * so a test taken away or weakened here shows here, as lost coverage, unless what it reached was
- * reached on macOS alone.
+ * did not. Everything else is measured by this run's own systems, so a test taken away or
+ * weakened here shows here, as lost coverage, unless what it reached was reached on macOS alone
+ * (or, where Linux alone ran, on macOS or Windows alone).
  *
  * A pull request whose changes are alike on every system runs Linux alone (no Windows, no macOS:
  * CI's "What changed" says `windows=none`, in WINDOWS). There, what main's macOS and Windows
  * reached and its Linux didn't is borrowed alike, and this run's Linux is judged for the rest.
  *
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
- * run's Linux and Windows speak for it. What this still can't see: something only macOS reaches,
- * in a file the change didn't touch, that the change stops being reached. Main's nightly run
- * shows that, and a red one is a red main. If main has nothing to borrow (no full run kept, a
+ * run's own systems speak for it. What this still can't see: something only macOS reaches (or,
+ * where Linux alone ran, only macOS or Windows), in a file the change didn't touch, that the
+ * change stops being reached. Main's nightly run shows that, and a red one is a red main. If main has nothing to borrow (no full run kept, a
  * run with a shard's coverage missing), it says so, and what ran is judged as it is.
  *
  *   node scripts/borrow-coverage.ts        (GH_TOKEN, GITHUB_REPOSITORY, WINDOWS; into .nyc_output/)

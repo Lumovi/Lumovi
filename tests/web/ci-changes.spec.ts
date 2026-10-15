@@ -9,7 +9,13 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { borrowedOf, onlyIn, shardsIn, withoutChanged } from '../../scripts/borrow-coverage.ts'
-import { isRelease, NAMES_A_SYSTEM, plan, ranMacosInFull } from '../../scripts/ci-changes.ts'
+import {
+  isRelease,
+  NAMES_A_SYSTEM,
+  namingASystem,
+  plan,
+  ranMacosInFull,
+} from '../../scripts/ci-changes.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
@@ -87,8 +93,8 @@ test('a pull request whose changes are alike on every system runs Linux alone, i
   for (const changed of [
     ['src/renderer/src/features/lists/ResourceList.tsx', 'tests/e2e/lists.spec.ts'],
     ['src/shared/kit/parts.ts', 'tests/web/audit.spec.ts'],
-    ['src/backend/audit/log.ts', 'src/server/index.ts', 'charts/lumovi/values.yaml'],
-    ['tests/mock-cluster/fixtures/demo.ts', 'tests/plugins/plugins.spec.ts'],
+    ['src/server/index.ts', 'charts/lumovi/values.yaml'],
+    ['tests/plugins/plugins.spec.ts'],
     ['tests/integration/metrics.spec.ts', 'tests/durations.json', 'changelog.d/x.fixed.md'],
   ]) {
     const result = pr(changed)
@@ -108,6 +114,17 @@ test('every system runs for a file that asks which system it’s on, the harness
     plan({ event: 'pull_request', changed: [renderer], namesASystem: [renderer] }).platforms,
   ).toBe(true)
   for (const changed of [
+    // The tests' harness, each alone: what the spec files run in, and the mock clusters.
+    ['tests/e2e/global-setup.ts'],
+    ['tests/e2e/fixtures.ts'],
+    ['tests/e2e/action-helpers.ts'],
+    ['tests/e2e/plugin-box/sealed.ts'],
+    ['tests/integration/fixtures.ts'],
+    ['tests/integration/cluster.ts'],
+    ['tests/mock-cluster/fixtures/demo.ts'],
+    // What the desktop app's own process runs: its kubeconfig, credential plugins and helm.
+    ['src/backend/kube/kubeconfig.ts'],
+    ['src/backend/audit/log.ts'],
     ['tests/e2e/smoke.txt'],
     ['tests/e2e/linux-only.txt'],
     ['tests/holds.ts'],
@@ -134,13 +151,40 @@ test('every system runs for a file that asks which system it’s on, the harness
     "const WINDOWS = process.platform === 'win32'",
     'navigator.platform.startsWith("Mac")',
     'if (isMac) return "⌘"',
+    "api.host === 'server' && api.platform === 'linux'",
+    "{MOD_KEY === '⌘' ? '⌘↩' : 'Ctrl+↩'}",
+    'value.split(delimiter)',
+    "join(homedir(), '.kube', 'config')",
+    "import { spawn } from 'node:child_process'",
+    'execFileSync(command, args)',
+    'process.env.APPDATA',
+    "'helm.exe'",
   ]) {
     expect(NAMES_A_SYSTEM.test(text), text).toBe(true)
   }
   expect(NAMES_A_SYSTEM.test("const platform = 'phone'")).toBe(false)
-  expect(NAMES_A_SYSTEM.test(readFileSync('src/renderer/src/components/Kbd.tsx', 'utf8'))).toBe(
-    true,
-  )
+  expect(NAMES_A_SYSTEM.test('a list of pods, filtered')).toBe(false)
+  // The app's own files that ask, each in its own way.
+  for (const file of [
+    'src/renderer/src/components/Kbd.tsx',
+    'src/renderer/src/features/shell/PinnedObjects.tsx',
+    'src/renderer/src/features/assistants/ApprovalCenter.tsx',
+    'src/backend/kube/kubeconfig.ts',
+  ]) {
+    expect(NAMES_A_SYSTEM.test(readFileSync(file, 'utf8')), file).toBe(true)
+  }
+  // A file as it is now, or, taken away, as it was.
+  const texts: Record<string, { now?: string; before?: string }> = {
+    'src/renderer/a.ts': { now: "api.platform === 'darwin'" },
+    'src/renderer/gone.ts': { before: 'process.platform' },
+    'src/renderer/b.ts': { now: 'a list', before: 'process.platform' },
+    'src/renderer/c.ts': { now: 'a list' },
+    'src/renderer/never.ts': {},
+  }
+  expect(namingASystem(Object.keys(texts), (path, at) => texts[path]![at])).toEqual([
+    'src/renderer/a.ts',
+    'src/renderer/gone.ts',
+  ])
 })
 
 test('the integration tests run for anything they see: a pull request of the other tests alone runs none', () => {
@@ -182,6 +226,10 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     expect(result).toMatchObject({ docs: false, macos: false })
     expect(macos(result)).toEqual(['smoke'])
     expect(result.e2e).toHaveLength(19)
+    // Every merge runs Windows and macOS, whatever it changed.
+    expect(result.platforms).toBe(true)
+    expect(shards(result, 'windows-latest')).toEqual(FULL)
+    expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
     expect(result.said).toContain('Main’s merge')
     // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows leaves
     // to Linux the desktop tests alike on every system (macOS runs its smoke set by name).

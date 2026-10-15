@@ -59,16 +59,17 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
 On a pull request CI runs every test on Linux, over fourteen machines at once. Windows, macOS,
 the Firefox and WebKit checks and the packages run too where the change touches what differs
 by system: anything outside the pages and what they share (`src/renderer`, `src/shared`), the
-server (`src/backend`, `src/server`), the chart, the tests and the mock clusters, docs and
-changelog entries, or a file there whose text asks which system it's on (`process.platform`,
-`'win32'`, …). Then Windows runs the desktop app's tests, except those alike on every system
+server's own (`src/server`), the chart, the tests themselves (their spec files, not their
+harness or the mock clusters), docs and changelog entries, or a file there whose text asks which
+system it's on, or reaches for what differs by system (`.platform`, `MOD_KEY`, `'win32'`, a
+path's separator, a process started, …). Then Windows runs the desktop app's tests, except those alike on every system
 (`tests/e2e/linux-only.txt`), and macOS a short set (`tests/e2e/smoke.txt`): GitHub gives an
 account five macOS machines at a time, and a full run takes all five. Where only Linux ran, the
 coverage gate borrows what macOS and Windows reach from `main`'s newest full run. The integration
 tests run unless the change is only to the other tests, the mock clusters, docs or entries.
 `scripts/ci-changes.ts` says which, in the run's _What changed_ job. The browser's tests
-(`tests/web`) run on Linux, where the server Lumovi ships runs. `main` runs everything but
-macOS's full suite after each merge; macOS's full suite runs nightly on `main`, on a release's
+(`tests/web`) run on Linux, where the server Lumovi ships runs. `main` runs every system after
+each merge, as a pull request that touches what differs by system does; macOS's full suite runs nightly on `main`, on a release's
 pull request, on a run by hand, and where the label `macos-full` asks for it; and the nightly
 run, a release's pull request and a run by hand run every test on every system. Main's merges
 and its nightly run are the ones that count: while either is red, _CI passed_ says so on every
