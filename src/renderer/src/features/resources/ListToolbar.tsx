@@ -272,13 +272,14 @@ export function ListBar({
   noun: string
   onFilter: (q: string) => void
   onArrowDown: () => void
-  /** What ends the row, after the filter: the Columns button. */
+  /** What ends the row, after the filter: the Columns button (and Events' List and Timeline), whole. */
   after?: ReactNode
 }) {
   const bar = useRef<HTMLDivElement>(null)
   const counted = useRef<HTMLSpanElement>(null)
   const chipRow = useRef<HTMLDivElement>(null)
   const extras = useRef<HTMLSpanElement>(null)
+  const ends = useRef<HTMLSpanElement>(null)
   const viewsBox = useRef<HTMLSpanElement>(null)
   const [width, setWidth] = useState(Infinity)
   const [stacked, setStacked] = useState(false)
@@ -327,7 +328,8 @@ export function ListBar({
       ...(extras.current ? [extras.current.offsetWidth] : []),
       ...(onLabels ? [compact ? LEAST.button : LEAST.selector] : []),
       after && width < BAR.compact ? LEAST.squeezed : LEAST.filter,
-      ...(after ? [LEAST.button] : []),
+      // (What ends it as wide as it draws: the Columns button, and on Events the switch beside it.)
+      ...(after ? [ends.current?.offsetWidth ?? LEAST.button] : []),
     ]
     setStacked(parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width)
   }, [width, compact, chips, count, views, before, note, onLabels, after])
@@ -403,7 +405,11 @@ export function ListBar({
             after && width < BAR.compact && 'min-w-20',
           )}
         />
-        {after}
+        {after && (
+          <span ref={ends} className="flex shrink-0 items-center gap-2">
+            {after}
+          </span>
+        )}
       </div>
       {stacked && (
         <div className="flex flex-wrap gap-2">
