@@ -268,8 +268,9 @@ jobs:
       matrix: ${{ fromJSON(needs.changes.outputs.e2e) }}
     runs-on: ${{ matrix.os }}
     # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
-    # timeout doesn't hide which failed.
-    timeout-minutes: 45
+    # timeout doesn't hide which failed. macOS's whole run, on a release's pull request, takes
+    # longer: two of its four shards passed 45 minutes on 1.22.1's.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 45 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
