@@ -115,6 +115,17 @@ export function shardsIn(jobs: string[]): { linux: number; windows: number } | u
   if (linux.length === 0 || windows.length === 0) return undefined
   return { linux: Math.max(...linux), windows: Math.max(...windows) }
 }
+/**
+ * What starts one of main's own runs: a merge, the nightly run, a run by hand. Never a pull
+ * request: one from a fork's own `main` branch is listed as main's too, and its coverage files are
+ * written by its own code, so they could say anything was reached.
+ */
+export const MAINS_OWN = ['push', 'schedule', 'workflow_dispatch'] as const
+
+/** Of runs listed as main's, those main started itself (MAINS_OWN): what may be borrowed from. */
+export const mainsOwn = <T extends { event: string }>(runs: T[]): T[] =>
+  runs.filter(({ event }) => (MAINS_OWN as readonly string[]).includes(event))
+
 /** How many of each system's coverage files a run of main has kept, and whether macOS's are whole. */
 export interface Fit {
   linux: number
@@ -219,15 +230,15 @@ if (import.meta.main) {
   // it did.
   const windowsRan = process.env.WINDOWS !== 'none'
   // Main's newest green run that fits (pick), whatever started it, and whose coverage is kept.
-  let chosen: { run: { databaseId: number; headSha: string }; fit: Fit } | undefined
+  let chosen: { run: { databaseId: number; headSha: string; event: string }; fit: Fit } | undefined
   try {
     const runs = JSON.parse(
       gh(
         ...['run', 'list', '--repo', repo, '--workflow', 'ci.yml', '--branch', 'main'],
-        ...['--status', 'success', '--limit', '30', '--json', 'databaseId,headSha'],
+        ...['--status', 'success', '--limit', '30', '--json', 'databaseId,headSha,event'],
       ),
-    ) as { databaseId: number; headSha: string }[]
-    const judged = runs.map((run) => ({
+    ) as { databaseId: number; headSha: string; event: string }[]
+    const judged = mainsOwn(runs).map((run) => ({
       run,
       fit: fitOf(
         gh(

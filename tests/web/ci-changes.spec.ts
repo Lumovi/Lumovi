@@ -11,6 +11,7 @@ import { expect, test } from '@playwright/test'
 import {
   borrowedOf,
   fitOf,
+  mainsOwn,
   onlyIn,
   pick,
   shardsIn,
@@ -547,6 +548,20 @@ test('a run of main is borrowed from only whole: every Linux and Windows shard, 
   expect(pick(runs, false)?.run).toBe('nightly')
   expect(pick([runs[0]!, runs[1]!, runs[3]!], false)?.run).toBe('newest merge')
   expect(pick([runs[1]!], false)).toBeUndefined()
+  // Only main's own runs: a pull request from a fork's own `main` branch is listed as main's too,
+  // and its coverage files are its own code's to write. Newer and whole, it's still skipped.
+  const listed = [
+    { databaseId: 9, event: 'pull_request' },
+    { databaseId: 8, event: 'push' },
+    { databaseId: 7, event: 'schedule' },
+    { databaseId: 6, event: 'workflow_dispatch' },
+    { databaseId: 5, event: 'pull_request_target' },
+  ]
+  expect(mainsOwn(listed).map(({ databaseId }) => databaseId)).toEqual([8, 7, 6])
+  const fork = { run: 'a fork’s main, newest', fit: fitOf(nightly, jobs), event: 'pull_request' }
+  const own = mainsOwn([fork, ...runs.map((each) => ({ ...each, event: 'push' }))])
+  expect(pick(own, false)?.run).toBe('nightly')
+  expect(pick(own, true)?.run).toBe('nightly')
   // And from a merge's run, macOS's one smoke file is all of macOS's there is to borrow.
   const coverage = (s: number) =>
     JSON.stringify({ 'src/main/mcp-node.ts': { s: { 0: s }, f: {}, b: {} } })
