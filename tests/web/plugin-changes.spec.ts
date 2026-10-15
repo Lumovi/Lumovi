@@ -8,7 +8,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { cutWords } from '../commands.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { audited, DEMO_TOKEN, expect, freePort, signIn, test, type Served } from './fixtures.ts'
@@ -508,4 +508,46 @@ test('a form past five fields stands in sections; a switch shows its field; a ha
   await expect(shown).toContainText('The cluster accepts it, as the options stand.')
   await shown.getByRole('button', { name: 'Cancel' }).click()
   await expect(said(page)).toContainText('outcome 2 cancelled')
+})
+
+/** Which end of its track a switch's knob is drawn at: its start or its end. */
+const knobAt = (control: Locator) =>
+  control.evaluate((track) => {
+    const box = track.getBoundingClientRect()
+    const knob = track.firstElementChild!.getBoundingClientRect()
+    return knob.left + knob.width / 2 < box.left + box.width / 2 ? 'start' : 'end'
+  })
+
+const trackOf = (control: Locator) =>
+  control.evaluate((track) => getComputedStyle(track).backgroundColor)
+
+test('a switch in Lumovi’s dialog is Lumovi’s own: off, its knob at the start; on, at the end, on the accent; in both themes', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server)
+  await body(page).getByRole('button', { name: 'Tune…', exact: true }).click()
+  const dry = dialog(page).getByRole('switch', { name: 'Dry run' })
+  const ground = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+  let light = ''
+  for (const theme of ['light', 'dark'] as const) {
+    // (As the Theme menu sets it; dark once the page is drawn so, unlike light.)
+    await page.evaluate((chosen) => {
+      document.documentElement.dataset.theme = chosen
+    }, theme)
+    if (theme === 'light') light = await ground()
+    else await expect.poll(ground).not.toBe(light)
+    await expect(dry).toHaveAttribute('aria-checked', 'false')
+    await expect.poll(() => knobAt(dry)).toBe('start')
+    const off = await trackOf(dry)
+    await dry.click()
+    await expect(dry).toHaveAttribute('aria-checked', 'true')
+    await expect.poll(() => knobAt(dry)).toBe('end')
+    await expect.poll(() => trackOf(dry)).not.toBe(off)
+    await dry.click()
+    await expect.poll(() => knobAt(dry)).toBe('start')
+  }
+  await dialog(page).getByRole('button', { name: 'Cancel' }).click()
+  await expect(said(page)).toContainText('cancelled')
 })

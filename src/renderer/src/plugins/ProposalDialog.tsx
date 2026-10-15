@@ -53,6 +53,7 @@ import { apiKindOf } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { CommandWords } from '@renderer/components/CommandWords'
+import { Switch } from '@renderer/components/Switch'
 import { TYPE_TO_DELETE } from '@renderer/features/actions/DeleteDialog'
 import { forDiff } from '@renderer/features/assistants/ApprovalCenter'
 import { refreshAfterChange } from '@renderer/hooks/change'
@@ -1166,26 +1167,14 @@ function FieldInput({
       break
     }
     case 'switch':
+      // (Lumovi's own, named by the plugin's label above it.)
       control = (
-        <button
+        <Switch
           id={id}
-          type="button"
-          role="switch"
-          aria-checked={value === true}
-          aria-labelledby={`${id}-label`}
-          onClick={() => onChange(value !== true)}
-          className={cn(
-            'relative h-5 w-9 rounded-full transition-colors',
-            value === true ? 'bg-accent' : 'bg-surface-3',
-          )}
-        >
-          <span
-            className={cn(
-              'absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform',
-              value === true ? 'translate-x-4' : 'translate-x-0.5',
-            )}
-          />
-        </button>
+          labelledBy={`${id}-label`}
+          checked={value === true}
+          onCheckedChange={(on) => onChange(on)}
+        />
       )
       break
   }

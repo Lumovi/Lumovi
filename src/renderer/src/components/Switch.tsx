@@ -5,6 +5,7 @@ export function Switch({
   checked,
   onCheckedChange,
   label,
+  labelledBy,
   disabled,
   locked,
   describedBy,
@@ -14,7 +15,6 @@ export function Switch({
   id?: string
   checked: boolean
   onCheckedChange: (checked: boolean) => void
-  label: string
   disabled?: boolean
   /**
    * Set where this person can't change it (a server's or an organization's): shown dim, never
@@ -24,11 +24,18 @@ export function Switch({
   /** The id of what says why it's as it is (its line, or why it's locked). */
   describedBy?: string
   autoFocus?: boolean
-}) {
+} & (
+  | { label: string; labelledBy?: never }
+  | {
+      /** The id of what names it, where that's drawn beside it (a plugin's label, in its words). */
+      labelledBy: string
+      label?: never
+    }
+)) {
   return (
     <SwitchPrimitive.Root
       {...(id ? { id } : {})}
-      aria-label={label}
+      {...(labelledBy ? { 'aria-labelledby': labelledBy } : { 'aria-label': label })}
       checked={checked}
       disabled={disabled}
       {...(locked ? { 'aria-disabled': true } : {})}
