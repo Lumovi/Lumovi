@@ -457,3 +457,36 @@ test('a panel opened from a timeline too narrow to keep beside it opens over it,
     'true',
   )
 })
+
+/** The switch between Events' list and its timeline, and its Timeline button. */
+const switchOf = (page: Page) => page.getByRole('group', { name: 'Show events as' })
+
+test('alone at 1024, the Events toolbar puts its chips under, and List and Timeline stay whole in the window', async ({
+  launch,
+}) => {
+  const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x768' }, fullLayout: false })
+  await openCluster(page)
+  await goTo(page, 'Events')
+  const shown = await placed(switchOf(page))
+  const width = await page.evaluate(() => document.documentElement.clientWidth)
+  expect(shown.x + shown.width).toBeLessThanOrEqual(width)
+  // The filter keeps room to type in.
+  expect((await placed(page.getByPlaceholder(/^Filter/))).width).toBeGreaterThanOrEqual(80)
+  await switchOf(page).getByRole('button', { name: 'Timeline' }).click()
+  await expect(grid(page)).toBeVisible()
+})
+
+test('beside a panel at 1440, the Events toolbar keeps List and Timeline whole beside it, and its filter room to type in', async ({
+  lumovi,
+}) => {
+  const { page } = lumovi
+  await openCluster(page)
+  await goTo(page, 'Events')
+  await page.getByRole('grid').getByRole('row').nth(1).getByRole('gridcell').nth(1).click()
+  const panel = await placed(page.getByRole('complementary', { name: /^Event / }))
+  const shown = await placed(switchOf(page))
+  expect(shown.x + shown.width).toBeLessThanOrEqual(panel.x)
+  expect((await placed(page.getByPlaceholder(/^Filter/))).width).toBeGreaterThanOrEqual(80)
+  await switchOf(page).getByRole('button', { name: 'Timeline' }).click()
+  await expect(grid(page)).toBeVisible()
+})
