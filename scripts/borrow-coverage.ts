@@ -16,10 +16,11 @@
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
  * run's own systems speak for it. What this still can't see: something only macOS reaches (or,
  * where Linux alone ran, only macOS or Windows), in a file the change didn't touch, that the
- * change stops being reached. Main's nightly run shows that, and a red one is a red main. If main has nothing to borrow (no full run kept, a
- * run with a shard's coverage missing), it says so, and what ran is judged as it is.
+ * change stops being reached. Main's nightly run shows that, and a red one is a red main. If
+ * main has nothing to borrow (no full run kept, a run with a shard's coverage missing), it says
+ * so, and what ran is judged as it is.
  *
- *   node scripts/borrow-coverage.ts        (GH_TOKEN, GITHUB_REPOSITORY, WINDOWS; into .nyc_output/)
+ *   node scripts/borrow-coverage.ts    (GH_TOKEN, GITHUB_REPOSITORY, WINDOWS; into .nyc_output/)
  *
  * tests/web/ci-changes.spec.ts tries what it keeps.
  */
