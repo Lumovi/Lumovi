@@ -43,6 +43,11 @@ test('Prometheus Operator’s Target health asks its Prometheus server through L
   // What the server said, counted: three up, one down, one not scraped yet.
   await expect(body(page)).toContainText('of 5 targets', { timeout: 30_000 })
   await expect(body(page)).toContainText('not scraped yet')
+  // Its header names it as its tab does, so it isn't said again: the bar does, and its Ask again
+  // stands alone at the right.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Target health')
+  await expect(body(page).getByRole('heading', { name: 'Target health' })).toHaveCount(0)
+  await expect(body(page).getByRole('button', { name: 'Ask again' })).toBeVisible()
   // The one that's down, with why, and whose it is.
   const down = body(page).getByRole('row').filter({ hasText: '10.0.3.7:8080' }).first()
   await expect(down).toContainText('Get "http://10.0.3.7:8080/metrics": context deadline exceeded')

@@ -18,6 +18,7 @@ import { Button } from '@renderer/components/Button'
 import { useGo } from '@renderer/hooks/go'
 import { useOpenPluginPage, useServedPlugins, type ServedPlugin } from '@renderer/hooks/plugins'
 import { useSettings } from '@renderer/hooks/settings'
+import { PageTitle } from '@renderer/kit/page-title'
 import { switchesOf } from '@renderer/plugins/code-switches'
 import { codeOff } from '@shared/plugin-hand-over'
 import { listedPlugins, type ListedPlugin } from '@renderer/lib/plugins'
@@ -207,7 +208,9 @@ function PluginPages({ served, page }: { served: ServedPlugin; page?: string }) 
     <div className="relative flex h-full flex-col">
       <PluginTabs served={served} current={current ? `page:${current.id}` : 'none'} />
       {current ? (
-        <PluginBody key={current.id} plugin={plugin} page={current.id} />
+        <PageTitle.Provider value={current.title}>
+          <PluginBody key={current.id} plugin={plugin} page={current.id} />
+        </PageTitle.Provider>
       ) : (
         <EmptyState
           icon={SearchX}
@@ -238,15 +241,13 @@ export function PluginTabs({ served, current }: { served: ServedPlugin; current?
   return (
     <LinkTabs label={plugin.label}>
       {pages.length > 0 ? (
-        // Its own pages, first and in its order: each marked as the plugin's, with whose it is.
+        // Its own pages, first and in its order: tabs as Lumovi's own are, words alone.
         pages.map((each) => (
           <LinkTab
             key={each.id}
             to={pluginPagePath(context, plugin.name, each.id)}
             active={current === `page:${each.id}`}
             label={each.title}
-            icon={<Plug aria-hidden className="size-3.5 shrink-0" />}
-            tooltip={`From the plugin ${plugin.label} ${plugin.version}`}
           />
         ))
       ) : (

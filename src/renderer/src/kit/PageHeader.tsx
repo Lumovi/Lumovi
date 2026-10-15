@@ -34,6 +34,7 @@ import { TheirText } from '@renderer/plugins/TheirText'
 import { menuContent, menuItem } from '../features/shell/menu-styles'
 import { fitKey, fromFitKey } from './fit-key'
 import { MiddleCut } from './MiddleCut'
+import { PageTitle } from './page-title'
 import { keyOf, Pill } from './Table'
 
 /**
@@ -429,6 +430,11 @@ export function PageHeader({
   const layout = useLayout()
   const phone = layout === 'phone'
   const namedAbove = useContext(NamedAbove)
+  // A name the page's tab and the bar say already isn't said again: its buttons stand alone.
+  const pageTitle = useContext(PageTitle)
+  const repeats =
+    pageTitle !== undefined &&
+    spelled(header.name.their).trim().toLowerCase() === pageTitle.trim().toLowerCase()
   const all = header.buttons ?? NO_BUTTONS
   // (One that goes to a place Lumovi doesn't have here isn't drawn: a forward on a server; on a
   // phone, a shell's joins the line that says where the changes are.)
@@ -459,7 +465,7 @@ export function PageHeader({
   const [fits, setFits] = useState<{ shown: number; split: boolean }>()
   // (What it's measured by, as one key: a page drawn anew with the same buttons isn't remeasured.)
   const drawnAs = fitKey(
-    spelled(header.name.their),
+    repeats ? '' : spelled(header.name.their),
     `${header.status?.word.their ?? ''} ${header.secondStatus?.word.their ?? ''}`,
     ordered.map((button) => {
       const busy = busyOf(button, held)
@@ -525,7 +531,7 @@ export function PageHeader({
     )
     return (
       <div role="group" aria-label={named} className="flex flex-col items-start gap-3">
-        {!namedAbove && (
+        {!namedAbove && !repeats && (
           <h2 className="w-full min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
             <MiddleCut text={header.name} />
           </h2>
@@ -562,7 +568,7 @@ export function PageHeader({
   // (The filled one, last; the rest by their places.)
   const variant = (index: number) =>
     shown[index] === filled ? 'primary' : index >= shown.length - 2 ? 'secondary' : 'ghost'
-  const heading = (
+  const heading = !repeats && (
     <h2 className="min-w-0 text-[17px] leading-6 font-semibold text-ink-1">
       <MiddleCut text={header.name} />
     </h2>

@@ -19,7 +19,7 @@ async function openKarpenter(page: Page, context: string = CONTEXTS.demo) {
   await page.reload()
   await openCluster(page, context)
   await sidebar(page).getByRole('link', { name: 'Karpenter', exact: true }).click()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Karpenter')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
 }
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
@@ -298,7 +298,7 @@ test('a cluster where Karpenter has nothing to do yet', async ({ page, clusters 
   await page.evaluate(() => {
     window.location.hash = '#/cluster/sandbox/plugins/karpenter'
   })
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Karpenter')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
   await expect(tile(page, 'Node pools ready')).toContainText('0/0All ready')
   await expect(tile(page, 'Nodes ready')).toContainText('0/00 of 0 on spot')
   await expect(tile(page, 'Launching')).toContainText('0No pods waiting')

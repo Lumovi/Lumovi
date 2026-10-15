@@ -27,7 +27,7 @@ spec:
     - { name: 'Open the toys’ capacity, week by week', page: capacity }
 `
 
-test('a plugin’s pages, its tab and its command on a phone: whose they are, said short', async ({
+test('a plugin’s pages, its tab and its command on a phone, framed as Lumovi’s own: what it may do in the palette', async ({
   page,
   serve,
 }) => {
@@ -36,9 +36,19 @@ test('a plugin’s pages, its tab and its command on a phone: whose they are, sa
   const served = await serve({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
   await signInNarrow(page, `${served.url}cluster/demo/plugins/toys`, DEMO_TOKEN)
   const body = page.locator('[data-plugin-body]')
-  // Whose it is, in a line a phone has room for.
-  await expect(body).toContainText('From the plugin Toys of the platform team 1.2.0.')
+  // No line on it says whose it is: what it may do is in the palette's Actions, Lumovi's own.
+  await expect(body).not.toContainText('From the plugin')
   await expect(body).not.toContainText('This page is', { useInnerText: true })
+  await page.getByRole('button', { name: 'Search' }).click()
+  const asks = page
+    .getByRole('dialog', { name: 'Command palette' })
+    .getByRole('group', { name: 'Actions' })
+    .getByRole('option', { name: 'What Toys of the platform team may do' })
+  await expect(asks).toBeVisible()
+  await page
+    .getByRole('dialog', { name: 'Command palette' })
+    .getByRole('button', { name: 'Close' })
+    .click()
   // (Toys comes with no code of its own: its page says so, in its place, as on any screen.)
   await expect(body.getByTestId('plugin-ended')).toContainText(
     'Its code isn’t part of this Lumovi.',
@@ -77,9 +87,7 @@ test('a plugin’s pages, its tab and its command on a phone: whose they are, sa
   )
   const widget = page.getByRole('complementary', { name: `Widget ${CUSTOM.widget}` })
   await widget.getByRole('tab', { name: 'Parts' }).click()
-  await expect(widget.locator('[data-plugin-body]')).toContainText(
-    'From the plugin Toys of the platform team 1.2.0.',
-  )
+  await expect(widget.locator('[data-plugin-body]')).not.toContainText('From the plugin')
   await expectNoSidewaysScroll(page, 'a plugin’s tab, on a phone')
   await expectFingerSized(page, 'a plugin’s tab, on a phone')
 })

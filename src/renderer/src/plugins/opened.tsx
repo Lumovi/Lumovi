@@ -22,8 +22,6 @@ export interface Opening {
   plugin: string
   name: string
   version: string
-  /** One of the person's own, from their own folder (Developer mode): its strip says so. */
-  yours?: boolean
   /** The cluster its reads are made in (none, and each is refused). */
   context: string
   /**
@@ -53,8 +51,6 @@ export interface Opening {
     proposal: PageProposal,
     handed: { digest: string; codeDigest: string },
   ) => Promise<ProposalOutcome>
-  /** Where its strip's "What it may do" goes. */
-  asks?: string
 }
 
 /**
@@ -82,9 +78,6 @@ export function Opened({ shown, onAgain }: { shown: Opening; onAgain: () => void
     return (
       <PluginFrame
         name={shown.name}
-        version={shown.version}
-        {...(shown.asks === undefined ? {} : { asks: shown.asks })}
-        yours={shown.yours === true}
         end={{ why: 'not-handed', refused: handed.refused }}
         onAgain={onAgain}
         onFault={() => undefined}
@@ -160,9 +153,6 @@ function Showing({
   return (
     <PluginFrame
       name={shown.name}
-      version={shown.version}
-      {...(shown.asks === undefined ? {} : { asks: shown.asks })}
-      yours={shown.yours === true}
       end={end}
       notices={notices}
       onRetry={page.retry}

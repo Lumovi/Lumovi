@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
-import { expect, hoverForTooltip, openCluster, panel, row, test } from './fixtures.ts'
+import { expect, openCluster, panel, row, test } from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 const heading = (page: Page) => page.getByRole('heading', { level: 1 })
@@ -69,7 +69,8 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   const nav = sidebar(page)
   const toys = nav.getByRole('link', { name: 'Toys', exact: true })
   await toys.click()
-  await expect(heading(page)).toHaveText('Toys')
+  // (The bar names the page that's open, as its tab does.)
+  await expect(heading(page)).toHaveText('Overview')
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/overview')
   // Its pages first, in its file's order, then its kinds' lists.
   const tabs = page.getByRole('navigation', { name: 'Toys' })
@@ -80,28 +81,28 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
     /^(Widgets|Databases)/,
   ])
   await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
-  await expect(body(page).getByTestId('plugin-whose')).toHaveText(
-    'This page is from the plugin Toys 1.2.0. Lumovi draws it from its own parts; what it shows and says is the plugin’s.\nWhat it may do →',
-    { useInnerText: true },
-  )
-  // What it may do: its entry on the Plugins page, open.
-  await expect(body(page).getByRole('link', { name: 'What it may do →' })).toHaveAttribute(
-    'href',
-    '#/cluster/demo/plugins?plugin=toys',
-  )
+  // The bar names the page as its tab does; nothing on the page says whose it is.
+  await expect(heading(page)).toHaveText('Overview')
+  await expect(body(page).getByText('This page is from')).toHaveCount(0)
+  // What it may do: in the bar's More, its entry on the Plugins page, open.
+  await page.locator('header').getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menuitem', { name: 'What Toys may do' }).click()
+  await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins?plugin=toys')
+  await page.goBack()
+  await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
   // (Toys comes with no code of its own: its page says so, in its place.)
   await expect(body(page).getByTestId('plugin-ended')).toContainText(
     'Its code isn’t part of this Lumovi.',
   )
-  // Each page's tab says whose it is.
+  // A page's tab is its words alone, as Lumovi's own tabs are.
   const capacity = tabs.getByRole('link', { name: 'Capacity' })
-  await hoverForTooltip(capacity, 'From the plugin Toys 1.2.0')
+  await expect(capacity.locator('svg')).toHaveCount(0)
   await capacity.click()
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/capacity')
   await expect(capacity).toHaveAttribute('aria-current', 'page')
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
+  await expect(heading(page)).toHaveText('Capacity')
   await expect(toys).toHaveClass(/font-medium/)
-  // A kind's list keeps the strip, the pages and all, and the entry stays current.
+  // A kind's list keeps the pages' tabs, and the entry stays current.
   await tabs.getByRole('link', { name: /^Widgets/ }).click()
   await expect(heading(page)).toHaveText('Widgets')
   await expect(tabs.getByRole('link', { name: 'Overview' })).toBeVisible()
@@ -120,7 +121,7 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/toys/overview')
   // The plugin's own address is its first page.
   await go(page, 'plugins/toys')
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
+  await expect(heading(page)).toHaveText('Overview')
   await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
 
   // And of one that has no pages at all: the same, and the way to its page of its kinds.
@@ -130,11 +131,10 @@ test('a plugin’s own pages: its entry opens the first, each a tab marked as th
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/flux')
   await expect(page.getByRole('navigation', { name: 'Flux' })).toBeVisible()
 
-  // A page and nothing else: no strip, the page under the title.
+  // A page and nothing else: no tabs, the page under the bar, which names it.
   await nav.getByRole('link', { name: 'Board', exact: true }).click()
-  await expect(heading(page)).toHaveText('Board')
+  await expect(heading(page)).toHaveText('Today')
   await expect.poll(() => address(page)).toBe('#/cluster/demo/plugins/board/today')
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Board 1.2.0')
   await expect(page.getByRole('navigation', { name: 'Board' })).toHaveCount(0)
   // One whose kinds aren't here: no entry, and its page's address says why there's nothing.
   await expect(nav.getByRole('link', { name: 'Lab', exact: true })).toHaveCount(0)
@@ -176,11 +176,9 @@ test('a plugin’s tab on an object of its kinds, after Lumovi’s own, and comm
   const names = await widget.getByRole('tab').allTextContents()
   expect(names.slice(-3)).toEqual(['Audit', 'Parts', 'YAML'])
   const parts = widget.getByRole('tab', { name: 'Parts' })
-  await hoverForTooltip(parts, 'From the plugin Toys 1.2.0')
+  // (Its words alone, as Lumovi's own tabs are.)
+  await expect(parts.locator('svg')).toHaveCount(0)
   await parts.click()
-  await expect(widget.locator('[data-plugin-body]').getByTestId('plugin-whose')).toContainText(
-    'Toys 1.2.0',
-  )
   await expect(widget.locator('[data-plugin-body]').getByTestId('plugin-ended')).toContainText(
     'Its code isn’t part of this Lumovi.',
   )
@@ -251,7 +249,7 @@ test('a plugin taken away while its page or its tab is open: each says so, where
   writeFileSync(join(folder, 'toys.yaml'), INCLUDED['toys.yaml'])
   await refresh()
   await sidebar(page).getByRole('link', { name: 'Toys', exact: true }).click()
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
+  await expect(heading(page)).toHaveText('Overview')
   // One's own file of its name, in use in its place, takes its pages away too: the page says so,
   // and the entry is that one's, leading to its page of its kinds.
   writeFileSync(join(own, 'toys.yaml'), OWN_TOYS)
@@ -266,7 +264,7 @@ test('a plugin taken away while its page or its tab is open: each says so, where
   rmSync(join(own, 'toys.yaml'))
   await refresh()
   await sidebar(page).getByRole('link', { name: 'Toys', exact: true }).click()
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
+  await expect(heading(page)).toHaveText('Overview')
   await tabs.getByRole('link', { name: /^Widgets/ }).click()
   await row(page, 'Widgets', CUSTOM.widget).getByRole('gridcell').nth(1).click()
   const widget = panel(page, 'Widget', CUSTOM.widget)

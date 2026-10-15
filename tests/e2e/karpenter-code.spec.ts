@@ -15,7 +15,7 @@ async function openKarpenter(page: Page) {
     .getByRole('navigation', { name: 'Resources' })
     .getByRole('link', { name: 'Karpenter', exact: true })
     .click()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Karpenter')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
 }
 const grid = (page: Page, name: string) => page.getByRole('grid', { name, exact: true })
 const go = (page: Page, hash: string) =>
@@ -27,7 +27,6 @@ test('Karpenter’s overview, drawn by its code: its tiles, its node pools again
   page,
 }) => {
   await openKarpenter(page)
-  await expect(page.getByTestId('plugin-whose')).toContainText('Karpenter')
   // What's ready, coming and going, a tile each.
   await expect(page.getByRole('region', { name: 'Node pools ready' })).toContainText('2/3')
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('2/3')
@@ -65,6 +64,5 @@ test('with its code turned off, Lumovi’s own overview of Karpenter stands in',
   // On again: its code's page, where it was.
   await page.evaluate(() => window.lumovi!.app.setPluginCode('karpenter', true))
   await page.reload()
-  await expect(page.getByTestId('plugin-whose')).toContainText('Karpenter')
   await expect(grid(page, 'Node pools')).toBeVisible()
 })

@@ -1,14 +1,14 @@
 /**
- * What's Lumovi's round a plugin's page, and never the plugin's: the strip that says whose the
- * page is, what Lumovi says of the page's reads (one failing, a list cut at Lumovi's limit), and
- * what stands in the page's place once it has ended. All are outside what a plugin's code
- * describes: nothing it sends can draw here, cover this or scroll it away.
+ * What's Lumovi's round a plugin's page, and never the plugin's: what Lumovi says of the page's
+ * reads (one failing, a list cut at Lumovi's limit), and what stands in the page's place once it
+ * has ended. All are outside what a plugin's code describes: nothing it sends can draw here,
+ * cover this or scroll it away. (Whose the page is, and what it may do, the bar's More says.)
  */
 import { Info, Lock, Plug } from 'lucide-react'
 import { Component, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { endedWords, type PageEnd } from '@shared/plugin-ended'
-import { SWITCHED_OFF, WAITING } from '@shared/plugin-hand-over'
+import { WAITING } from '@shared/plugin-hand-over'
 import { whose as whoseName } from '@shared/plugins'
 import { Button } from '@renderer/components/Button'
 import { StaleNotice } from '@renderer/components/States'
@@ -37,52 +37,6 @@ function CutLine({ cut }: { cut: NonNullable<ReadNotices['cut']> }) {
       <Info className="size-3.5 shrink-0 text-ink-3" aria-hidden />
       <span className="min-w-0 flex-1">{cutWords(cut)}</span>
     </p>
-  )
-}
-
-/**
- * The strip above a plugin's page: whose it is, and (where it's given `asks`) the way to what it
- * may do, its entry on the Plugins page. It stays while the page scrolls under it.
- */
-export function WhoseStrip({
-  name,
-  version,
-  asks,
-  yours = false,
-}: {
-  name: string
-  version: string
-  asks?: string
-  /** One of the person's own, from their own folder (Developer mode). */
-  yours?: boolean
-}) {
-  const whose = yours ? 'your plugin' : 'the plugin'
-  return (
-    <div
-      data-testid="plugin-whose"
-      className="@container flex min-h-9 shrink-0 items-center gap-2 border-b border-line bg-surface-2 py-1.5 pr-2 pl-4 text-[12px] leading-[18px] text-ink-2"
-    >
-      <Plug className="size-3.5 shrink-0 text-ink-3" aria-hidden />
-      {/* (A long name wraps; it's never cut. Narrow, as beside an open panel, it's said as on a
-      phone.) */}
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        <span className="@max-[40rem]:hidden phone:hidden">This page is from {whose} </span>
-        <span className="hidden @max-[40rem]:inline phone:inline">From {whose} </span>
-        <b className="font-semibold text-ink-1">{name}</b> {version}
-        <span className="@max-[40rem]:hidden phone:hidden">
-          {yours && ', from your own folder'}. Lumovi draws it from its own parts; what it shows and
-          says is the plugin’s.
-        </span>
-      </span>
-      {asks !== undefined && (
-        <Link
-          to={asks}
-          className="flex shrink-0 items-center rounded-md px-1.5 font-medium whitespace-nowrap text-ink-1 outline-none hover:bg-surface-3 focus-visible:bg-surface-3 phone:h-11"
-        >
-          What it may do →
-        </Link>
-      )}
-    </div>
   )
 }
 
@@ -205,22 +159,16 @@ export function WaitingPage({
  */
 export function PluginFrame({
   name,
-  version,
   end,
   notices = {},
   onRetry = () => undefined,
   onAgain,
   onFault,
-  asks,
   plugins,
-  yours = false,
   waiting,
   children,
 }: {
   name: string
-  version: string
-  /** One of the person's own, from their own folder (Developer mode): its strip says so. */
-  yours?: boolean
   /** Where its code waits for the person: its mark, and the way to agree. */
   waiting?: { icon?: ReactNode; onAgree?: () => void }
   /** Why the page ended, once it has. */
@@ -236,8 +184,6 @@ export function PluginFrame({
    * its worker with it). The picture alone going would leave a plugin's code running unseen.
    */
   onFault: () => void
-  /** Where the strip's "What it may do" goes: the plugin's entry on the Plugins page. */
-  asks?: string
   /** The way to its switch on the Plugins page, for a page whose code the person turned off. */
   plugins?: string
   children: ReactNode
@@ -250,15 +196,6 @@ export function PluginFrame({
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* (Turned off: nothing of the plugin is drawn, so nothing is said to be its.) */}
-      {!(end?.why === 'not-handed' && SWITCHED_OFF.has(end.refused)) && (
-        <WhoseStrip
-          name={name}
-          version={version}
-          yours={yours}
-          {...(asks === undefined ? {} : { asks })}
-        />
-      )}
       {!end && notices.stale !== undefined && (
         <StaleNotice error={{ message: notices.stale }} onRetry={onRetry} />
       )}

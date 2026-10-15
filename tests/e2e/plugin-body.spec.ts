@@ -164,7 +164,11 @@ test('a plugin’s page draws what its code reads with Lumovi’s Table, and a r
   const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included() } })
   await openCluster(page)
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins/toys/overview`)
-  await expect(body(page).getByTestId('plugin-whose')).toContainText('Toys 1.2.0')
+  // What it may do, Lumovi's bar says, in its More: no line on the page.
+  await page.locator('header').getByRole('button', { name: 'More' }).click()
+  await expect(page.getByRole('menuitem', { name: 'What Toys may do' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(body(page).getByText('This page is from')).toHaveCount(0)
   // Its widgets, as its code read them and said them: Lumovi's Table, a row a widget.
   const table = body(page).getByRole('grid', { name: 'Widgets' })
   const widget = table.getByRole('row', { name: `${CUSTOM.widget} default` })

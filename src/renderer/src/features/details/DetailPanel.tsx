@@ -10,7 +10,6 @@ import { barButton } from '@renderer/components/Sheet'
 import { KindIcon } from '@renderer/components/KindIcon'
 import { EmptyState, ErrorState, Loading, StaleNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
-import { Tooltip } from '@renderer/components/Tooltip'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { useObject } from '@renderer/hooks/queries'
 import { useResource } from '@renderer/hooks/resources'
@@ -360,17 +359,11 @@ export function DetailTabs({
     ...(MAPLESS.has(kind) ? [] : [{ value: 'map', label: 'Map' }]),
     ...(kind === 'Event' ? [] : [{ value: 'events', label: 'Events' }]),
     { value: 'audit', label: 'Audit' },
-    // (Before YAML, so YAML stays last wherever a person looks for it.)
-    ...[...pluginTabs, ...(gone ? [gone] : [])].map(({ plugin, tab: each, value }) => ({
+    // (Before YAML, so YAML stays last wherever a person looks for it. Words alone, as Lumovi's
+    // own tabs are: none can be called one of theirs.)
+    ...[...pluginTabs, ...(gone ? [gone] : [])].map(({ tab: each, value }) => ({
       value,
-      label: (
-        <Tooltip content={`From the plugin ${plugin.label} ${plugin.version}`}>
-          <span className="flex items-center gap-1.5">
-            <Plug aria-hidden className="size-3.5 shrink-0" />
-            {each.title}
-          </span>
-        </Tooltip>
-      ),
+      label: each.title,
     })),
     { value: 'yaml', label: 'YAML' },
     // A shell needs a keyboard, and a map more room than a phone has: neither is offered there.

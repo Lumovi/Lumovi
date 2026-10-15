@@ -568,7 +568,6 @@ test('a page that draws what reads like Lumovi’s dialog draws no dialog, and n
   await expect(body(page).getByText('What Lumovi will send')).toBeVisible()
   // (Lumovi's header, by its Back button: found the same while a dialog hides the page.)
   const header = page.locator('header:has(button[aria-label^="Back ("])')
-  const strip = body(page).getByTestId('plugin-whose')
   const drawn = body(page).getByTestId('plugin-surface')
   const dialog = page.getByRole('dialog')
   /** Whether anything of the plugin's page is the topmost thing at a point. */
@@ -582,20 +581,24 @@ test('a page that draws what reads like Lumovi’s dialog draws no dialog, and n
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.locator('dialog, [aria-modal]')).toHaveCount(0)
-  // All of it is in the plugin's rectangle, under the strip that says whose it is, and that is
-  // under Lumovi's header: across the header, nothing of the page is on top.
-  await expect(strip).toContainText('Tinker 1.0.0')
+  // All of it is in the plugin's rectangle, under Lumovi's header: across the header, its More
+  // (which says what the plugin may do) and all, nothing of the page is on top.
   await expect(async () => {
-    const [top, named, whole, parts] = await Promise.all(
-      [header, strip, body(page), drawn].map(placed),
-    )
+    const [top, whole, parts] = await Promise.all([header, body(page), drawn].map(placed))
     expect(top!.y + top!.height).toBeLessThanOrEqual(whole!.y)
-    expect(named!.y).toBeGreaterThanOrEqual(whole!.y)
-    expect(named!.y + named!.height).toBeLessThanOrEqual(parts!.y)
+    expect(parts!.y).toBeGreaterThanOrEqual(whole!.y)
     for (let x = top!.x + 2; x < top!.x + top!.width; x += 24) {
       expect(await pluginsAt({ x, y: top!.y + top!.height / 2 })).toBe(false)
     }
   }).toPass({ timeout: 10_000 })
+  await header.getByRole('button', { name: 'More' }).click()
+  await expect(page.getByRole('menuitem', { name: 'What Tinker may do' })).toBeVisible()
+  expect(
+    await page
+      .getByRole('menuitem', { name: 'What Tinker may do' })
+      .evaluate((el) => el.closest('[data-plugin-body]')),
+  ).toBeNull()
+  await page.keyboard.press('Escape')
   expect(
     await drawn.evaluate(
       (el) =>
@@ -783,8 +786,8 @@ test('a plugin’s words are drawn as text wherever its parts take them: no link
     return found
   })
   expect(made).toEqual([])
-  // The one link on it is Lumovi's own, in its strip.
-  await expect(body(page).getByRole('link')).toHaveText(['What it may do →'])
+  // No link on it at all: what it may do, Lumovi's bar says, outside it.
+  await expect(body(page).getByRole('link')).toHaveCount(0)
 })
 
 const POD = DEMO.pods.storefront[0]!
