@@ -119,7 +119,7 @@ docker buildx imagetools inspect ghcr.io/lumovi/lumovi:1.7.0 --format '{{ json .
 grype sbom:Lumovi-1.7.0.cdx.json
 ```
 
-An admission controller ([Kyverno](https://kyverno.io/docs/writing-policies/verify-images/),
+An admission controller ([Kyverno](https://kyverno.io/docs/policy-types/cluster-policy/verify-images/),
 [Sigstore's policy controller](https://docs.sigstore.dev/policy-controller/overview/)) can
 require the image's signature with the same identity and issuer. The image and the chart are
 signed twice, alike: as a Sigstore bundle (an OCI referrer, as cosign 3 signs), and with the

@@ -23,6 +23,13 @@ in your own cluster for your whole team to open in a browser.
 [**Download**](#desktop-app) · [**Install in a cluster**](#in-your-cluster) ·
 [**Documentation**](https://docs.lumovi.dev) · [**lumovi.dev**](https://lumovi.dev)
 
+| Where          | Install                                                                               |
+| -------------- | ------------------------------------------------------------------------------------- |
+| **macOS**      | `brew install --cask lumovi/tap/lumovi`                                               |
+| **Windows**    | [The installer](https://github.com/Lumovi/Lumovi/releases/latest) (`.exe`)            |
+| **Linux**      | [`.AppImage`, `.deb` or `.rpm`](https://github.com/Lumovi/Lumovi/releases/latest)     |
+| **Kubernetes** | `helm install lumovi oci://ghcr.io/lumovi/charts/lumovi -n lumovi --create-namespace` |
+
 </div>
 
 <picture>
