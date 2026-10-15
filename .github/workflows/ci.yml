@@ -403,8 +403,9 @@ jobs:
           merge-multiple: true
       # A run whose macOS ran only its smoke set, or that ran Linux alone, reached less than a full
       # one does, having lost nothing. What only the systems that didn't run here reach is taken
-      # from main's newest green run whose macOS ran in full (its nightly one, or one by hand), so
-      # that the gate judges like with like.
+      # from main's newest green run whose macOS ran in full (its nightly one, or one by hand), or
+      # for Linux alone, where none is kept, from its newest merge's: so that the gate judges like
+      # with like (scripts/borrow-coverage.ts).
       - name: What the systems that didn't run here reach, from main
         if: needs.changes.outputs.macos != 'full'
         env:
