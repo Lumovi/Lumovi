@@ -38,6 +38,11 @@ test('Argo CD’s Refresh, Sync and Delete, on an Application, still propose', a
   const opened = page.getByRole('complementary')
   await opened.getByRole('tab', { name: 'Argo CD' }).click()
   const header = opened.locator('[data-plugin-body]')
+  // Its header doesn't say the name the panel says above it, as Lumovi's own tabs don't: its
+  // statuses and buttons stay.
+  await expect(header.getByRole('button', { name: 'Sync…', exact: true })).toBeVisible()
+  await expect(opened.getByRole('heading', { name: 'storefront', exact: true })).toHaveCount(1)
+  await expect(header.getByRole('heading', { name: 'storefront', exact: true })).toHaveCount(0)
   for (const name of ['Refresh…', 'Sync…']) {
     await proposes(page, name, header.getByRole('button', { name, exact: true }))
   }
