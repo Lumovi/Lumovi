@@ -135,16 +135,30 @@ export function Timeline({
   const timeAt = (px: number) => start + (Math.max(0, Math.min(plot, px)) / plot) * (end - start)
   const { ticks, step } = timeTicks(start, end, Math.max(2, Math.floor(plot / 90)))
 
-  // The mark the pointer or the keys are on: its row, and which of the row's events; and, where
-  // the pointer is on a mark of several, all it holds (its card lists them).
-  const [active, setActive] = useState<{
-    row: number
-    step: number
+  // The mark the pointer or the keys are on: its row by its key, and its event by its own (rows
+  // and events come and go, and with them where each is); and, where the pointer is on a mark of
+  // several, all it holds (its card lists them).
+  const [pointed, setActive] = useState<{
+    key: string
+    one: string
     by: 'keys' | 'pointer'
     ones?: Happened[]
   }>()
+  // A zoom (a pile pressed, a drag, Reset zoom, the range's buttons) draws every row again: what
+  // was pointed at is let go, rather than said of what's there now.
+  const shown = JSON.stringify(selection)
+  const [pointedIn, setPointedIn] = useState(shown)
+  if (pointedIn !== shown) {
+    setPointedIn(shown)
+    setActive(undefined)
+  }
+  // Where its row is now, and its event in the row, if they're still shown.
+  const pointedRow = pointed ? shownRows.findIndex((row) => row.key === pointed.key) : -1
+  const activeSteps = pointedRow >= 0 ? stepsOf(shownRows[pointedRow]!, start, end) : []
+  const pointedStep = pointed ? activeSteps.findIndex((one) => idOf(one) === pointed.one) : -1
+  const active =
+    pointed && pointedStep >= 0 ? { ...pointed, row: pointedRow, step: pointedStep } : undefined
   const activeRow = active ? shownRows[active.row] : undefined
-  const activeSteps = activeRow ? stepsOf(activeRow, start, end) : []
   const activeOne = active ? activeSteps[active.step] : undefined
   const tooltipId = useId()
   const gridId = useId()
@@ -194,27 +208,24 @@ export function Timeline({
               Math.abs(one.first - time) < Math.abs(steps[best]!.first - time) ? i : best,
             0,
           )
-    setActive({ row, step: nearest, by: 'keys' })
+    setActive({ key: shownRows[row]!.key, one: idOf(steps[nearest]!), by: 'keys' })
     if (inView) virtualizer.scrollToIndex(row)
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // (Keys on a row's name are the name's: Enter opens the object.)
     if (event.target !== event.currentTarget || shownRows.length === 0) return
-    const at = active ?? { row: 0, step: 0 }
+    const at = active ?? { key: shownRows[0]!.key, row: 0, step: 0 }
     const steps = stepsOf(shownRows[at.row]!, start, end)
     const time = steps[at.step]?.first
+    /** The keys on the row's `step`th event. */
+    const keysOn = (step: number) => setActive({ ...at, one: idOf(steps[step]!), by: 'keys' })
     const moves: Record<string, () => void> = {
       ArrowDown: () => keysTo(Math.min(shownRows.length - 1, at.row + (active ? 1 : 0)), time),
       ArrowUp: () => keysTo(Math.max(0, at.row - (active ? 1 : 0)), time),
-      ArrowRight: () =>
-        setActive({
-          ...at,
-          step: Math.min(steps.length - 1, at.step + (active ? 1 : 0)),
-          by: 'keys',
-        }),
-      ArrowLeft: () => setActive({ ...at, step: Math.max(0, at.step - 1), by: 'keys' }),
-      Home: () => setActive({ ...at, step: 0, by: 'keys' }),
-      End: () => setActive({ ...at, step: steps.length - 1, by: 'keys' }),
+      ArrowRight: () => keysOn(Math.min(steps.length - 1, at.step + (active ? 1 : 0))),
+      ArrowLeft: () => keysOn(Math.max(0, at.step - 1)),
+      Home: () => keysOn(0),
+      End: () => keysOn(steps.length - 1),
       Enter: () => activeOne && onOpenEvent(activeOne.event),
       Escape: () => setActive(undefined),
     }
@@ -303,8 +314,8 @@ export function Timeline({
               keys={active?.by === 'keys'}
               onPoint={(one, ones) =>
                 setActive({
-                  row: index,
-                  step: stepsOf(row, start, end).indexOf(one),
+                  key: row.key,
+                  one: idOf(one),
                   by: 'pointer',
                   ones,
                 })
@@ -489,6 +500,9 @@ export function Timeline({
     </div>
   )
 }
+
+/** Which event a step is, whatever else comes before it. */
+const idOf = (one: Happened) => one.event.metadata.uid ?? one.event.metadata.name
 
 const markKey = (mark: Mark) =>
   mark.is === 'together' || mark.is === 'pile'
