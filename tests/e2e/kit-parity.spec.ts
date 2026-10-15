@@ -29,13 +29,20 @@ const PARTS = {
 type Part = keyof typeof PARTS
 type Seen = Partial<Record<Part, Record<string, string> | 'missing'>>
 
+/**
+ * A colour as it's compared: any with nothing of it showing (an alpha of 0, in whichever notation
+ * the browser ends a transition in: rgba(… 0), oklab(… / 0)) is transparent.
+ */
+const colour = (value: string) =>
+  value === 'transparent' || /^rgba\(.*,\s*0\)$|\/\s*0\)$/.test(value) ? 'transparent' : value
+
 /** A part's computed styles, or that it isn't there. (Its height is the box's, as drawn.) */
 async function styled(
   part: Locator,
   props: readonly string[],
 ): Promise<Record<string, string> | 'missing'> {
   if ((await part.count()) === 0) return 'missing'
-  return part.first().evaluate((el, props) => {
+  const seen = await part.first().evaluate((el, props) => {
     const style = getComputedStyle(el)
     const box = el.getBoundingClientRect()
     const out: Record<string, string> = {}
@@ -47,6 +54,7 @@ async function styled(
     }
     return out
   }, props)
+  return Object.fromEntries(Object.entries(seen).map(([prop, value]) => [prop, colour(value)]))
 }
 
 /** The background a row settles on, once a change of it has run its course. */
@@ -60,7 +68,7 @@ async function settled(row: Locator): Promise<string> {
       return same
     })
     .toBe(true)
-  return last
+  return colour(last)
 }
 
 /** Every part of a list on the page shown: its grid, the bar above it and the pager below. */
@@ -71,6 +79,9 @@ async function parts(page: Page, grid: Locator): Promise<Seen> {
   }
   const rows = grid.getByRole('row').filter({ has: page.getByRole('gridcell') })
   await look('a header cell', grid.getByRole('columnheader').filter({ hasText: /^Name/ }))
+  // At rest: the pointer on no row, and the row's background done changing.
+  await page.mouse.move(0, 0)
+  await settled(rows.nth(1))
   await look('a row', rows.nth(1))
   // Hovered by the pointer, not by a class put on it.
   await rows.nth(2).hover()
