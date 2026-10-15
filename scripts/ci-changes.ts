@@ -79,15 +79,17 @@ export const alikeOnEverySystem = (path: string) =>
 /**
  * A file's text that asks which system it's on (anything's `.platform`, a system's name, the
  * shortcut key that differs by it), or reaches for what differs by system (the home folder, a
- * path's separators, starting a process, Windows' own folders and programs): run on every
- * system, wherever it is.
+ * path's separators, starting a process, Windows' own folders): run on every system, wherever it
+ * is. (Not a program's `.exe`: in these files it's only ever a test's or a sample's text, and
+ * Windows' own programs are started from src/main and src/backend, which run every system.)
  */
 export const NAMES_A_SYSTEM =
-  /\.platform\b|userAgentData|\bMOD_KEY\b|\bisMac\b|\bisWindows\b|'(darwin|win32|linux)'|\bhomedir\b|\bdelimiter\b|\bsep\b|child_process|\bspawn\b|\bexecFile|USERPROFILE|APPDATA|\.exe\b/
+  /\.platform\b|userAgentData|\bMOD_KEY\b|\bisMac\b|\bisWindows\b|'(darwin|win32|linux)'|\bhomedir\b|\bdelimiter\b|\bsep\b|child_process|\bspawn\b|\bexecFile|USERPROFILE|APPDATA/
 
 /**
  * Of the files changed, those whose text names a system (NAMES_A_SYSTEM): as each is now, or, for
- * one taken away, as it was (`textOf` gives a file's text, or nothing where there's none).
+ * one taken away, as it was (`textOf` gives a file's text, or nothing where there's none). A file
+ * with no text to read, now or before, is taken to name one: what can't be read runs everything.
  */
 export function namingASystem(
   changed: string[],
@@ -95,7 +97,7 @@ export function namingASystem(
 ): string[] {
   return changed.filter((path) => {
     const text = textOf(path, 'now') ?? textOf(path, 'before')
-    return text !== undefined && NAMES_A_SYSTEM.test(text)
+    return text === undefined || NAMES_A_SYSTEM.test(text)
   })
 }
 

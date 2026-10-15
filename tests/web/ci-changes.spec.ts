@@ -158,12 +158,17 @@ test('every system runs for a file that asks which system it’s on, the harness
     "import { spawn } from 'node:child_process'",
     'execFileSync(command, args)',
     'process.env.APPDATA',
-    "'helm.exe'",
   ]) {
     expect(NAMES_A_SYSTEM.test(text), text).toBe(true)
   }
   expect(NAMES_A_SYSTEM.test("const platform = 'phone'")).toBe(false)
   expect(NAMES_A_SYSTEM.test('a list of pods, filtered')).toBe(false)
+  // A program's name is a test's or a sample's text there: Windows' own are started from src/main
+  // and src/backend, which run every system by where they are.
+  expect(NAMES_A_SYSTEM.test("'invoice-\u202efdp.exe'")).toBe(false)
+  for (const file of ['tests/e2e/kit-table.spec.ts', 'src/renderer/src/kit/KitPage.tsx']) {
+    expect(NAMES_A_SYSTEM.test(readFileSync(file, 'utf8')), file).toBe(false)
+  }
   // The app's own files that ask, each in its own way.
   for (const file of [
     'src/renderer/src/components/Kbd.tsx',
@@ -181,9 +186,11 @@ test('every system runs for a file that asks which system it’s on, the harness
     'src/renderer/c.ts': { now: 'a list' },
     'src/renderer/never.ts': {},
   }
+  // (And one with no text to read at all is taken to name one: what can't be read runs everything.)
   expect(namingASystem(Object.keys(texts), (path, at) => texts[path]![at])).toEqual([
     'src/renderer/a.ts',
     'src/renderer/gone.ts',
+    'src/renderer/never.ts',
   ])
 })
 
