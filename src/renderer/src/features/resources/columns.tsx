@@ -4,6 +4,7 @@ import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
 import { inPieces, spelled } from '@shared/kit/characters'
 import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
+import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { StatusPill } from '@renderer/components/Status'
 import { Tail } from '@renderer/components/Tail'
 import { cn } from '@renderer/lib/cn'
@@ -39,6 +40,11 @@ export interface Column {
   headerTip?: ReactNode
   /** A header that's a key's whole name is cut in its middle, where keys differ, not at its end. */
   headerCut?: 'middle'
+  /**
+   * Drawn at its least, where the list has no room for more: the status as its pill's icon, its
+   * heading's word heard (and in its title) but not shown, its arrow where it's sorted by.
+   */
+  narrowed?: true
   /** CSS grid track size. */
   width: string
   align?: 'right'
@@ -143,7 +149,8 @@ export const nameColumn = (showNamespace: boolean): Column => ({
   namespaced: showNamespace,
   cell: (o) => (
     <span className="flex min-w-0 flex-col">
-      <span className="truncate font-medium text-ink-1">{o.metadata.name}</span>
+      {/* (Cut in its middle: what tells one pod of a ReplicaSet from the next is its end.) */}
+      <MiddleTruncate text={o.metadata.name} className="font-medium text-ink-1" />
       {showNamespace && <span className="truncate text-xs text-ink-3">{o.metadata.namespace}</span>}
     </span>
   ),
@@ -158,7 +165,8 @@ export const statusColumn = (kind: ResourceKind): Column => ({
   cell: (o) => {
     const status = statusOf(kind, o)
     return (
-      <span title={status.detail} className="min-w-0">
+      // (Its own width, so that where the column is narrowed to it the pill is its icon alone.)
+      <span title={status.detail ?? status.label} className="@container min-w-0 flex-1">
         <StatusPill status={status} />
       </span>
     )

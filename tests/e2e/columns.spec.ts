@@ -721,7 +721,10 @@ test('a column the cluster says is a number writes a number as it is; text is te
   await saveAs(app, file)
   await openCluster(page)
   await go(page, '#/cluster/demo/r/Gadget.example.com?namespaces=shop')
-  await expect(page.getByRole('grid', { name: 'Gadgets' }).getByText('worded')).toBeVisible()
+  // (The name's whole, which its cut copy is drawn over.)
+  await expect(
+    page.getByRole('grid', { name: 'Gadgets' }).getByText('worded', { exact: true }).first(),
+  ).toBeVisible()
   await button(page).click()
   await menu(page).getByRole('button', { name: 'Download CSV' }).click()
   await expect(toasts(page)).toContainText('Saved gadgets.csv')

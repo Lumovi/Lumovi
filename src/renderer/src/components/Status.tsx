@@ -68,7 +68,8 @@ export function StatusPill({ status, className }: { status: Status; className?: 
     <span
       data-health={status.health}
       className={cn(
-        'inline-flex h-[22px] max-w-full items-center gap-1 rounded-full pr-2 pl-1.5 text-xs font-medium',
+        // (Where its cell is narrowed to it, by a list without room: its icon alone, in its colour.)
+        'inline-flex h-[22px] max-w-full items-center gap-1 rounded-full pr-2 pl-1.5 text-xs font-medium @max-[48px]:gap-0 @max-[48px]:pr-1.5',
         style.soft,
         style.text,
         className,
@@ -78,7 +79,7 @@ export function StatusPill({ status, className }: { status: Status; className?: 
         className={cn('size-3.5 shrink-0', status.health === 'progressing' && 'animate-turn')}
         strokeWidth={2.25}
       />
-      <span className="truncate" title={status.label}>
+      <span className="truncate @max-[48px]:sr-only" title={status.label}>
         {status.label}
       </span>
     </span>

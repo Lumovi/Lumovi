@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useSearchParams } from 'react-router'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { Health } from '@renderer/lib/health'
@@ -66,4 +67,26 @@ export function useListState(
     )
 
   return [state, update]
+}
+
+/**
+ * An order the address asks for that the list can't sort by (a column it doesn't have, or one that
+ * doesn't sort) is taken out of the address too, so that a link to the list stays clean: it's
+ * sorted as by default all the same. `sorted` is the column it's sorted by, once the list knows
+ * its columns (a custom kind's come with its rows); until then, nothing is taken out.
+ */
+export function useSortTidied(sorted: string | undefined): void {
+  const [params] = useSearchParams()
+  const updateParams = useUpdateParams()
+  const asked = params.get('sort')
+  useEffect(() => {
+    if (sorted === undefined || asked === null || asked === sorted) return
+    updateParams(
+      (next) => {
+        next.delete('sort')
+        next.delete('desc')
+      },
+      { replace: true },
+    )
+  }, [asked, sorted, updateParams])
 }

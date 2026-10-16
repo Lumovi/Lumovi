@@ -22,7 +22,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
 import { useListColumns } from '../resources/ColumnsMenu'
 import { sortedBy, sortRows, withManagedBy, type CellContext } from '../resources/columns'
-import { useListState } from '../resources/list-state'
+import { useListState, useSortTidied } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
 import { ResourceTable } from '../resources/ResourceTable'
@@ -108,6 +108,7 @@ export function WorkloadsPage() {
   const shown = chosen.columns
   const needle = state.q.trim().toLowerCase()
   const { column, desc } = sortedBy(shown, state, 'status', columns)
+  useSortTidied(all.every(([, q]) => q.data !== undefined) ? column.id : undefined)
   const matching = workloads
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),
