@@ -58,6 +58,8 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'kube.get': 'reads',
   // (Some of a Secret's values, picked by key where it's read: a read, as a get is.)
   'kube.secretValues': 'reads',
+  // (What a Secret's certificates say, read by the backend: a read, as a get is.)
+  'kube.certificates': 'reads',
   'kube.pluginRead': 'reads',
   'kube.pluginLogs': 'reads',
   'kube.pluginEvents': 'reads',

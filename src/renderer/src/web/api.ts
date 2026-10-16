@@ -159,6 +159,7 @@ export function createWebApi(): LumoviApi {
       list: invoke(IPC.list),
       get: invoke(IPC.get),
       secretValues: invoke(IPC.secretValues),
+      certificates: invoke(IPC.certificates),
       pluginRead: invoke(IPC.pluginRead),
       pluginLogs: invoke(IPC.pluginLogs),
       pluginEvents: invoke(IPC.pluginEvents),

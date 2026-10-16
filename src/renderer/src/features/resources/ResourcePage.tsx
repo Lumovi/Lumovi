@@ -28,6 +28,7 @@ import { useResource } from '@renderer/hooks/resources'
 import { usePlugins } from '@renderer/hooks/plugins'
 import type { KubeApiError } from '@renderer/lib/api'
 import { namespacesParam, readOf, scopeOf } from '@renderer/lib/namespaces'
+import { certificateLevel } from '@renderer/lib/certificates'
 import { hasHealth, healthName, statusFor, statusOf, type Health } from '@renderer/lib/health'
 import { fieldValue, listedPlugins, viewFor } from '@renderer/lib/plugins'
 import { pinnable } from '@renderer/lib/marks'
@@ -201,12 +202,15 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   )
 
   const open = useOpenObject()
+  // Secrets': what their certificates say, as the list read them.
+  const certificates = kind === 'Secret' ? response.data?.certificates : undefined
   const ctx: CellContext = {
     // Ages are relative to the last refresh, which keeps rendering pure.
     now: list.dataUpdatedAt,
     open,
     cells,
     managers,
+    certificates,
     metrics: metrics.data?.available
       ? new Map(
           metrics.data.items.map((sample) => [metricsKey(sample.namespace, sample.name), sample]),
@@ -214,7 +218,16 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
       : undefined,
   }
 
-  const counts = countBy(withHealth ? items : [], (object) => statusOf(kind, object).health)
+  // An object's level, as its list's chips count it: a Secret's is its certificate's, where it's
+  // flagged (one not yet valid in the place a list's "in progress" has), and none else.
+  const levelOf = (object: KubeObject): Health | undefined =>
+    kind === 'Secret'
+      ? certificateLevel(certificates?.[objectKey(object)], ctx.now)
+      : statusOf(kind, object).health
+  const counts = countBy(
+    withHealth || kind === 'Secret' ? items.filter((object) => levelOf(object)) : [],
+    (object) => levelOf(object)!,
+  )
   // The columns as the person chose them for this kind in this cluster.
   const chosen = useListColumns({
     list: kind,
@@ -252,7 +265,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
   const { column, desc } = sortedBy(shown, state, defaultSort, columns)
   useSortTidied(list.data ? column.id : undefined)
   const matching = items
-    .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
+    .filter((o) => state.health.length === 0 || state.health.includes(levelOf(o)!))
     .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))
   const rows = sortRows(matching, column, desc, ctx)
   const pages = Math.max(1, Math.ceil(rows.length / state.size))

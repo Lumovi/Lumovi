@@ -745,7 +745,47 @@ export interface KubeList {
    * columns the API server prints for them, like `kubectl get`, and each item's cells.
    */
   table?: { columns: TableColumn[]; cells: unknown[][] }
+  /**
+   * Secrets': what the certificates in each one's values say, by `namespace/name`, for those
+   * whose values the person may see (and only those holding a certificate).
+   */
+  certificates?: Record<string, CertificateSummary[]>
 }
+
+/**
+ * What the certificates in a Secret's value say (LMV-194): read by the backend, where the person
+ * may see the Secret's values, and nothing of the value itself, nor of any key. A value of
+ * certificates that don't chain (a bundle of roots) says only how many; one Lumovi couldn't read
+ * says only that.
+ */
+export type CertificateSummary =
+  | { key: string; as: 'unreadable' }
+  | {
+      key: string
+      as: 'bundle'
+      /** How many certificates it holds; at least that many, where it's longer than was read. */
+      count: number
+      atLeast?: true
+    }
+  | {
+      key: string
+      as: 'certificate'
+      /** Its subject's common name, and the rest of its subject as written (`O=…, C=…`). */
+      subject: { commonName?: string; rest?: string }
+      issuer: { commonName?: string; organization?: string }
+      /** Issued by its subject itself. */
+      selfSigned: boolean
+      /** The names it's for: DNS names, then IP addresses (the first of them, see `moreNames`). */
+      names: string[]
+      moreNames: number
+      /** When it's valid from and until, as ISO times. */
+      notBefore: string
+      notAfter: string
+      /** How many more certificates follow it in the value (its chain). */
+      chain: number
+      /** The one of those that's valid the shortest, where it ends before this one does. */
+      chainEnds?: { commonName?: string; notAfter: string }
+    }
 
 /** A column the API server computes for a list (its Table output). */
 export interface TableColumn {
@@ -946,6 +986,13 @@ export interface ListQuery {
   namespace?: string
   labelSelector?: string
   fieldSelector?: string
+}
+
+/** One Secret, for what the certificates in its values say. */
+export interface CertificatesQuery {
+  context: string
+  namespace: string
+  name: string
 }
 
 export interface GetQuery {
@@ -1480,6 +1527,11 @@ export interface LumoviApi {
     /** Some of a Secret's values, picked by key where it's read: the rest never reach the page. */
     secretValues(query: SecretValuesQuery): Promise<Result<SecretValues>>
     /**
+     * What the certificates in a Secret's values say, read by the backend: none where the person
+     * may see only its keys, and nothing of a value.
+     */
+    certificates(query: CertificatesQuery): Promise<Result<CertificateSummary[]>>
+    /**
      * A read for a plugin's page: made, checked against the plugin's file and picked where it's
      * read, so the page holds only what the plugin may have. A refusal is a code, never what
      * the cluster said.
@@ -1930,6 +1982,7 @@ export const IPC = {
   list: 'kube:list',
   get: 'kube:get',
   secretValues: 'kube:secret-values',
+  certificates: 'kube:certificates',
   pluginRead: 'kube:plugin-read',
   pluginLogs: 'kube:plugin-logs',
   pluginEvents: 'kube:plugin-events',

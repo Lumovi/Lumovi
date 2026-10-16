@@ -41,6 +41,8 @@ const TESTS_ONLY = [
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',
+  // How many failed reads of a Secret's certificates the tests' build asks again for.
+  '__lumoviCertificatePolls',
   // And the box they open with nothing taken away by the worker's first lines: by its name,
   // by what makes its worker's text, and by that text's own first line.
   'openBoxBare',
