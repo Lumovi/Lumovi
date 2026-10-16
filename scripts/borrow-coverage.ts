@@ -271,7 +271,9 @@ export async function judgeRuns<T>(
       const { names, jobs } = await ask(run)
       return { run, fit: fitOf(names, jobs) }
     } catch (error) {
-      skipped.push({ run, why: (error as Error).message.split('\n')[0]! })
+      // (All of what it said, on one line: the first alone is only which command failed.)
+      const said = (error as Error & { stderr?: string }).stderr?.trim() || (error as Error).message
+      skipped.push({ run, why: said.replace(/\s+/g, ' ').slice(0, 500) })
       return { run, fit: undefined }
     }
   })
@@ -309,9 +311,10 @@ if (import.meta.main) {
           ...['api', `repos/${repo}/actions/runs/${run.databaseId}/artifacts?per_page=100`],
           ...['--jq', '.artifacts[] | select(.expired | not) | .name'],
         ),
+        // (The jobs API itself, which the job's token may read: `gh run view` asks more of it.)
         ghLater(
-          ...['run', 'view', String(run.databaseId), '--repo', repo],
-          ...['--json', 'jobs', '--jq', '.jobs[].name'],
+          ...['api', `repos/${repo}/actions/runs/${run.databaseId}/jobs?per_page=100`],
+          ...['--jq', '.jobs[].name'],
         ),
       ])
       return { names: names.split('\n'), jobs: jobs.split('\n') }

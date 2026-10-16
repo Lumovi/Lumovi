@@ -694,10 +694,18 @@ test('a run of main that doesn’t answer is skipped and said; the others are st
   // The newest, a nightly, doesn't answer; a merge, and an older nightly, do.
   const runs = ['newest nightly', 'merge', 'older nightly']
   const { judged, skipped } = await judgeRuns(runs, async (run) => {
-    if (run === 'newest nightly') throw new Error('Command failed: gh run view 1\nmore')
+    // (As gh fails: the command in the message, the API's own words on stderr.)
+    if (run === 'newest nightly') {
+      throw Object.assign(new Error('Command failed: gh api repos/x/actions/runs/1/jobs'), {
+        stderr: 'gh: Resource not accessible by integration\n(HTTP 403)\n',
+      })
+    }
     return { names: run === 'merge' ? merge : full, jobs }
   })
-  expect(skipped).toEqual([{ run: 'newest nightly', why: 'Command failed: gh run view 1' }])
+  // All of what it said, on one line.
+  expect(skipped).toEqual([
+    { run: 'newest nightly', why: 'gh: Resource not accessible by integration (HTTP 403)' },
+  ])
   expect(judged.map(({ run, fit }) => [run, fit?.full])).toEqual([
     ['newest nightly', undefined],
     ['merge', false],
@@ -707,8 +715,9 @@ test('a run of main that doesn’t answer is skipped and said; the others are st
   expect(pick(judged, true)?.run).toBe('older nightly')
   expect(pick(judged, false)?.run).toBe('older nightly')
   // None answering: nothing to borrow from, said by the choice, never thrown.
-  const none = await judgeRuns(runs, () => Promise.reject(new Error('down')))
+  const none = await judgeRuns(runs, () => Promise.reject(new Error('down\nand out')))
   expect(none.skipped).toHaveLength(3)
+  expect(none.skipped[0]!.why).toBe('down and out')
   expect(pick(none.judged, false)).toBeUndefined()
 })
 
