@@ -53,7 +53,7 @@ import {
 import { SearchInput } from '@renderer/components/SearchInput'
 import { atOne, atOneEmpty, AtOneNote, clearAtOne, nameSelector } from './AtOne'
 import { useListColumns } from './ColumnsMenu'
-import { useListState } from './list-state'
+import { useListState, useSortTidied } from './list-state'
 import {
   countBy,
   HealthChips,
@@ -250,6 +250,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
 
   const needle = state.q.trim().toLowerCase()
   const { column, desc } = sortedBy(shown, state, defaultSort, columns)
+  useSortTidied(list.data ? column.id : undefined)
   const matching = items
     .filter((o) => state.health.length === 0 || state.health.includes(statusOf(kind, o).health))
     .filter((o) => !needle || searchText(o, shownValues(o)).includes(needle))

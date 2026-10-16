@@ -1,4 +1,5 @@
 import type { Locator } from '@playwright/test'
+import { RESOURCES } from '../../src/shared/resources.ts'
 import {
   panel,
   clipboardText,
@@ -159,7 +160,7 @@ test('the list is driven by the keyboard', async ({ page }) => {
   await expect(panel(page, 'Deployment', DEMO.deployments.checkout)).toBeVisible()
 })
 
-test('a link sorted by a column that doesn’t sort, or isn’t there, lists as usual', async ({
+test('a link sorted by a column that doesn’t sort, or isn’t there, lists as usual, and the address loses it', async ({
   page,
 }) => {
   await openCluster(page)
@@ -174,13 +175,23 @@ test('a link sorted by a column that doesn’t sort, or isn’t there, lists as 
     await page.evaluate((sort) => {
       window.location.hash = `${window.location.hash.split('?')[0]}?sort=${sort}&desc=1`
     }, sort)
-    await expect(page).toHaveURL(new RegExp(`sort=${sort}`))
+    // (A link from the list stays clean: its order and its direction are gone from it.)
+    await expect.poll(() => page.evaluate(() => window.location.hash)).not.toMatch(/sort=|desc=/)
     await expect(status).toHaveAttribute('aria-sort', 'ascending')
     expect(await rows(page, 'Pods').allInnerTexts()).toEqual(usual)
   }
   // Its header sorts it the other way, as if the link hadn't asked.
   await status.getByRole('button').click()
   await expect(status).toHaveAttribute('aria-sort', 'descending')
+  // One it sorts by stays, as it's asked.
+  await page.evaluate(() => {
+    window.location.hash = `${window.location.hash.split('?')[0]}?sort=restarts&desc=1`
+  })
+  const restarts = page.getByRole('grid', { name: 'Pods' }).getByRole('columnheader', {
+    name: 'Restarts',
+  })
+  await expect(restarts).toHaveAttribute('aria-sort', 'descending')
+  expect(await page.evaluate(() => window.location.hash)).toMatch(/sort=restarts&desc=1/)
 })
 
 test('headers and the label selector show whole at the default window, beside the panel too', async ({
@@ -264,6 +275,47 @@ test('rows have a context menu', async ({ page }) => {
     .toBe(`kubectl describe node/${DEMO.nodes.worker1} --context ${CONTEXTS.demo}`)
 })
 
+test('no list scrolls sideways, at 1024 and 1440, beside the panel or not; its headings’ band hides what scrolls under it', async ({
+  launch,
+}) => {
+  test.slow()
+  for (const width of [1024, 1440]) {
+    const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: `${width}x900` }, fullLayout: false })
+    await openCluster(page)
+    const lists: string[] = []
+    for (const resource of RESOURCES) {
+      await page.evaluate(
+        ([context, plural]) => {
+          window.location.hash = `#/cluster/${context}/${plural}`
+        },
+        [CONTEXTS.demo, resource.plural],
+      )
+      const grid = page.getByRole('grid').first()
+      await expect(grid.getByRole('row').nth(1)).toBeVisible()
+      lists.push(resource.plural)
+      const sideways = () => grid.evaluate((at) => at.scrollWidth > at.clientWidth)
+      await expect.poll(sideways, { message: `${resource.plural} at ${width}` }).toBe(false)
+      await grid.getByRole('row').nth(1).click()
+      await expect(
+        page.getByRole('complementary').filter({ has: page.getByRole('tablist') }),
+      ).toBeVisible()
+      await expect
+        .poll(sideways, { message: `${resource.plural} at ${width}, beside the panel` })
+        .toBe(false)
+    }
+    expect(lists).toContain('pods')
+    // The headings' band is wholly opaque, with no blur: nothing scrolled under it shows.
+    const band = page.getByRole('grid').first().getByRole('rowgroup').first()
+    const drawn = await band.evaluate((at) => {
+      const { backgroundColor, backdropFilter } = getComputedStyle(at)
+      const alpha = /rgba\([^)]*,\s*([\d.]+)\)|\/\s*([\d.]+)\s*\)/.exec(backgroundColor)
+      return { alpha: alpha ? Number(alpha[1] ?? alpha[2]) : 1, backdropFilter }
+    })
+    expect(drawn).toEqual({ alpha: 1, backdropFilter: 'none' })
+    await page.close()
+  }
+})
+
 test('narrow tables drop the least important columns', async ({ launch }) => {
   const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: '1024x700' }, fullLayout: false })
   await openCluster(page)
@@ -273,6 +325,24 @@ test('narrow tables drop the least important columns', async ({ launch }) => {
   await row(page, 'Pods', DEMO.pods.debugShell).click()
   // The first column holds the row checkboxes. (The pins' column, which gives way first, is gone.)
   await expect(headers).toHaveText(['', 'Name', 'Status'])
+  // Status, narrowed to its icon: its heading named, its word not drawn; its pills their icons,
+  // each still saying its word.
+  const status = page
+    .getByRole('grid', { name: 'Pods' })
+    .getByRole('columnheader', { name: 'Status' })
+  await expect(status.getByText('Status')).toHaveClass(/sr-only/)
+  const pill = row(page, 'Pods', DEMO.pods.debugShell).locator('[data-health]')
+  // (Its word is still there, for a screen reader: not drawn.)
+  await expect(pill).toHaveText(/\S/)
+  expect(await pill.evaluate((at) => at.getBoundingClientRect().width)).toBeLessThanOrEqual(28)
+  // Names cut in their middle: the pods of one ReplicaSet stay apart by their ends.
+  const names = await page
+    .getByRole('grid', { name: 'Pods' })
+    .getByRole('row')
+    .filter({ hasText: 'checkout' })
+    .evaluateAll((all) => all.map((each) => (each as HTMLElement).innerText.split('\n')[0]))
+  expect(names.length).toBeGreaterThan(1)
+  expect(new Set(names).size).toBe(names.length)
 })
 
 test('a failed refresh keeps the list and says so', async ({ page, clusters }) => {

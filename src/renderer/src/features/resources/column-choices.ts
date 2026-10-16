@@ -167,6 +167,30 @@ export function sized(
   return tidy({ ...choices, widths: width === undefined ? widths : { ...widths, [id]: width } })
 }
 
+/** How wide the status is, narrowed to its pill's icon. */
+export const STATUS_ICON_WIDTH = 52
+/** The least the row's name keeps, where nothing else is left to give way. */
+export const NAME_FLOOR = 140
+
+/** Whether `column` names a row: the name; or, for events, which have none, the message. */
+export function namesRow(column: Column, columns: readonly Column[]): boolean {
+  return (
+    column.id === ALWAYS_SHOWN ||
+    (column.id === 'message' && !columns.some((each) => each.id === ALWAYS_SHOWN))
+  )
+}
+
+/** The status, as its pill's icon. */
+export function narrowed(column: Column): Column {
+  return { ...column, width: `${STATUS_ICON_WIDTH}px`, narrowed: true }
+}
+
+/** The row's name, at the least it keeps: as wide as it would be, where there's room. */
+export function floored(column: Column): Column {
+  const most = /^minmax\(\d+px,\s*(.+)\)$/.exec(column.width)?.[1] ?? column.width
+  return { ...column, width: `minmax(${NAME_FLOOR}px, ${most})` }
+}
+
 /** The least a column's track takes, in px: what its width says first. */
 export function leastWidth(column: Column): number {
   return Number(/(\d+)px/.exec(column.width)?.[1] ?? NARROWEST)
@@ -174,21 +198,29 @@ export function leastWidth(column: Column): number {
 
 /**
  * The columns a list's width holds, in the person's order: the last ones that don't fit aren't
- * drawn (never the name), so a list never scrolls sideways. `unfit` are those left out.
+ * drawn (never the row's name), the status narrowed to its icon at its turn instead, and never
+ * gone while the name is there; and last the name down to its floor, so a list never scrolls
+ * sideways. `unfit` are those left out.
  */
 export function fitInOrder(
   columns: readonly Column[],
   width: number,
 ): { visible: Column[]; unfit: string[] } {
-  const visible: Column[] = []
+  let visible: Column[] = []
   const unfit: string[] = []
   let used = 0
   for (const column of columns) {
     const least = leastWidth(column)
-    if (column.id === ALWAYS_SHOWN || (unfit.length === 0 && used + least <= width)) {
+    if (namesRow(column, columns) || (unfit.length === 0 && used + least <= width)) {
       visible.push(column)
       used += least
+    } else if (column.id === 'status') {
+      visible.push(narrowed(column))
+      used += STATUS_ICON_WIDTH
     } else unfit.push(column.id)
+  }
+  if (used > width) {
+    visible = visible.map((column) => (namesRow(column, columns) ? floored(column) : column))
   }
   return { visible, unfit }
 }

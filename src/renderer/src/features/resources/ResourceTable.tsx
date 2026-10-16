@@ -38,7 +38,16 @@ import { RowActions } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { useLayout } from '@renderer/lib/layout'
-import { ALWAYS_SHOWN, fitInOrder, NARROWEST, NARROWEST_NAME, WIDTH_STEP } from './column-choices'
+import {
+  ALWAYS_SHOWN,
+  fitInOrder,
+  floored,
+  namesRow,
+  narrowed,
+  NARROWEST,
+  NARROWEST_NAME,
+  WIDTH_STEP,
+} from './column-choices'
 import type { TableLayout } from './ColumnsMenu'
 import { TheirCell, type CellContext, type Column } from './columns'
 import {
@@ -74,17 +83,30 @@ function minWidth(columns: Column[]): number {
 }
 
 /**
- * Drops columns one at a time, least important and rightmost first, until the
- * rest fit the available width. Essential columns always stay.
+ * Fits the columns to the list's width, so that it never scrolls sideways: those that give way,
+ * least important and rightmost first; then the status to its icon (it keeps the health, in its
+ * colour and shape, where a column that went would lose all it said); then those that never gave
+ * way, rightmost first; and last the row's name, down to its floor. The name and the status stay.
  */
 export function fitColumns(columns: Column[], width: number): Column[] {
-  const visible = [...columns]
-  while (minWidth(visible) > width && visible.some((column) => column.priority! > 1)) {
-    const lowest = Math.max(...visible.map((column) => column.priority!))
-    visible.splice(
-      visible.findLastIndex((column) => column.priority === lowest),
-      1,
-    )
+  let visible = [...columns]
+  const stays = (column: Column) => namesRow(column, columns) || column.id === 'status'
+  const tooWide = () => minWidth(visible) > width
+  const giveWay = (may: (column: Column) => boolean) => {
+    while (tooWide() && visible.some(may)) {
+      const lowest = Math.max(...visible.filter(may).map((column) => column.priority!))
+      visible.splice(
+        visible.findLastIndex((column) => may(column) && column.priority === lowest),
+        1,
+      )
+    }
+  }
+  giveWay((column) => column.priority! > 1 && !stays(column))
+  if (tooWide())
+    visible = visible.map((column) => (column.id === 'status' ? narrowed(column) : column))
+  giveWay((column) => !stays(column))
+  if (tooWide()) {
+    visible = visible.map((column) => (namesRow(column, columns) ? floored(column) : column))
   }
   return visible
 }
@@ -196,7 +218,10 @@ function ResourceGrid({
           const visible = fitColumns(sized, room)
           return {
             visible,
-            unfit: sized.filter((column) => !visible.includes(column)).map((column) => column.id),
+            // (By its id: a column narrowed to fit is drawn all the same.)
+            unfit: sized
+              .filter((column) => !visible.some((each) => each.id === column.id))
+              .map((column) => column.id),
           }
         })()
   // The pins' column gives way first, before any of the columns: it's there only when every
@@ -462,7 +487,10 @@ function ResourceGrid({
                     </span>
                   )
                 // (A tooltip of more than the header is drawn, not a title: it can hold marks.)
-                const words = column.headerTip ? (
+                // Narrowed, its word is heard and in its title, not shown: never cut to a letter.
+                const words = column.narrowed ? (
+                  <span className="sr-only">{column.header}</span>
+                ) : column.headerTip ? (
                   <Tooltip content={column.headerTip}>{drawn}</Tooltip>
                 ) : (
                   drawn

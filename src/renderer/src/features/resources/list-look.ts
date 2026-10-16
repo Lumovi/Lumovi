@@ -8,8 +8,8 @@ import { cn } from '@renderer/lib/cn'
 /** A row of a list: a name and the line under it, at most. */
 export const LIST_ROW_HEIGHT = 46
 
-/** The headings' band: it stays as the list scrolls under it. */
-export const listHead = 'sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur'
+/** The headings' band: it stays as the list scrolls under it, which never shows through it. */
+export const listHead = 'sticky top-0 z-10 border-b border-line bg-surface'
 export const listHeadRow = 'grid h-9 items-center px-3 touch:h-11'
 export const listHeadCell = 'group/head relative flex h-full min-w-0 items-center px-3'
 const headWords = 'text-2xs font-medium tracking-wider whitespace-nowrap uppercase'

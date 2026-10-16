@@ -42,7 +42,7 @@ import {
   type Column,
 } from '../resources/columns'
 import { useListColumns } from '../resources/ColumnsMenu'
-import { useListState } from '../resources/list-state'
+import { useListState, useSortTidied } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
 import { ResourceTable } from '../resources/ResourceTable'
@@ -389,6 +389,7 @@ function PluginObjects({ served }: { served: ServedPlugin }) {
   const shown = chosen.columns
   const needle = state.q.trim().toLowerCase()
   const { column, desc } = sortedBy(shown, state, 'status', columns)
+  useSortTidied(all.every(([, q]) => q.data !== undefined) ? column.id : undefined)
   const matching = objects
     .filter(
       (o) => state.health.length === 0 || state.health.includes(statusOf(kindOf(o), o).health),
