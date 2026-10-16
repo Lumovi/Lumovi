@@ -1,4 +1,4 @@
-import { Ellipsis, LoaderCircle, Lock, LockOpen } from 'lucide-react'
+import { Ellipsis, Link, LoaderCircle, Lock, LockOpen } from 'lucide-react'
 import { ContextMenu, DropdownMenu, Popover } from 'radix-ui'
 import { useEffect, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
@@ -15,6 +15,9 @@ import { useCluster } from '@renderer/state/cluster'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { actionById } from './catalog'
 import { useObjectActions, useRunAction, type AvailableAction } from './use-actions'
+import { copyLink, useLinksOffered } from '../links/copy'
+import { kindOf } from '@shared/resources'
+import { formatRef } from '@renderer/lib/routes'
 
 /** Renders the dialog of the action in progress, wherever it was started from. */
 
@@ -44,6 +47,10 @@ export const isEditable = (target: EventTarget | null) =>
  */
 export function ActionBar({ object, children }: { object: KubeObject; children?: ReactNode }) {
   const available = useObjectActions(object)
+  const linksOffered = useLinksOffered()
+  const { context } = useCluster()
+  const kind = kindOf(object)
+  const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const run = useRunAction()
   const { readOnly } = useReadOnly()
   const open = useActionsUi((state) => state.menu)
@@ -146,6 +153,19 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
               <DropdownMenu.Label className="flex items-center justify-between px-2 pt-1 pb-1.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">
                 Actions <Kbd>.</Kbd>
               </DropdownMenu.Label>
+              {/* First, in a group of its own above what changes the object: no key. */}
+              {linksOffered && (
+                <>
+                  <DropdownMenu.Item
+                    onSelect={() => void copyLink({ ref, kind, context })}
+                    className={menuItem}
+                  >
+                    <Link className="size-4 text-ink-3" />
+                    <span className="flex-1">Copy link</span>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="mx-1 my-1 h-px bg-line" />
+                </>
+              )}
               <ActionItems
                 available={available}
                 object={object}

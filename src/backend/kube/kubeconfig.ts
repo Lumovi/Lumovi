@@ -459,6 +459,30 @@ export class KubeConfigStore implements ClusterConfigs {
     return kc
   }
 
+  /**
+   * Each context, and where its cluster is with the authority it's checked by, where it can be
+   * used (not one a folder's consent refuses, nor one in pieces): what links are matched with.
+   * Nothing of its user, and nothing is read but the kubeconfig as last loaded.
+   */
+  addresses(): { name: string; cluster?: { server: string; caData?: string; caFile?: string } }[] {
+    return this.#base.getContexts().map(({ name, cluster }) => {
+      const found = this.#base.getCluster(cluster)
+      const usable = found?.server && !this.unwhole(name) && !this.refusal(name)
+      return {
+        name,
+        ...(usable
+          ? {
+              cluster: {
+                server: found.server,
+                ...(found.caData ? { caData: found.caData } : {}),
+                ...(found.caFile ? { caFile: found.caFile } : {}),
+              },
+            }
+          : {}),
+      }
+    })
+  }
+
   /** The kubeconfigs read from folders. */
   #fromFolders(): Set<string> {
     return new Set(this.paths().folders.flatMap(({ files }) => files))

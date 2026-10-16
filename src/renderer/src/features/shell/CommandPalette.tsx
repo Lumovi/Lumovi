@@ -36,6 +36,7 @@ import {
   Sun,
   Boxes,
   SquareTerminal,
+  Link,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -92,6 +93,7 @@ import { TheirText } from '@renderer/plugins/TheirText'
 import { usePrefs } from '@renderer/state/prefs'
 import { useMyAccess } from '../access/use-access'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
+import { copyLink, useLinksOffered } from '../links/copy'
 import { openView } from '../resources/views'
 import { PIN_KEY } from '../details/PinButton'
 import { useDock } from '../terminal/dock'
@@ -173,6 +175,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const setShortcuts = useUi((ui) => ui.setShortcuts)
   const setCreate = useUi((ui) => ui.setCreate)
   const phone = useLayout() === 'phone'
+  const linksOffered = useLinksOffered()
   const touch = useTouch()
   const setMetricsSource = useUi((ui) => ui.setMetricsSource)
   const objects = useCachedObjects(context)
@@ -206,6 +209,28 @@ function Palette({ onDone }: { onDone: () => void }) {
       What {pluginHere.label} may do
     </Item>
   )
+  // The link to what's shown, heading Actions, no key: the panel's object's, which is the page's
+  // too while it's open (so the page's isn't said twice); else the page's, before what it may do.
+  const link =
+    linksOffered &&
+    (open ? (
+      <Item
+        icon={<Link />}
+        value={`Copy link ${parseRef(open).name} share object`}
+        hint={<span className="text-xs text-ink-3">{parseRef(open).name}</span>}
+        onSelect={run(() => void copyLink())}
+      >
+        Copy link
+      </Item>
+    ) : (
+      <Item
+        icon={<Link />}
+        value="Copy link to this view share page"
+        onSelect={run(() => void copyLink())}
+      >
+        Copy link to this view
+      </Item>
+    ))
   const numbered = PINS_NUMBERED && !touch
   // The saved views: the open list's kind's first; all of them once something's typed.
   const here = listedKind(context, useLocation().pathname)
@@ -399,9 +424,14 @@ function Palette({ onDone }: { onDone: () => void }) {
           <Command.Group heading="Views">{viewItems(viewsElsewhere)}</Command.Group>
         )}
         {open ? (
-          <ObjectActions open={open} run={run} after={asks} />
+          <ObjectActions open={open} run={run} first={link} after={asks} />
         ) : (
-          asks && <Command.Group heading="Actions">{asks}</Command.Group>
+          (link || asks) && (
+            <Command.Group heading="Actions">
+              {link}
+              {asks}
+            </Command.Group>
+          )
         )}
         {matches.length > 0 && (
           <Command.Group heading="Objects">
@@ -847,29 +877,41 @@ function PinnedOption({
   )
 }
 
-/** Actions for the object in the detail panel, listed first; and `after` them, the page's. */
+/**
+ * Actions for the object in the detail panel, listed first (`first` heads them); and `after` them,
+ * the page's.
+ */
 function ObjectActions({
   open,
   run,
+  first,
   after,
 }: {
   open: string
   run: (action: () => unknown) => () => void
+  first?: ReactNode
   after?: ReactNode
 }) {
   const target = parseRef(open)
   const object = useObject(target.kind, target.name, target.namespace).data
-  if (object) return <ObjectActionItems object={object} run={run} after={after} />
-  return after ? <Command.Group heading="Actions">{after}</Command.Group> : null
+  if (object) return <ObjectActionItems object={object} run={run} first={first} after={after} />
+  return first || after ? (
+    <Command.Group heading="Actions">
+      {first}
+      {after}
+    </Command.Group>
+  ) : null
 }
 
 function ObjectActionItems({
   object,
   run,
+  first,
   after,
 }: {
   object: KubeObject
   run: (action: () => unknown) => () => void
+  first?: ReactNode
   after?: ReactNode
 }) {
   const available = useObjectActions(object)
@@ -887,10 +929,16 @@ function ObjectActionItems({
   const kept = useDock((dock) => Boolean(dock.keptOf(context, pin)))
   // (Nothing to do to it and nothing to pin: no Actions of its own. Its panel keeps it below.)
   if (available.length === 0 && !pinnable(kind)) {
-    return after ? <Command.Group heading="Actions">{after}</Command.Group> : null
+    return first || after ? (
+      <Command.Group heading="Actions">
+        {first}
+        {after}
+      </Command.Group>
+    ) : null
   }
   return (
     <Command.Group heading="Actions">
+      {first}
       {available.map(({ action, disabled }) => (
         <Item
           key={action.id}

@@ -9,6 +9,7 @@ import {
   Ellipsis,
   Keyboard,
   LayoutDashboard,
+  Link,
   Menu,
   Plus,
   Puzzle,
@@ -38,6 +39,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { useUi } from '@renderer/state/ui'
 import { ActivityButton } from '../activity/ActivityButton'
 import { ForwardsButton } from '../activity/ForwardsButton'
+import { copyLink, useLinksOffered } from '../links/copy'
 import { menuContent, menuItem } from './menu-styles'
 import { NamespacePicker } from './NamespacePicker'
 import { ClusterSwitcher } from './Sidebar'
@@ -108,7 +110,7 @@ function PageMore({
   groups: PageAction[][]
 }) {
   const held = groups.filter((group) => group.length > 0)
-  // (Nothing to hold, as under a finger off a plugin's page: no button.)
+  // (Nothing to hold, as where links are off under a finger, off a plugin's page: no button.)
   if (held.length === 0) return null
   return (
     <DropdownMenu.Root>
@@ -151,6 +153,7 @@ export function Header() {
   const layout = useLayout()
   const short = useShort()
   const [refreshing, setRefreshing] = useState(false)
+  const linksOffered = useLinksOffered()
   const [page = '', custom, sub] = useLocation().pathname.split('/').slice(3)
   // Custom kinds' pages are r/<kind>; built-in kinds' are their plural.
   const kind = page === 'r' ? decodeURIComponent(custom!) : resourceByPlural(page)?.kind
@@ -191,9 +194,14 @@ export function Header() {
     document.title = `${title} · ${clusterName} — Lumovi`
   }, [title, clusterName])
 
-  // What the page's More holds: on every page, so it marks none; and on a plugin's, what it may do.
+  // What the page's More holds: on every page, so it marks none (its link, and its keys); and on a
+  // plugin's, what it may do.
   const touch = useTouch()
   const moreGroups: PageAction[][] = [
+    // The page's own link: as it stands, filters and the panel's object too. No key.
+    linksOffered
+      ? [{ key: 'link', label: 'Copy link to this view', icon: Link, run: () => void copyLink() }]
+      : [],
     plugin
       ? [
           {

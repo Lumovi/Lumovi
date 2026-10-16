@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { RotateCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { REPO_URL } from '@shared/app'
 import { Button, IconButton } from '@renderer/components/Button'
 import { GithubMark } from '@renderer/components/GithubMark'
@@ -45,6 +46,14 @@ export function WelcomePage() {
     ...new Set(clusters.map((cluster) => cluster.group).filter((g): g is string => !!g)),
   ].sort((a, b) => a.localeCompare(b))
 
+  // A link's card for a cluster that isn't here sends its Add a cluster here (`?add=cluster`):
+  // opened once, and the address let go of.
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('add') === 'cluster'
+  if (asked && canAdd && !adding) setAdding({})
+  useEffect(() => {
+    if (asked) setParams({}, { replace: true })
+  }, [asked, setParams])
   // ⌘N adds one: the menu's New, which makes objects in a cluster, adds a cluster here (the
   // menu takes the key before the page does).
   useEffect(() => {

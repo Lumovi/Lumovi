@@ -23,6 +23,7 @@ import { age } from '@renderer/lib/format'
 import { pinnable } from '@renderer/lib/marks'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
+import { useShownTab } from '../links/copy'
 import { useActionsUi } from '@renderer/state/actions'
 import { useDock } from '../terminal/dock'
 import { useCluster } from '@renderer/state/cluster'
@@ -316,8 +317,15 @@ export function DetailTabs({
   const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
   // (A container a plugin's link asked its logs from: shown from it, each ask anew.)
   const logsAsked = useActionsUi((state) => (state.logs?.ref === ref ? state.logs : null))
+  const linkedLogs = useActionsUi((state) => state.linkedLogs === ref)
   const tabShown = useActionsUi((state) => state.tabShown)
   const [tab, setTab] = useState(requested ?? chosen ?? 'overview')
+  // (What a link to it opens at: the tab it shows.)
+  useEffect(() => useShownTab.setState({ tab }), [tab])
+  // A link's Logs start without following, the once: opened again, they follow as ever.
+  useEffect(() => {
+    if (linkedLogs && tab === 'logs') useActionsUi.setState({ linkedLogs: null })
+  }, [linkedLogs, tab])
   // Editing happens in the YAML tab, and stays there until it's saved or cancelled.
   if (editing && tab !== 'yaml') setTab('yaml')
   // Actions like "Shell" ask for a tab; the request is done once it shows.
@@ -405,6 +413,7 @@ export function DetailTabs({
             pods={[object]}
             name={object.metadata.name}
             {...(logsAsked ? { container: logsAsked.container } : {})}
+            paused={linkedLogs}
           />
         </TabContent>
       )}

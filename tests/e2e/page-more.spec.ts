@@ -1,6 +1,7 @@
 /**
- * The page's More (⋯), at the end of the bar on every cluster page, Lumovi's own: on a plugin's
- * page what the plugin may do, then Keyboard shortcuts. And the palette's Actions there.
+ * The page's More (⋯), at the end of the bar on every cluster page, Lumovi's own: Copy link to
+ * this view, on a plugin's page what the plugin may do, then Keyboard shortcuts. And the palette's
+ * Actions there.
  */
 import type { Page } from '@playwright/test'
 import { CONTEXTS, expect, openCluster, test } from './fixtures.ts'
@@ -12,26 +13,31 @@ const go = (page: Page, hash: string) =>
 const bar = (page: Page) => page.locator('header:has(button[aria-label^="Back ("])')
 const address = (page: Page) => page.evaluate(() => window.location.hash)
 
-test('every cluster page has the same More: Keyboard shortcuts, and on a plugin’s page what it may do first', async ({
+test('every cluster page has the same More: Copy link and Keyboard shortcuts, and on a plugin’s page what it may do between', async ({
   lumovi: { page },
 }) => {
   await openCluster(page)
-  // Lumovi's own page: the one item, and it opens the shortcuts.
+  // Lumovi's own page: its link, a line, and the shortcuts, which it opens.
   await bar(page).getByRole('button', { name: 'More' }).click()
-  await expect(page.getByRole('menuitem')).toHaveText([/^Keyboard shortcuts\s*\?$/])
+  await expect(page.getByRole('menuitem')).toHaveText([
+    'Copy link to this view',
+    /^Keyboard shortcuts\s*\?$/,
+  ])
+  await expect(page.getByRole('menu').getByRole('separator')).toHaveCount(1)
   await page.getByRole('menuitem', { name: /^Keyboard shortcuts/ }).click()
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // A plugin's page: the same button, what it may do first, a line, then the shortcuts.
+  // A plugin's page: the same button, what it may do between the link and the shortcuts.
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins/argo-cd/overview`)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview')
   await bar(page).getByRole('button', { name: 'More' }).click()
   await expect(page.getByRole('menuitem')).toHaveText([
+    'Copy link to this view',
     'What Argo CD may do',
     /^Keyboard shortcuts/,
   ])
-  await expect(page.getByRole('menu').getByRole('separator')).toHaveCount(1)
+  await expect(page.getByRole('menu').getByRole('separator')).toHaveCount(2)
   await page.getByRole('menuitem', { name: 'What Argo CD may do' }).click()
   await expect.poll(() => address(page)).toBe(`#/cluster/${CONTEXTS.demo}/plugins?plugin=argo-cd`)
 })

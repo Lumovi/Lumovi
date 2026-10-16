@@ -505,6 +505,65 @@ jobs:
           else
             npx playwright test "${specs[@]}"
           fi
+      # lumovi:// links on Linux: the .desktop entry hands one over after `--` (past it, Chromium
+      # reads no switch), and as the one %U.
+      - name: Links, in the .desktop entry
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          npx electron-builder --linux deb --x64 --publish never --prepackaged release/linux-unpacked
+          deb=$(ls release/*.deb | head -1)
+          entry=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO --wildcards '*/applications/*.desktop')
+          exec=$(grep '^Exec=' <<<"$entry")
+          echo "$exec"
+          [[ "$exec" == *' -- %U' ]] || { echo "::error::Exec doesn't end in -- %U: $exec"; exit 1; }
+          [ "$(grep -o '%U' <<<"$exec" | wc -l)" -eq 1 ] || { echo "::error::Exec has more than one %U: $exec"; exit 1; }
+          grep -q '^MimeType=.*x-scheme-handler/lumovi;' <<<"$entry" || { echo "::error::No lumovi scheme in: $entry"; exit 1; }
+      # lumovi:// links on Windows, installed: its first run writes the scheme with `--` before the
+      # link; a link written to break out of its quotes adds no switch (no port opens); and the
+      # uninstaller takes the scheme away.
+      - name: Links, installed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scheme = 'HKCU:\Software\Classes\lumovi'
+          # (The smoke test's packaged app wrote one already, for its own place.)
+          Remove-Item $scheme -Recurse -ErrorAction SilentlyContinue
+          npx electron-builder --win nsis --x64 --publish never --prepackaged release/win-unpacked
+          $setup = Get-ChildItem release -Filter 'Lumovi-*-win.exe' | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Lumovi'
+          $exe = Join-Path $dir 'Lumovi.exe'
+          if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
+          Start-Process $exe
+          $command = "$scheme\shell\open\command"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path $command) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          $written = (Get-ItemProperty $command).'(default)'
+          Write-Output $written
+          # (Electron writes the `--` bare: Windows reads it as the same one argument.)
+          if ($written -ne "`"$exe`" -- `"%1`"") { throw "lumovi:// runs $written" }
+          Get-Process Lumovi -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep 2
+          $port = 9333
+          Start-Process "lumovi://x`" --remote-debugging-port=$port `""
+          Start-Sleep 15
+          $lines = (Get-CimInstance Win32_Process -Filter "Name = 'Lumovi.exe'").CommandLine
+          $open = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+          Get-Process Lumovi -ErrorAction SilentlyContinue | Stop-Process -Force
+          Write-Output $lines
+          if (-not $lines) { throw 'The link started no Lumovi' }
+          if ($open) { throw "Port $port opened" }
+          Start-Sleep 2
+          Start-Process (Join-Path $dir 'Uninstall Lumovi.exe') -ArgumentList '/S' -Wait
+          # (The uninstaller goes on from a copy of itself, after the one started has returned.)
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path $scheme) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (Test-Path $scheme) { throw 'The uninstaller left lumovi:// behind' }
+          # (What this Lumovi wrote as it ran goes with it: the Store package's step after reads its
+          # own settings file as its sign that it started.)
+          Remove-Item (Join-Path $env:APPDATA 'Lumovi') -Recurse -Force -ErrorAction SilentlyContinue
       # The Microsoft Store's package: built, then installed and started as the Store would.
       - name: Build the Microsoft Store package
         if: runner.os == 'Windows'

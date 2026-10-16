@@ -151,7 +151,7 @@ test('a policy that can’t be used locks the most it could', async ({ launch })
       pluginStoreOff: true,
       pluginServersOff: true,
       pluginDeveloperModeOff: true,
-      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, pluginServers, pluginDeveloperMode, network.`,
+      problem: `${path} can’t be used: it has colour, which Lumovi doesn’t know: readOnly, assistants, assistantRules, updates, kubectl, kubectlSignatures, kubeconfigFiles, metricsStack, fileCopy, plugins, pluginsAllowed, pluginProposals, pluginSecrets, pluginLogs, pluginStore, pluginServers, pluginDeveloperMode, links, network.`,
     },
   })
   await openCluster(page)
