@@ -1593,6 +1593,8 @@ export const LUMOVIS_COMMANDS = [
   'Create…',
   'New terminal',
   'New window',
+  'Copy link',
+  'Copy link to this view',
   'Metrics source…',
   'AI assistants…',
   'Audit log',

@@ -20,6 +20,7 @@ import {
   type WindowState,
 } from '@shared/api'
 import { movedTabOf } from '@shared/moved-tab'
+import { handedLink, LINK_SCHEME } from '@shared/links'
 import { folderOf } from '@shared/plugin-loading'
 import { parsePlugin } from '@shared/plugins'
 import { AUDIT_EXPORT_LIMIT } from '@shared/audit'
@@ -46,6 +47,7 @@ import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
 import { KubeconfigFiles } from './kubeconfig-files'
+import { KEYS_QUIET_MS, linkIn, Links } from './links'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
 import { useConsentKey } from './consent'
 import { refusalOf } from './folder-consents'
@@ -92,10 +94,21 @@ if (stdio) {
     input: process.stdin,
     output: process.stdout,
   }).finally(() => app.quit())
-} else if (!app.requestSingleInstanceLock()) {
-  // Another Lumovi window is already open; it will be focused instead.
+} else if (!app.requestSingleInstanceLock({ link: linkIn(process.argv) ?? null })) {
+  // Another Lumovi is already open: it's focused instead, and handed the link this one was started
+  // with, as read here from its own command line (after `--`). The other is told this one's
+  // arguments too, but as Chromium read them: without the `--`, and with switches of its own.
   app.quit()
 } else {
+  // lumovi:// links. macOS hands them over, before Lumovi is ready when one starts it; Windows
+  // and Linux start it with one, after `--`. Kept until the links are, below (the last alone).
+  let links: Links | undefined
+  let early = linkIn(process.argv)
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (links) links.arrive(url)
+    else early = url
+  })
   const shellReady = loadLoginShellEnv()
   // Where a plugin's code will run: its protocol has to be named before the app is ready.
   registerBoxScheme()
@@ -261,6 +274,31 @@ if (stdio) {
     // them; each window's own events are listened to once all there is to tell them is (wire).
     // (A shell held for a window that closed before its page took it ends: see closeStreams.)
     const windows = new Windows((ids) => closeStreams(ids))
+    /**
+     * Pages raised for a link from another app, by the time of the last key they were given: their
+     * keys are nothing until they stop for a while (the person may still be typing there).
+     */
+    const keysHeld = new Map<number, number>()
+    // (A link is never a window of one tab's. Where there are only those, it's a new window's.)
+    links = new Links({
+      front: () => windows.ownFront(),
+      // (Made as New Window makes one: wired, so what it starts ends with it.)
+      newWindow: () => newWindow(),
+      anyWindow: () => windows.all().length > 0,
+      holdKeys: (win) => keysHeld.set(win.webContents.id, Date.now()),
+      showing: (context) => windows.showing(context),
+      tabWindow: (win) => windows.tabOf(win) !== undefined,
+      off: () => policy.managed?.linksOff === true,
+      here: () => store.addresses(),
+    })
+    // Windows has no installer's say (its installer writes no scheme): the app's own, with `--`
+    // before the link, so nothing in one is a switch. Only as installed: never a test's or dev's.
+    if (app.isPackaged && process.platform === 'win32') {
+      if (policy.managed?.linksOff)
+        app.removeAsDefaultProtocolClient(LINK_SCHEME, process.execPath, ['--'])
+      else app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, ['--'])
+    }
+    if (early) links.arrive(early)
     let quitting = false
     /**
      * Where a window is and what it shows: its place, its page's address, what it has below; or,
@@ -301,19 +339,23 @@ if (stdio) {
     const keepLast = (win: BrowserWindow) => {
       if (!quitting && windows.all().length === 1) settings.update({ windows: keptAll([win]) })
     }
-    const makeWindow = (saved?: WindowState) => {
+    const makeWindow = (saved?: WindowState, opens?: { address: string; tab?: string }) => {
       const tab = movedTabOf(saved?.tab, false)
       if (saved && tab) return makeTabWindow(tab, 'restored', saved)
       // (Where its page was, an address of the app's own, never another page, is handed to the
       // page: it opens on the start screen and goes there itself, unless that would read a
       // cluster that signs in through a program before anyone asks.)
+      // (Or a link's view, where its card was answered New window: asked for, with its tab.)
+      const wanted = opens ? `#${opens.address}` : saved?.page
       const page =
-        typeof saved?.page === 'string' && /^#\/[^#]{0,2047}$/.test(saved.page)
-          ? saved.page
-          : undefined
+        typeof wanted === 'string' && /^#\/[^#]{0,2047}$/.test(wanted) ? wanted : undefined
       const win = createMainWindow(url, saved, () => keepLast(win))
       windows.add(win)
-      windows.restore(win, { page, below: saved?.below })
+      windows.restore(win, {
+        page,
+        below: saved?.below,
+        ...(opens ? { asked: true as const, ...(opens.tab ? { tab: opens.tab } : {}) } : {}),
+      })
       return win
     }
     /**
@@ -669,6 +711,14 @@ if (stdio) {
     const wire = (win: BrowserWindow) => {
       const page = win.webContents
       page.on('before-input-event', (event, input) => {
+        // (Before anything of the page's hears it: a terminal's, a dialog's form, a card.)
+        const held = keysHeld.get(page.id)
+        if (held !== undefined && Date.now() - held < KEYS_QUIET_MS) {
+          if (input.type === 'keyDown') keysHeld.set(page.id, Date.now())
+          event.preventDefault()
+          return
+        }
+        keysHeld.delete(page.id)
         const command = terminalKeys.command(page.id, input)
         if (!command) return
         event.preventDefault()
@@ -710,10 +760,12 @@ if (stdio) {
         ),
     )
     /** Another window, the size of the one in front and just below it, on the start screen. */
-    const newWindow = () => {
+    const newWindow = (opens?: { address: string; tab?: string }) => {
       const front = windows.front()
       const at = front && windowState(front)
-      wire(makeWindow(at && cascaded(at, NEW_WINDOW_OFFSET)))
+      const win = makeWindow(at && cascaded(at, NEW_WINDOW_OFFSET), opens)
+      wire(win)
+      return win
     }
     /** A tab below moved into a window of its own, over the window it was in. */
     const moveTab = (page: WebContents, given: unknown) => {
@@ -756,6 +808,7 @@ if (stdio) {
     }
     registerIpc({
       problems: () => envReady.then(() => problems),
+      links,
       kubeconfigFiles,
       addedClusters,
       assistants,
@@ -846,7 +899,12 @@ if (stdio) {
     Menu.setApplicationMenu(
       buildMenu({ front: () => windows.front(), newWindow, updates, settings }),
     )
-    app.on('second-instance', reveal)
+    // Started again: with a link, it's the link's (which raises the window it asks in).
+    app.on('second-instance', (_event, _argv, _directory, handed) => {
+      const link = handedLink(handed)
+      if (link) links!.arrive(link)
+      else reveal()
+    })
   })
 }
 

@@ -491,17 +491,18 @@ test.describe('activity and feedback', () => {
     ).toHaveAttribute('aria-disabled', 'true')
     await page.keyboard.press('Escape')
 
-    // Events have no actions; missing objects neither.
+    // Events have no actions, missing objects neither: their Actions are their link alone.
+    const actions = page.getByRole('group', { name: 'Actions' }).getByRole('option')
     await open(page, 'Events', 'NamespaceFinalizersRemaining')
     await page.keyboard.press('ControlOrMeta+k')
-    await expect(page.getByRole('group', { name: 'Actions' })).toHaveCount(0)
+    await expect(actions).toHaveText([/^Copy link/])
     await page.keyboard.press('Escape')
     await page.evaluate(() => {
       window.location.hash = '#/cluster/demo/services?open=Service%2Fshop%2Fnope'
     })
     await expect(panel(page, 'Service', 'nope').getByRole('alert')).toBeVisible()
     await page.keyboard.press('ControlOrMeta+k')
-    await expect(page.getByRole('group', { name: 'Actions' })).toHaveCount(0)
+    await expect(actions).toHaveText([/^Copy link/])
   })
 })
 

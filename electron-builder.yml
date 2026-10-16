@@ -68,6 +68,10 @@ mac:
   icon: build/Lumovi.icon
   hardenedRuntime: true
   entitlementsInherit: build/entitlements.mac.plist
+  # lumovi:// links, which macOS hands to Lumovi itself (open-url): never as arguments.
+  protocols:
+    - name: Lumovi link
+      schemes: [lumovi]
   files:
     - '!node_modules/node-pty/prebuilds/win32-*/**'
   # Signed when CSC_LINK is set, and notarized when APPLE_API_KEY, _KEY_ID and _ISSUER are too.
@@ -122,6 +126,13 @@ appx:
 
 linux:
   executableName: lumovi
+  # lumovi:// links, given after `--`, so nothing in one is read as one of Chromium's switches.
+  # (Windows' is the app's own, as it runs, with the same `--`; the installer writes none, and the
+  # Store's package declares none: neither puts a `--` before the link.)
+  executableArgs: ['--', '%U']
+  protocols:
+    - name: Lumovi link
+      schemes: [lumovi]
   category: Development
   # The .deb's and .rpm's one-line summary: as their tools want it, with no article or full stop.
   synopsis: Calm, fast Kubernetes dashboard, on your desktop or in your cluster

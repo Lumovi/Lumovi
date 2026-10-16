@@ -222,10 +222,12 @@ test('an Event is never offered to pin: not in its list, not on its page, nor in
   await expect(side).toBeVisible()
   await expect(side.getByRole('button', { name: /^(Pin|Pinned)$/ })).toHaveCount(0)
   await page.keyboard.press('Alt+p')
-  // Nor in the palette: no Actions at all, as it has none.
+  // Nor in the palette: its Actions are its link alone, as it has none.
   await page.keyboard.press('ControlOrMeta+k')
   await expect(palette(page)).toBeVisible()
-  await expect(palette(page).getByRole('group', { name: 'Actions' })).toHaveCount(0)
+  await expect(
+    palette(page).getByRole('group', { name: 'Actions' }).getByRole('option'),
+  ).toHaveText([/^Copy link/])
   await expect(palette(page).getByRole('option', { name: /^Pin Event/ })).toHaveCount(0)
   // And by now, nothing came of ⌥P: no pins, here or in the sidebar.
   await expect(palette(page).getByRole('group', { name: 'Pinned', exact: true })).toHaveCount(0)

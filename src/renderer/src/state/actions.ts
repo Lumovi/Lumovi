@@ -32,6 +32,8 @@ interface ActionsState {
   } | null
   /** The container to show a pod's logs from, as a plugin's link asked: each ask anew (`n`). */
   logs: { ref: string; container: string; n: number } | null
+  /** An object a link opened on its Logs tab: they start without following, until asked to. */
+  linkedLogs: string | null
   start(id: string, object: KubeObject, asked?: { port?: number; via?: PluginVia }): void
   close(): void
   setMenu(open: boolean): void
@@ -49,6 +51,7 @@ export const useActionsUi = create<ActionsState>((set) => ({
   tab: null,
   shell: null,
   logs: null,
+  linkedLogs: null,
   start: (id, object, asked) => set({ active: { id, object, ...asked }, menu: false }),
   close: () => set({ active: null }),
   setMenu: (menu) => set({ menu }),

@@ -40,6 +40,7 @@
  *     "pluginServers": "off",            no plugin may talk to a server in the cluster
  *     "pluginDeveloperMode": "off",      Developer mode stays off: no plugin of a person's own runs
  *                                        code (as with "plugins" "bundled", "off" or "no-code")
+ *     "links": "off",                    lumovi:// links open nothing, and Copy link isn't there
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -116,6 +117,7 @@ const KEYS = [
   'pluginStore',
   'pluginServers',
   'pluginDeveloperMode',
+  'links',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -162,6 +164,7 @@ export function readPolicy(env: NodeJS.ProcessEnv = process.env): Policy {
         pluginStoreOff: true,
         pluginServersOff: true,
         pluginDeveloperModeOff: true,
+        linksOff: true,
         problem,
       },
       assistantRules: [],
@@ -391,6 +394,7 @@ function checked(given: unknown, path: string): Policy {
     pluginStore,
     pluginServers,
     pluginDeveloperMode,
+    links,
     network = {},
   } = policy
   if (
@@ -472,6 +476,7 @@ function checked(given: unknown, path: string): Policy {
     ['pluginStore', pluginStore],
     ['pluginServers', pluginServers],
     ['pluginDeveloperMode', pluginDeveloperMode],
+    ['links', links],
   ] as const) {
     if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
   }
@@ -520,6 +525,7 @@ function checked(given: unknown, path: string): Policy {
     ...(pluginStore === 'off' ? { pluginStoreOff: true as const } : {}),
     ...(pluginServers === 'off' ? { pluginServersOff: true as const } : {}),
     ...(pluginDeveloperMode === 'off' ? { pluginDeveloperModeOff: true as const } : {}),
+    ...(links === 'off' ? { linksOff: true as const } : {}),
   }
   return {
     managed,

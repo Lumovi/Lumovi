@@ -15,10 +15,15 @@ const BELOW_MOST = 64_000
  */
 const HELD_MOST = 5_000
 
-/** What a window's page is given once, as it starts: see `restore`. */
+/**
+ * What a window's page is given once, as it starts: see `restore`. Opened from a link's card
+ * (`asked`), the link's view and its object's tab.
+ */
 export interface Restored {
   page?: string
   below?: unknown
+  asked?: true
+  tab?: string
 }
 
 export class Windows {
@@ -109,6 +114,35 @@ export class Windows {
 
   #windowOf(page: WebContents): BrowserWindow | undefined {
     return this.all().find((win) => win.webContents === page)
+  }
+
+  /**
+   * The window that shows `context`'s cluster now, if one does: the one in front first. Never a
+   * window of one tab, which shows no cluster's page.
+   */
+  showing(context: string): BrowserWindow | undefined {
+    const shows = (win: BrowserWindow) => {
+      if (this.tabOf(win)) return false
+      let hash: string
+      try {
+        hash = new URL(win.webContents.getURL()).hash
+      } catch {
+        return false
+      }
+      const at = /^#\/cluster\/([^/?]+)/.exec(hash)?.[1]
+      try {
+        return at !== undefined && decodeURIComponent(at) === context
+      } catch {
+        return false
+      }
+    }
+    const front = this.front()
+    return front && shows(front) ? front : this.all().find(shows)
+  }
+
+  /** The window of Lumovi's own last in front: never a window of one tab. */
+  ownFront(): BrowserWindow | undefined {
+    return this.byRecency().find((win) => !this.tabOf(win))
   }
 
   /** The window in front, or the one last there. */

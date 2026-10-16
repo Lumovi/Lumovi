@@ -54,6 +54,7 @@ import type {
 import type { Installed, InstalledRecord, StoreCheck } from './plugin-store'
 import type { PluginServerAnswer, PluginServerQuery } from './plugin-server'
 import type { ResourceDefinition, ResourceKind } from './resources'
+import type { LinkArrival } from './links'
 import type { SponsorCard } from './sponsor'
 
 export type ThemePreference = 'system' | 'light' | 'dark'
@@ -299,6 +300,8 @@ export interface ManagedSettings {
   pluginServersOff?: true
   /** Developer mode stays off: no plugin of a person's own runs code. */
   pluginDeveloperModeOff?: true
+  /** lumovi:// links open nothing, and Copy link isn't offered. */
+  linksOff?: true
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1357,8 +1360,12 @@ export interface LumoviApi {
      * bar (Windows', Linux's); done once it closes.
      */
     openMenu(x: number, y: number): Promise<void>
-    /** Opens another window, on the start screen: its own pages, and its own streams. */
-    newWindow(): Promise<void>
+    /**
+     * Opens another window, on the start screen: its own pages, and its own streams. Or, where a
+     * link's card was answered New window, at its view (the app's address) and its object's tab:
+     * asked for, so it goes there even where the cluster signs in through a program.
+     */
+    newWindow(opens?: { address: string; tab?: string }): Promise<void>
     /** What the page has below now, kept for when Lumovi opens this window again. */
     keepBelow(below: unknown): void
     /**
@@ -1366,7 +1373,7 @@ export interface LumoviApi {
      * that. Its page opens on the start screen and goes there itself, when that reads nothing
      * by itself (a cluster that signs in through a program waits for a press).
      */
-    restored(): Promise<{ page?: string; below?: unknown }>
+    restored(): Promise<{ page?: string; below?: unknown; asked?: true; tab?: string }>
     /** Moves a tab below into a window of its own, over this one. */
     moveToWindow(tab: MovedTab): Promise<void>
     /**
@@ -1384,6 +1391,19 @@ export interface LumoviApi {
     putBack(tab: MovedTab): Promise<{ here?: true }>
     /** A tab put back below here, from a window of its own. */
     onTabReturned(listener: (tab: unknown) => void): () => void
+    /** Told when a lumovi:// link is waiting for this window: it takes it with `takeLink`. */
+    onLinkWaiting(listener: () => void): () => void
+    /** Told, once after an answered card, that a link came too soon after it and was let go. */
+    onLinkSkipped(listener: () => void): () => void
+    /** This window's link card was answered, whatever the answer. */
+    linkAnswered(): void
+    /**
+     * The link handed to Lumovi, read and matched with the clusters here, or why it can't be
+     * opened: once, and only for the window in front. Nothing is opened: the page asks first.
+     */
+    takeLink(): Promise<LinkArrival | null>
+    /** The lumovi:// link to a view (the app's address of it), with its object's tab. */
+    linkFor(address: string, tab?: string): Promise<string>
   }
   app: {
     info(): Promise<AppInfo>
@@ -1854,6 +1874,11 @@ export const IPC = {
   putBack: 'window:put-back',
   tabReturned: 'window:tab-returned',
   adoptShell: 'window:adopt-shell',
+  linkWaiting: 'link:waiting',
+  linkSkipped: 'link:skipped',
+  linkAnswered: 'link:answered',
+  takeLink: 'link:take',
+  linkFor: 'link:for',
   appInfo: 'app:info',
   appProblems: 'app:problems',
   settings: 'app:settings',

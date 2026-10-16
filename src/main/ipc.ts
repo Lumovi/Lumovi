@@ -43,6 +43,8 @@ import type { AgreedPlugins } from './plugins-agreed'
 import type { PluginsWatch } from './plugins-watch'
 import { InstallError, type InstalledPlugins } from './plugins-installed'
 import type { Updates } from './updates'
+import { READING_TABS } from '@shared/links'
+import type { Links } from './links'
 import type { Windows } from './windows'
 
 interface Dependencies extends Backend {
@@ -71,10 +73,12 @@ interface Dependencies extends Backend {
   auditLog: AuditLog
   /** Lumovi's windows: each stream is told to the page that started it alone. */
   windows: Windows
+  /** lumovi:// links handed to Lumovi, for the window in front to ask about. */
+  links: Links
   /** Tells every window's page of something. */
   send: (channel: string, ...args: unknown[]) => void
   /** Opens another window. */
-  newWindow: () => void
+  newWindow: (opens?: { address: string; tab?: string }) => void
   /** Moves a page's tab below into a window of its own (checked there: it's only data). */
   moveTab: (page: WebContents, tab: unknown) => void
   /** Puts a window of one tab's tab back below (checked there): see `desktop.putBack`. */
@@ -130,6 +134,7 @@ export function registerIpc(deps: Dependencies): void {
     moveTab,
     putBack,
     windows,
+    links,
   } = deps
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame?.url.startsWith(rendererUrl) === true
@@ -183,7 +188,20 @@ export function registerIpc(deps: Dependencies): void {
       }
       return openMenu(x as number, y as number)
     },
-    [IPC.newWindow]: () => newWindow(),
+    // (Where a link's card was answered New window: its view, an address of the app's own, and a
+    // tab that only reads.)
+    [IPC.newWindow]: (opens) => {
+      if (opens === undefined || opens === null) return newWindow()
+      const { address, tab } = opens as { address?: unknown; tab?: unknown }
+      if (
+        typeof address !== 'string' ||
+        !/^\/cluster\/[^#]{1,2047}$/.test(address) ||
+        (tab !== undefined && !(READING_TABS as readonly unknown[]).includes(tab))
+      ) {
+        throw new Error('Expected a view of a cluster, and a tab that reads')
+      }
+      newWindow({ address, ...(typeof tab === 'string' ? { tab } : {}) })
+    },
     [IPC.setTheme]: (theme) => {
       if (!isTheme(theme)) throw new Error(`Unknown theme "${String(theme)}"`)
       nativeTheme.themeSource = theme
@@ -500,6 +518,23 @@ export function registerIpc(deps: Dependencies): void {
   bySender(IPC.putBack, (page, tab) => putBack(page, tab))
   ipcMain.on(IPC.adoptShell, (event: IpcMainEvent, id: unknown) => {
     if (trusted(event) && typeof id === 'string') windows.adopt(id, event.sender)
+  })
+  // A link waiting is the window in front's, asked for by its page itself: never a frame in it.
+  const ownPage = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+    trusted(event) && event.senderFrame === event.sender.mainFrame
+  ipcMain.on(IPC.linkAnswered, (event: IpcMainEvent) => {
+    if (ownPage(event)) links.answered()
+  })
+  ipcMain.handle(IPC.takeLink, (event: IpcMainInvokeEvent) => {
+    if (!ownPage(event)) throw new Error(`Blocked ${IPC.takeLink} from an untrusted frame`)
+    return links.take(event.sender) ?? null
+  })
+  ipcMain.handle(IPC.linkFor, (event: IpcMainInvokeEvent, address: unknown, tab: unknown) => {
+    if (!ownPage(event)) throw new Error(`Blocked ${IPC.linkFor} from an untrusted frame`)
+    if (typeof address !== 'string' || (tab !== undefined && typeof tab !== 'string')) {
+      throw new Error('Expected a view’s address, and the tab it shows')
+    }
+    return links.linkFor(address, tab)
   })
   // Whether a page's terminal has focus is that page's own: its window's ⌘ keys follow it.
   const focusing = new Set<number>()

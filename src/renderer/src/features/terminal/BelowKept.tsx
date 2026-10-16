@@ -7,7 +7,12 @@
 import { useEffect } from 'react'
 import { movedTabOf } from '@shared/moved-tab'
 import { api } from '@renderer/lib/api'
+import { useActionsUi } from '@renderer/state/actions'
 import { useDock } from './dock'
+
+let restoredNow: () => void = () => {}
+/** Once this window is back where it was (or on its start screen): what a link's card waits for. */
+export const windowRestored = new Promise<void>((resolve) => (restoredNow = resolve))
 
 /** How long a change waits before it's said, others after it said with it. */
 const SAY_AFTER_MS = 300
@@ -29,7 +34,7 @@ export function BelowKept() {
       }
     })
     void (async () => {
-      const [{ page, below }, contexts] = await Promise.all([
+      const [{ page, below, asked, tab }, contexts] = await Promise.all([
         api.desktop!.restored(),
         api.kube.contexts().catch(() => undefined),
       ])
@@ -39,7 +44,16 @@ export function BelowKept() {
       // through a program (that waits for a press, from the start screen). Else the start screen.
       const at = page && /^#\/cluster\/([^/?]+)/.exec(page)?.[1]
       const cluster = at ? known.get(decodeURIComponent(at)) : undefined
-      if (page && (!at || (cluster && !cluster.signsInWith))) window.location.replace(page)
+      // (Opened from a link's card, New window: asked for, so it goes there whatever, on its tab.)
+      if (page && (!at || (cluster && (!cluster.signsInWith || asked)))) {
+        window.location.replace(page)
+        const open = asked && tab ? new URLSearchParams(page.split('?')[1]).get('open') : null
+        if (open && tab) {
+          if (tab === 'logs') useActionsUi.setState({ linkedLogs: open })
+          useActionsUi.getState().showTab(open, tab)
+        }
+      }
+      restoredNow()
       // (A cluster that signs in through a program: its tabs wait to be shown before they read.)
       useDock.getState().restore(below, (context) => Boolean(known.get(context)?.signsInWith))
       const say = () => api.desktop!.keepBelow(useDock.getState().snapshot())

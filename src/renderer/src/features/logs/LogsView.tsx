@@ -319,6 +319,7 @@ export function LogsView({
   name,
   container: asked,
   via,
+  paused = false,
 }: {
   pods: KubeObject[]
   name: string
@@ -326,6 +327,8 @@ export function LogsView({
   container?: string
   /** Shown on a plugin's page: which plugin's page asked Lumovi to show them. */
   via?: PluginVia
+  /** Opened from a link: without following, until asked to. */
+  paused?: boolean
 }) {
   const notAllowed = useAccessHere().whyNot('logs', 'on', pods[0]!.metadata.namespace)
   if (notAllowed) return <NotAllowed title="You can’t read logs here" reason={notAllowed} />
@@ -335,6 +338,7 @@ export function LogsView({
       name={name}
       {...(asked !== undefined ? { asked } : {})}
       {...(via ? { via } : {})}
+      paused={paused}
     />
   )
 }
@@ -344,11 +348,13 @@ function Logs({
   name,
   asked,
   via,
+  paused = false,
 }: {
   pods: KubeObject[]
   name: string
   asked?: string
   via?: PluginVia
+  paused?: boolean
 }) {
   const sorted = [...pods].sort((a, b) => a.metadata.name.localeCompare(b.metadata.name))
   const names = [...new Set(sorted.flatMap(containerNames))]
@@ -369,7 +375,7 @@ function Logs({
     setPickedAt(now)
   }
   const [previous, setPrevious] = useState(false)
-  const [follow, setFollow] = useState(true)
+  const [follow, setFollow] = useState(!paused)
   // On a narrow page lines always wrap (nothing scrolls sideways under 1024 px: a panel there is
   // too narrow for whole lines, with a mouse too). With room, wrapping is chosen, and starts on
   // under a finger. On a phone the time each line was written, a third of its width, starts off.

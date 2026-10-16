@@ -8,6 +8,7 @@ import { api } from '@renderer/lib/api'
 import { targetPath } from '@renderer/lib/routes'
 import { useUi } from '@renderer/state/ui'
 import { useDock } from '../terminal/dock'
+import { useLinkCard } from '../links/LinkCard'
 
 /** How long `g` waits for the second key of a "go to" shortcut. */
 const SEQUENCE_TIMEOUT = 1200
@@ -73,7 +74,12 @@ export function Commands() {
       clusters: () => goTo('/'),
       // Objects are created in a cluster, so not from the start screen.
       // (Not on a phone, where nothing is written: its dialog isn't there to open.)
-      create: () => setCreate(Boolean(context) && !matchMedia(PHONE_MEDIA).matches),
+      // (While a link's card for a cluster that isn't here has the keyboard: its Add a cluster.)
+      create: () => {
+        const card = useLinkCard.getState().create
+        if (card) return card()
+        setCreate(Boolean(context) && !matchMedia(PHONE_MEDIA).matches)
+      },
       // A terminal on this computer, pointed at the cluster that's open (the desktop app's dock
       // says which, and its namespace; on the start screen, there's none).
       terminal: () => {

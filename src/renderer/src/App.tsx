@@ -39,6 +39,7 @@ import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
 import { BelowKept } from './features/terminal/BelowKept'
 import { TabWindow } from './features/terminal/TabWindow'
+import { LinkCard } from './features/links/LinkCard'
 import { basename } from './web/session'
 
 /** Set by the build: true only in the build the tests run. */
@@ -195,6 +196,8 @@ export function App() {
             {assistants}
             {proposals}
             {api.desktop && <BelowKept />}
+            {/* lumovi:// links, asked about in this window: never on a server, whose links are its pages'. */}
+            {api.desktop && <LinkCard navigate={(to) => void router.navigate(to)} />}
           </>
         )}
         <Toaster />
