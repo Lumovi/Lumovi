@@ -20,10 +20,14 @@ import { quoted, type KubeConfigStore } from '@backend/kube/kubeconfig'
 import { assertQuery, assertString, invalid } from '@backend/kube/validate'
 import type { MatchingKubectl } from './kubectl'
 
+declare const LUMOVI_TEST_BUILD: boolean
+
 interface Session {
   pty: IPty
   /** The terminal's kubeconfig's folder, removed when it ends. */
   dir: string
+  /** Until PowerShell draws, when it's to be said that it's still starting. */
+  still?: NodeJS.Timeout
 }
 
 /**
@@ -109,7 +113,11 @@ export function localShell(
     // Encoded, so that nothing in it (a context's name) is read as PowerShell; in its quotes,
     // each of PowerShell's single quotes (’ and ‘ are, too) doubled. After your profile.
     const quoted = first.replace(/['‘’‚‛]/g, (quote) => quote + quote)
-    const script = `${kubectl ? "$env:Path = $env:LUMOVI_KUBECTL + ';' + $env:Path; Remove-Item Env:LUMOVI_KUBECTL; " : ''}Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
+    // (The tests' build alone holds it there, as a slow profile or a virus scan would.)
+    const hold = LUMOVI_TEST_BUILD ? Number(env.LUMOVI_TEST_POWERSHELL_HOLD_S) : NaN
+    const held =
+      Number.isInteger(hold) && hold > 0 && hold <= 60 ? `Start-Sleep -Seconds ${hold}; ` : ''
+    const script = `${held}${kubectl ? "$env:Path = $env:LUMOVI_KUBECTL + ';' + $env:Path; Remove-Item Env:LUMOVI_KUBECTL; " : ''}Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
     return {
       file: join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       args: [
@@ -186,6 +194,43 @@ const plain = (text: string) =>
 
 /** A line of the terminal's own, before the shell's: dim, like a comment. */
 const note = (text: string) => `\x1b[2m› ${plain(text)}\x1b[0m\r\n`
+
+/**
+ * How long PowerShell may draw nothing before the terminal says it's still starting (LMV-237: a
+ * profile, or a virus scan, can hold it up for a minute or more).
+ */
+export const STILL_STARTING_MS = 5_000
+
+/**
+ * That line, kept from what the console draws: the cursor's place saved before it, and put back
+ * with what's below cleared before anything more the console sends (said again after what draws
+ * nothing, a repaint as the terminal's resized, say). The console draws from its own copy of the
+ * screen, which never had the line, so what it draws lands where it expects.
+ */
+const STILL_STARTING =
+  '\x1b7' + note('PowerShell is still starting. Your profile or a virus scan can slow it down.')
+const STILL_STARTING_GONE = '\x1b8\x1b[J'
+
+/**
+ * Whether what a shell's console sent draws anything of the shell's own: not only the console's
+ * clearing the screen, moving the cursor and naming the window as it opens.
+ */
+export function drawsText(data: string): boolean {
+  return /\S/.test(
+    data
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b[()*+]./g, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b[^[\]]/g, '')
+      // (A bell, a backspace and the like draw nothing either.)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, ''),
+  )
+}
 
 /** Each terminal's kubeconfig is in a folder of its own: lumovi-terminal-<the app's pid>-…. */
 const PREFIX = 'lumovi-terminal-'
@@ -347,9 +392,29 @@ export class LocalTerminals {
           TERM_PROGRAM_VERSION: this.deps.version,
         },
       })
-      this.#sessions.set(id, { pty, dir })
+      const session: Session = { pty, dir }
+      this.#sessions.set(id, session)
       if (!shell.says) this.emit.data(id, note(first))
-      pty.onData((data) => this.emit.data(id, data))
+      // PowerShell's first line is its own (`says`): until it's drawn, after a while, a line of
+      // Lumovi's says what's taking so long, and gives way to it.
+      let drawn = !shell.says
+      let said = false
+      if (!drawn) {
+        session.still = setTimeout(() => {
+          said = true
+          this.emit.data(id, STILL_STARTING)
+        }, STILL_STARTING_MS)
+      }
+      pty.onData((data) => {
+        if (!drawn) {
+          drawn = drawsText(data)
+          if (drawn) clearTimeout(session.still)
+          // (The console goes on from the screen it knows: the line gone first, and said again
+          // after what it sent, where that drew nothing of PowerShell's.)
+          if (said) data = STILL_STARTING_GONE + data + (drawn ? '' : STILL_STARTING)
+        }
+        this.emit.data(id, data)
+      })
       pty.onExit(({ exitCode }) => {
         if (!this.#end(id)) return
         this.emit.exit(id, { code: exitCode })
@@ -387,6 +452,7 @@ export class LocalTerminals {
     const session = this.#sessions.get(id)
     if (!session) return false
     this.#sessions.delete(id)
+    clearTimeout(session.still)
     rmSync(session.dir, { recursive: true, force: true })
     return true
   }

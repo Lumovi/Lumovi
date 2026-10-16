@@ -369,19 +369,36 @@ async function diagnose(
  */
 function diagnoseShells(path: string) {
   if (process.platform !== 'win32') return
-  const SHELL_MS = 20_000
+  // (Each ask's answer is short where PowerShell answers at all: what it said before it ran out
+  // of time is kept, and a failure's teardown stays well inside a minute.)
+  const SHELL_MS = 8_000
   /** What PowerShell says of `command`, added to the file as soon as it's known. */
   const ask = (title: string, command: string) => {
     let said: string
+    let answered = true
     try {
       said = execFileSync('powershell', ['-NoProfile', '-Command', command], {
         encoding: 'utf8',
         timeout: SHELL_MS,
       })
     } catch (error) {
-      said = (error as Error).message
+      answered = false
+      const { message, stdout } = error as Error & { stdout?: string }
+      said = `${stdout ?? ''}${message}`
     }
     appendFileSync(path, `\n${title}:\n${said}`)
+    return answered
+  }
+  // Whether PowerShell hangs as it loads a module, and not before: a silent shell has, each time,
+  // beside every cmdlet asked at that moment, while a bare start and exit took a second
+  // (LMV-237). The processes are listed by .NET alone, then a module is loaded, each timed, and
+  // each said as soon as it's known.
+  const loads = ask(
+    'what PowerShell gets through',
+    "$w = [Diagnostics.Stopwatch]::StartNew(); [Console]::WriteLine('{0} processes listed by .NET in {1}ms' -f [Diagnostics.Process]::GetProcesses().Length, $w.ElapsedMilliseconds); $w.Restart(); Import-Module Microsoft.PowerShell.Utility; [Console]::WriteLine('a module loaded in {0}ms' -f $w.ElapsedMilliseconds)",
+  )
+  if (!loads) {
+    appendFileSync(path, '\n(PowerShell hangs just now: no cmdlet is asked anything more.)')
   }
   // First, what a shell that says nothing is doing, asked without listing every process (which
   // has run out of time in the very failure this is for): the shells' and console hosts' threads
@@ -394,36 +411,38 @@ function diagnoseShells(path: string) {
   // needs these three most.)
   const timed = (title: string, command: string) =>
     `$w = [Diagnostics.Stopwatch]::StartNew(); $said = try { $(${command}) -join ' | ' } catch { 'failed: ' + $_.Exception.Message }; '${title} ({0}ms): {1}' -f $w.ElapsedMilliseconds, $said`
-  ask(
-    'what the shells are doing',
-    [
-      timed(
-        'threads',
-        "Get-Process powershell,pwsh,conhost,OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | ForEach-Object { $p = $_; $t = $p.Threads | Group-Object { if ($_.ThreadState -eq 'Wait') { 'Wait-' + $_.WaitReason } else { [string]$_.ThreadState } } | ForEach-Object { '{0}x{1}' -f $_.Count, $_.Name }; $s = try { $p.StartTime.ToUniversalTime().ToString('HH:mm:ss.fff') } catch { '?' }; '{0} {1} started {2}, {3:n2}s of CPU, threads {4}' -f $p.ProcessName, $p.Id, $s, $p.CPU, ($t -join ' ') }",
-      ),
-      timed(
-        'scanner',
-        "$a = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; Start-Sleep -Milliseconds 2000; $b = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; 'MsMpEng used {0:n2}s of CPU in 2s, {1:n1}s so far' -f ($b - $a), $b",
-      ),
-      timed(
-        'machine',
-        "'{0:n0}% of all processors busy' -f (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue",
-      ),
-    ].join('; '),
-  )
-  // What else keeps the machine busy (total CPU seconds so far).
-  ask(
-    `busiest processes (of ${cpus().length} cpus)`,
-    'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet | Format-Table -AutoSize | Out-String -Width 200',
-  )
-  // Every shell and console host there is: when each started, from what, and as what. (Whether
-  // a terminal's shell exists, how long it has been starting, and whose the others are.)
-  ask(
-    'shells and console hosts',
-    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(powershell|pwsh|conhost|OpenConsole)' } | Sort-Object CreationDate | ForEach-Object { $line = [string]$_.CommandLine; $since = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss.fff') } else { '?' }; '{0} {1} from {2}, started {3}, {4:n1}s of CPU: {5}' -f $_.Name, $_.ProcessId, $_.ParentProcessId, $since, (($_.KernelModeTime + $_.UserModeTime) / 1e7), $line.Substring(0, [Math]::Min(160, $line.Length)) }",
-  )
+  if (loads) {
+    ask(
+      'what the shells are doing',
+      [
+        timed(
+          'threads',
+          "Get-Process powershell,pwsh,conhost,OpenConsole -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | ForEach-Object { $p = $_; $t = $p.Threads | Group-Object { if ($_.ThreadState -eq 'Wait') { 'Wait-' + $_.WaitReason } else { [string]$_.ThreadState } } | ForEach-Object { '{0}x{1}' -f $_.Count, $_.Name }; $s = try { $p.StartTime.ToUniversalTime().ToString('HH:mm:ss.fff') } catch { '?' }; '{0} {1} started {2}, {3:n2}s of CPU, threads {4}' -f $p.ProcessName, $p.Id, $s, $p.CPU, ($t -join ' ') }",
+        ),
+        timed(
+          'scanner',
+          "$a = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; Start-Sleep -Milliseconds 2000; $b = (Get-Process MsMpEng -ErrorAction SilentlyContinue).CPU; 'MsMpEng used {0:n2}s of CPU in 2s, {1:n1}s so far' -f ($b - $a), $b",
+        ),
+        timed(
+          'machine',
+          "'{0:n0}% of all processors busy' -f (Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue",
+        ),
+      ].join('; '),
+    )
+    // What else keeps the machine busy (total CPU seconds so far).
+    ask(
+      `busiest processes (of ${cpus().length} cpus)`,
+      'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU,WorkingSet | Format-Table -AutoSize | Out-String -Width 200',
+    )
+    // Every shell and console host there is: when each started, from what, and as what. (Whether
+    // a terminal's shell exists, how long it has been starting, and whose the others are.)
+    ask(
+      'shells and console hosts',
+      "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(powershell|pwsh|conhost|OpenConsole)' } | Sort-Object CreationDate | ForEach-Object { $line = [string]$_.CommandLine; $since = if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('HH:mm:ss.fff') } else { '?' }; '{0} {1} from {2}, started {3}, {4:n1}s of CPU: {5}' -f $_.Name, $_.ProcessId, $_.ParentProcessId, $since, (($_.KernelModeTime + $_.UserModeTime) / 1e7), $line.Substring(0, [Math]::Min(160, $line.Length)) }",
+    )
+  }
   // How long Windows PowerShell takes to start just now, as a terminal's does (with the
-  // profile) and without: a terminal's first line can't come sooner than that. (Twenty
+  // profile) and without: a terminal's first line can't come sooner than that. (Eight
   // seconds says as much as a longer wait would.)
   for (const profile of [[], ['-NoProfile']]) {
     const from = Date.now()

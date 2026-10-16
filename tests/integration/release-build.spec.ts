@@ -36,6 +36,8 @@ const TESTS_ONLY = [
   'LUMOVI_TEST_BOX_CHECK',
   // The one that lengthens Lumovi's wait for a plugin's tool's server.
   'LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS',
+  // The one that holds a terminal's PowerShell before its first line.
+  'LUMOVI_TEST_POWERSHELL_HOLD_S',
   'LUMOVI_SPONSOR_URL',
   // What the tests reach a plugin's box by.
   '__lumoviBox',
