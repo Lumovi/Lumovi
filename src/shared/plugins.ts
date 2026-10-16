@@ -270,7 +270,22 @@ export interface View {
   related?: ViewRelated[]
   manages?: ViewManages[]
   actions?: ViewAction[]
+  /** Fields of its kinds' objects that Lumovi never shows nor hands over to anyone. */
+  withholds?: ViewWithhold[]
 }
+
+/** A field a view withholds (`withholds`): field names, as `reads` has them. */
+export interface ViewWithhold {
+  /** As its file says it. */
+  path: string
+  /** As Lumovi reads it. */
+  keys: string[]
+  /** Why, in the plugin's words. */
+  why?: string
+}
+
+/** How many fields a view may withhold. */
+export const WITHHOLDS_MOST = 20
 
 /** The sidebar's sections for Kubernetes' own kinds, which a plugin can sit in. */
 export const PLUGIN_CATEGORIES = ['cluster', 'network', 'config', 'storage'] as const
@@ -900,6 +915,13 @@ const VIEW_SHAPE: Shape = {
       nonEmpty: true,
       most: MANAGES_MOST,
     },
+    withholds: {
+      list: {
+        fields: { path: { shape: 'string', required: true }, why: 'string' },
+      },
+      nonEmpty: true,
+      most: WITHHOLDS_MOST,
+    },
     actions: {
       list: {
         fields: {
@@ -1262,6 +1284,86 @@ function showsSecretsProblems(shows: unknown, own: ReadonlySet<ResourceKind>): s
         problems.push(`${at}.keys[${k}]: ${quoted(key)} is said twice`)
       }
       keys.add(key)
+    })
+  })
+  return problems
+}
+
+/** A withheld field's keys, as Lumovi reads its path; or nothing, where it isn't field names. */
+function withheldKeys(path: string): string[] | undefined {
+  if (path.length > READS_LIMITS.path || !READ_PATH.test(path) || path !== path.trim()) return
+  let steps: Step[]
+  try {
+    steps = parse(`.${path}`)
+  } catch {
+    return
+  }
+  const keys = steps.map((step) => ('key' in step && READ_STEP.test(step.key) ? step.key : ''))
+  return keys.every(Boolean) ? keys : undefined
+}
+
+/**
+ * What's wrong with what a file's views withhold (`withholds`), each where it is. A view
+ * withholds fields of its plugin's own kinds alone, each named (never every kind of a group,
+ * nor one of Kubernetes'); a path is field names, as `reads` has them, a step into a list taken
+ * of each item; and what Lumovi tells of every object is never withheld: its kind, its metadata
+ * and its status, whatever file says it. A path that can't be read is the file's problem, never
+ * nothing withheld.
+ */
+function withholdsProblems(
+  views: { kinds: NamedKind[]; withholds?: { path: string }[] }[],
+): string[] {
+  const problems: string[] = []
+  views.forEach((view, i) => {
+    if (!view.withholds) return
+    const at = `spec.views[${i}].withholds`
+    for (const kind of view.kinds) {
+      const id = kindId(kind)
+      const group = kind.group ?? ''
+      if (kind.kind === '*') {
+        problems.push(
+          `${at}: a view withholds fields of kinds named one by one, never every kind of a group`,
+        )
+      } else if (isBuiltinKind(id) || !isCustomGroup(group) || kubernetesOwnName(group)) {
+        problems.push(
+          `${at}: a view withholds fields of its plugin’s own kinds alone, and ${id} is Kubernetes’`,
+        )
+      }
+    }
+    const said = new Map<string, number>()
+    view.withholds.forEach(({ path }, w) => {
+      const keys = withheldKeys(path)
+      if (!keys) {
+        problems.push(
+          `${at}[${w}].path: ${quoted(path)} should be field names, like report.secrets.match`,
+        )
+        return
+      }
+      const [first] = keys
+      if (first === 'metadata' || first === 'apiVersion' || first === 'kind') {
+        problems.push(
+          `${at}[${w}].path: ${quoted(path)} is what every object says of itself, which Lumovi always shows`,
+        )
+      } else if (first === 'status') {
+        // (What Lumovi says of an object is read from its status: never a plugin's to decide.)
+        problems.push(
+          `${at}[${w}].path: ${quoted(path)} is under status, which says how the object is: Lumovi always shows it`,
+        )
+      }
+      // (A patch's step that's a number is an item of a list, which a withheld path never names:
+      // one of its own would be a key a patch reaches unseen.)
+      if (keys.some((key) => /^\d+$/.test(key))) {
+        problems.push(
+          `${at}[${w}].path: ${quoted(path)}: a step of a withheld path is a field’s name, not a number`,
+        )
+      }
+      // (The same field however it's spelt.)
+      const same = JSON.stringify(keys)
+      const before = said.get(same)
+      if (before !== undefined) {
+        problems.push(`${at}[${w}].path: ${quoted(path)} is said already, in withholds[${before}]`)
+      }
+      said.set(same, w)
     })
   })
   return problems
@@ -1955,7 +2057,7 @@ const NEEDS_SHAPE: Shape = { fields: { lumovi: { shape: 'string', required: true
 const NAME_LENGTH = 80
 const SENTENCE_LENGTH = 500
 const NAMES = new Set(['name', 'label', 'default'])
-const SENTENCES = new Set(['confirm', 'detail', 'done'])
+const SENTENCES = new Set(['confirm', 'detail', 'done', 'why'])
 /**
  * Characters nobody sees, which can make a text read as another: the ones that turn its
  * direction, the ones with no width or that only look like a space, the breaks that aren't a
@@ -2529,6 +2631,14 @@ function readPlugin(
       ).map((problem) => `${source}: ${problem}`),
     )
   }
+  // (Lumovi's own views' file as anyone's: what it shows is Kubernetes', and never withheld.)
+  if (problems.length === 0) {
+    problems.push(
+      ...withholdsProblems(items as { kinds: NamedKind[]; withholds?: { path: string }[] }[]).map(
+        (problem) => `${source}: ${problem}`,
+      ),
+    )
+  }
   const needed = (needs as { lumovi: string } | undefined)?.lumovi
   if (problems.length === 0 && lumovi && older(lumovi, needed!)) {
     problems.push(`${source}: needs Lumovi ${needed} or newer; this is ${lumovi}`)
@@ -2670,6 +2780,15 @@ function readPlugin(
       kinds: spec.kinds.map(kindId),
       columns: withType(spec.columns),
       details: withType(spec.details),
+      ...(spec.withholds
+        ? {
+            withholds: spec.withholds.map(({ path, why }) => ({
+              path,
+              keys: withheldKeys(path)!,
+              ...(why?.trim() ? { why } : {}),
+            })),
+          }
+        : {}),
       actions: spec.actions?.map((a) => ({
         ...a,
         type: a.type ?? 'merge',

@@ -6,6 +6,7 @@
  * resource the cluster serves, custom resources included, is found through
  * API discovery and described the same way.
  */
+import type { WithheldField } from './withheld'
 
 /** Kinds with their own pages, columns, details and actions. */
 export const BUILTIN_KINDS = [
@@ -66,6 +67,8 @@ export interface ResourceDefinition {
   shortNames?: string[]
   /** Subresources it serves, such as `status` and `scale`. */
   subresources?: string[]
+  /** What Lumovi withholds of its objects, by its plugins' files: never shown, nor handed over. */
+  withheld?: readonly WithheldField[]
 }
 
 /** A built-in kind's definition: always placed in the sidebar. */

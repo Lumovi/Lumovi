@@ -42,7 +42,8 @@ import { UsageHistory } from '@backend/kube/usage'
 import { setUpNetwork } from '@backend/network'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { pluginsDirectory, readFiles } from '@backend/plugins'
-import { plugins, pluginsAllowedBy } from '@backend/plugins-known'
+import { plugins, pluginsAllowedBy, withholding } from '@backend/plugins-known'
+import { withholdFrom } from '@backend/withholding'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
@@ -619,6 +620,13 @@ if (stdio) {
       audit,
     })
     installedPlugins = installed
+    // What Lumovi withholds of each kind: what every plugin file it has says, whatever's in use.
+    withholdFrom(
+      withholding(pluginsDirectory(homedir()), {
+        folders: true,
+        installed: () => installed.files(),
+      }),
+    )
     // The sidebar's sponsor card, from Lumovi/main-sponsor: what was read last time at once, read
     // again soon after starting (once the network is set up, as the updater does) and every hour.
     const { base, everyMs } = sponsorSource(process.env)

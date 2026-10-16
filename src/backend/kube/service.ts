@@ -29,6 +29,7 @@ import { SECRET_KEYS_AT_MOST } from '@shared/api'
 import { parseQuantity } from '@shared/quantity'
 import {
   builtinResource,
+  isCustomGroup,
   resourceByKind,
   resourcePath,
   type ResourceDefinition,
@@ -36,6 +37,15 @@ import {
 } from '@shared/resources'
 import type { AccessGuard, Levels } from '@shared/access'
 import { SERVER_LIMITS } from '@shared/plugin-server'
+import {
+  patchTouches,
+  withhold,
+  unreadSaid,
+  WITHHELD_EDIT,
+  WITHHELD_PATCH,
+  type WithheldField,
+} from '@shared/withheld'
+import { withheld } from '../withholding'
 import {
   kubeProxyGet,
   kubeRequest,
@@ -171,6 +181,22 @@ const SECRET_READ_FAILED: Partial<Record<KubeErrorCode, string>> & { other: stri
   timeout: 'Lumovi couldn’t read this Secret: the cluster didn’t answer.',
   other: 'Lumovi couldn’t read this Secret.',
 }
+/**
+ * Why a change of an object that holds withheld fields failed, in Lumovi's words: by the
+ * failure's kind, never the cluster's text, which can quote what's withheld.
+ */
+const WITHHELD_FAILED: Partial<Record<KubeErrorCode, string>> & { other: string } = {
+  forbidden: 'The cluster doesn’t let you make this change.',
+  'not-found': 'There’s no such object.',
+  conflict: 'The object changed meanwhile: read it again, and try again.',
+  unauthorized: 'The cluster didn’t accept who you are.',
+  auth: 'The cluster didn’t accept who you are.',
+  unreachable: 'Lumovi couldn’t make this change: the cluster didn’t answer.',
+  tls: 'Lumovi couldn’t make this change: the cluster didn’t answer.',
+  timeout: 'Lumovi couldn’t make this change: the cluster didn’t answer.',
+  invalid: 'The cluster refused this change as it is.',
+  other: 'Lumovi couldn’t make this change.',
+}
 
 export class KubeService {
   /** How long the API server has to answer (LUMOVI_REQUEST_TIMEOUT_MS). */
@@ -241,12 +267,33 @@ export class KubeService {
     )
   }
 
-  /** Every kind the cluster serves that can be listed, looked up afresh. */
+  /**
+   * Every kind the cluster serves that can be listed, looked up afresh: each with what Lumovi
+   * withholds of its objects, where it withholds anything.
+   */
   resources(context: unknown): Promise<Result<ResourceDefinition[]>> {
-    return this.#run(() => {
+    return this.#run(async () => {
       assertString(context, 'context')
-      return this.#discover(context, 0)
+      const [resources, { kinds }] = await Promise.all([this.#discover(context, 0), withheld()])
+      return resources.map((resource) => {
+        const fields = isCustomGroup(resource.group) ? kinds.get(resource.kind) : undefined
+        return fields?.length ? { ...resource, withheld: fields } : resource
+      })
     })
+  }
+
+  /**
+   * What Lumovi withholds of `resource`'s objects: nothing of Kubernetes' own kinds, and of
+   * another what every plugin file Lumovi has says of it. Refused where a file that doesn't read
+   * may withhold fields of it.
+   */
+  async #withheldOf(resource: ResourceDefinition): Promise<readonly WithheldField[]> {
+    if (!isCustomGroup(resource.group)) return []
+    const { kinds, unread } = await withheld()
+    // A file that doesn't read may withhold fields of it: then nothing of it is shown.
+    const doubt = unread.find(({ groups }) => !groups || groups.includes(resource.group))
+    if (doubt) throw new KubeRequestError('server', unreadSaid(doubt.file))
+    return kinds.get(resource.kind) ?? []
   }
 
   /** The kinds `context` serves, discovered again if what's known is older than `maxAge` ms. */
@@ -308,8 +355,10 @@ export class KubeService {
       optionalString(q.labelSelector, 'labelSelector')
       optionalString(q.fieldSelector, 'fieldSelector')
       const resource = await this.#resource(q.context, q.kind)
-      // Kinds without columns of their own get the server's, like `kubectl get`.
-      const table = !builtinResource(q.kind)
+      const hidden = await this.#withheldOf(resource)
+      // Kinds without columns of their own get the server's, like `kubectl get`: but not where
+      // anything is withheld, as a column can show any field.
+      const table = !builtinResource(q.kind) && hidden.length === 0
       const params = new URLSearchParams()
       for (const key of ['labelSelector', 'fieldSelector'] as const) {
         if (q[key]) params.set(key, q[key])
@@ -336,7 +385,7 @@ export class KubeService {
         ...(certificates && Object.keys(certificates).length > 0 ? { certificates } : {}),
         // List items omit apiVersion/kind; add them back so detail views and YAML are complete.
         items: list.items.map((item) =>
-          slimListItem({ apiVersion, kind: resource.apiKind, ...item }),
+          withhold(slimListItem({ apiVersion, kind: resource.apiKind, ...item }), hidden),
         ),
       }
     })
@@ -462,8 +511,9 @@ export class KubeService {
           : 'values'
       const path = resourcePath(resource, q.namespace, q.name)
       const subresource = q.subresource ? `/${q.subresource}` : ''
+      const hidden = await this.#withheldOf(resource)
       const object = slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
-      return shown === 'values' ? object : withoutValues(object)
+      return withhold(shown === 'values' ? object : withoutValues(object), hidden)
     })
   }
 
@@ -658,6 +708,12 @@ export class KubeService {
       else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
       const change = assertQuery<Change>(r.change)
       if (change.action !== 'create') assertString(r.name, 'name')
+      // An object that holds withheld fields isn't written whole: what's sent would write them
+      // back, or blank them.
+      const hidden = await this.#withheldOf(resource)
+      if (hidden.length > 0 && (change.action === 'replace' || change.action === 'apply')) {
+        throw invalid(WITHHELD_EDIT)
+      }
       // What a change to a Secret answers with is the Secret: its values, for those shown them.
       let secrets: Levels['secrets'] = 'values'
       if (this.guard) {
@@ -685,10 +741,17 @@ export class KubeService {
       const dryRun = r.dryRun === true ? '?dryRun=All' : ''
       const path = resourcePath(resource, r.namespace, r.name)
       const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) => {
-        const object = slim(
-          JSON.parse(await this.#request(r.context, target, options)) as KubeObject,
-        )
-        return secrets === 'values' ? object : withoutValues(object)
+        let answer: string
+        try {
+          answer = await this.#request(r.context, target, options)
+        } catch (error) {
+          // (What the cluster says of a failed change can quote the object.)
+          if (hidden.length === 0) throw error
+          const { code, status } = toKubeError(error)
+          throw new KubeRequestError(code, WITHHELD_FAILED[code] ?? WITHHELD_FAILED.other, status)
+        }
+        const object = slim(JSON.parse(answer) as KubeObject)
+        return withhold(secrets === 'values' ? object : withoutValues(object), hidden)
       }
 
       switch (change.action) {
@@ -702,6 +765,7 @@ export class KubeService {
           if (change.subresource !== undefined) {
             assertOneOf(change.subresource, 'subresource', SUBRESOURCES)
           }
+          if (patchTouches(change.patchType, change.patch, hidden)) throw invalid(WITHHELD_PATCH)
           const subresource = change.subresource ? `/${change.subresource}` : ''
           return send(`${path}${subresource}${dryRun}`, {
             method: 'PATCH',

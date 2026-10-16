@@ -1,7 +1,19 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { parsePlugin } from '../../src/shared/plugins.ts'
 import { isCustomGroup } from '../../src/shared/resources.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
@@ -785,6 +797,51 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   // (An empty file is nothing, and says nothing. Lumovi's own views of Kubernetes' kinds are
   // no plugin: its 32 are counted, and the seven of these that could be used.)
   await expectProblem(page, 'empty.yaml: holds nothing')
+  // While a file doesn't read, what it withholds can't be told: nothing of a custom kind is
+  // read, saying which file (of any group, where one can't say its groups). Those that don't
+  // read alone taken away, the rest are read as before.
+  const widgetRead = () =>
+    page.evaluate(
+      (name) =>
+        window.lumovi!.kube.get({
+          context: 'demo',
+          kind: 'Widget.example.com',
+          namespace: 'default',
+          name,
+        }),
+      CUSTOM.widget,
+    )
+  expect(await widgetRead()).toMatchObject({
+    ok: false,
+    error: {
+      message: expect.stringMatching(
+        /^This can’t be shown: .+ doesn’t read, and it may withhold fields of it\.$/,
+      ),
+    },
+  })
+  for (const name of readdirSync(plugins)) {
+    if (!/\.ya?ml$/.test(name)) continue
+    const path = join(plugins, name)
+    // (Judged as it was read, through one handle. A folder doesn't open on Windows: it doesn't
+    // read either.)
+    let unread: boolean
+    try {
+      const fd = openSync(path, 'r')
+      try {
+        const file = fstatSync(fd)
+        unread =
+          file.isDirectory() ||
+          file.size > 256 * 1024 ||
+          !parsePlugin(readFileSync(fd, 'utf8'), name, { carriesCode: true }).plugin
+      } finally {
+        closeSync(fd)
+      }
+    } catch {
+      unread = true
+    }
+    if (unread) rmSync(path, { recursive: true })
+  }
+  await expect.poll(async () => (await widgetRead()).ok).toBe(true)
   await sidebar(page).getByRole('link', { name: 'API resources' }).click()
   await expect(page.getByText('32 plugins from Lumovi, 7 of yours.')).toBeVisible()
   // (Where temporary folders are in the home folder, as on Windows, it's shown from ~.)

@@ -29,6 +29,7 @@ test('every part a page may name, and everything a file can add, has the release
     'manages',
     'changes',
     'opens',
+    'withholds',
   ]) {
     expect(Object.hasOwn(PLUGIN_SINCE.file, key), key).toBe(true)
   }

@@ -125,6 +125,25 @@ export class InstalledPlugins {
 
   #last?: { mark: string; installed: Installed & { codes: Record<string, string> } }
 
+  /**
+   * Every installed plugin's file that's the one agreed to, in use or not (one written for a
+   * newer Lumovi, one the policy keeps out), by its file's name: for what it withholds, which a
+   * plugin that isn't used still does. Read again only as `read` is.
+   */
+  async files(): Promise<Record<string, string>> {
+    const mark = await this.#mark()
+    if (this.#lastFiles?.mark === mark) return this.#lastFiles.files
+    const files: Record<string, string> = {}
+    for (const [name, { current }] of Object.entries(this.#options.records())) {
+      const read = await this.#read(name, current)
+      if (read) files[`${name}.yaml`] = read.file
+    }
+    this.#lastFiles = { mark, files }
+    return files
+  }
+
+  #lastFiles?: { mark: string; files: Record<string, string> }
+
   /** What the installed plugins are now, without reading them. */
   async #mark(): Promise<string> {
     const records = this.#options.records()

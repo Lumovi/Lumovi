@@ -10,6 +10,8 @@ import { boxDocument, boxHeaders, CHECK_FRAME_SCRIPT, sealedDocument } from '@sh
 import { BOX_SCRIPT_SOURCE, scriptSource } from '@backend/plugin-box-script'
 import { PATHS, SESSION_ENDED, THEME_COOKIE } from '@shared/server'
 import { digestOf } from '@backend/plugins'
+import { withholding } from '@backend/plugins-known'
+import { withholdFrom } from '@backend/withholding'
 import { SponsorSource, sponsorSource } from '@backend/sponsor/source'
 import { ServerAccess } from './access'
 import { ServerAssistants } from './assistants/assistants'
@@ -79,6 +81,8 @@ const MAX_MESSAGE = 8 * 1024 * 1024
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const { config, hosted } = options
+  // What Lumovi withholds of each kind: what every plugin file it has says, whatever's in use.
+  withholdFrom(withholding({ path: config.pluginsDir }, { env: options.env }))
   const base = config.basePath
   const pages = new Pages(config.rendererDir, base)
   // A plugin's sealed box: only where the server knows its own address, since the box's policy
