@@ -918,6 +918,12 @@ export interface HelmDeploy {
   createNamespace?: boolean
   /** Asks the API server, changes nothing. */
   dryRun: boolean
+  /** Waits until what it made is ready (Helm's --wait), or fails at the timeout. */
+  wait?: boolean
+  /** Undoes it if it fails: an upgrade rolled back, an install uninstalled (and waits, as `wait`). */
+  rollbackOnFailure?: boolean
+  /** How long Helm waits for any one thing it does, in seconds (its --timeout; else 5 minutes). */
+  timeoutSeconds?: number
 }
 
 /** What a deploy did, or would do. */

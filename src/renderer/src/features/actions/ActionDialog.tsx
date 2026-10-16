@@ -50,6 +50,10 @@ export interface ActionDialogProps {
   ready?: boolean
   pending: boolean
   error?: string
+  /** Lumovi's words for what happened, said first, the error's own after them, in mono. */
+  errorLead?: string
+  /** The quiet button's word: Close, where closing doesn't stop what it does. */
+  cancelLabel?: string
   /** Wider dialogs for lists (drains, revisions). */
   wide?: boolean
   /** Replaces the confirm button, e.g. with "Done" once a drain has run. */
@@ -78,6 +82,8 @@ export function ActionDialog({
   ready = true,
   pending,
   error,
+  errorLead,
+  cancelLabel = 'Cancel',
   wide = false,
   footer,
   onSubmit,
@@ -249,7 +255,14 @@ export function ActionDialog({
                   className="flex gap-2.5 rounded-lg border border-critical/25 bg-critical/8 px-3 py-2.5 text-[13px] leading-relaxed text-critical-text"
                 >
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <p className="min-w-0 break-words selectable">{error}</p>
+                  {errorLead ? (
+                    <p className="min-w-0 break-words selectable">
+                      <span className="block font-medium">{errorLead}</span>
+                      <span className="mt-1 block font-mono text-xs">{error}</span>
+                    </p>
+                  ) : (
+                    <p className="min-w-0 break-words selectable">{error}</p>
+                  )}
                 </div>
               </div>
             )}
@@ -263,7 +276,7 @@ export function ActionDialog({
               {footer ?? (
                 <>
                   <Button variant="ghost" data-cancel onClick={onClose}>
-                    Cancel
+                    {cancelLabel}
                   </Button>
                   {/* Pending, it keeps the focus (a disabled button drops it to the page, where a
                       keyboard or screen reader's user would be as the error comes): it's only

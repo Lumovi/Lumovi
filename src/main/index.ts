@@ -377,7 +377,34 @@ if (stdio) {
     }
     const saved = settings.get().windows ?? []
     for (const state of saved.length ? saved : [undefined]) makeWindow(state)
-    app.on('before-quit', () => {
+    // Quitting stops helm, mid-change: asked first, while one runs (here alone: on a server it
+    // runs in the server, which a browser closing never stops).
+    let quitAnyway = false
+    app.on('before-quit', (event) => {
+      const running = helm.changing()
+      if (running.length > 0 && !quitAnyway) {
+        event.preventDefault()
+        const [first] = running
+        const choice = dialog.showMessageBoxSync({
+          type: 'warning',
+          message:
+            running.length === 1
+              ? `${first!.name} is still ${first!.doing}.`
+              : `${running.length} Helm changes are still running.`,
+          detail: `Quitting stops Helm, and can leave ${running.length === 1 ? 'the release' : 'their releases'} pending.`,
+          buttons: ['Keep it open', 'Quit anyway'],
+          defaultId: 0,
+          cancelId: 0,
+        })
+        if (choice === 1) {
+          quitAnyway = true
+          app.quit()
+        } else if (windows.all().length === 0) {
+          // (Its last window was closed: one's opened again, to see how it ends.)
+          newWindow()
+        }
+        return
+      }
       quitting = true
       const open = windows.all()
       if (open.length) settings.update({ windows: keptAll(open) })
