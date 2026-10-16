@@ -127,6 +127,18 @@ export const mainsOwn = <T extends { event: string }>(runs: T[]): T[] =>
   runs.filter(({ event }) => (MAINS_OWN as readonly string[]).includes(event))
 
 /** How many of each system's coverage files a run of main has kept, and whether macOS's are whole. */
+/**
+ * How `sha` is fetched to compare with: alone (`--depth=1`) only where the clone is shallow
+ * already, as CI's checkout is. A full clone (a person's, run by hand) is never made shallow.
+ */
+export const fetchOf = (sha: string, shallow: boolean): string[] => [
+  'fetch',
+  '--quiet',
+  ...(shallow ? ['--depth=1'] : []),
+  'origin',
+  sha,
+]
+
 export interface Fit {
   linux: number
   windows: number
@@ -229,7 +241,7 @@ if (import.meta.main) {
   // Whether Windows ran here (CI's "What changed": `windows`); as a plan that says nothing of it,
   // it did.
   const windowsRan = process.env.WINDOWS !== 'none'
-  // Main's newest green run that fits (pick), whatever started it, and whose coverage is kept.
+  // Main's newest green run of its own (mainsOwn) that fits (pick), and whose coverage is kept.
   let chosen: { run: { databaseId: number; headSha: string; event: string }; fit: Fit } | undefined
   try {
     const runs = JSON.parse(
@@ -277,8 +289,11 @@ if (import.meta.main) {
   let changed: string[] = []
   const texts = { mac: [] as string[], linux: [] as string[], windows: [] as string[] }
   try {
-    // What differs from that run's commit, here: fetched alone, to compare with.
-    execFileSync('git', ['fetch', '--quiet', '--depth=1', 'origin', run.headSha])
+    // What differs from that run's commit, here: fetched to compare with (fetchOf).
+    const shallow = execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      encoding: 'utf8',
+    }).trim()
+    execFileSync('git', fetchOf(run.headSha, shallow === 'true'))
     changed = execFileSync('git', ['diff', '--name-only', '--no-renames', run.headSha, 'HEAD'], {
       encoding: 'utf8',
     })

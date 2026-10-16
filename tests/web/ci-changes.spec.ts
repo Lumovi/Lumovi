@@ -6,10 +6,13 @@
  * where it is).
  */
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import {
   borrowedOf,
+  fetchOf,
   fitOf,
   mainsOwn,
   onlyIn,
@@ -602,6 +605,50 @@ test('how many of Linux’s and Windows’ coverage files a run of main has: as 
   // A platform with no such job: nothing to count.
   expect(shardsIn(jobs(0, 4))).toBeUndefined()
   expect(shardsIn(jobs(14, 0))).toBeUndefined()
+})
+
+test('main’s commit is fetched to compare with, and a full clone stays full: only a shallow one fetches it alone', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-fetch-'))
+  try {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'protocol.file.allow=always', ...args], {
+        cwd,
+        encoding: 'utf8',
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      }).trim()
+    const origin = join(dir, 'origin')
+    git(dir, 'init', '--quiet', '-b', 'main', origin)
+    for (const n of [1, 2, 3]) {
+      git(
+        origin,
+        '-c',
+        'user.name=t',
+        '-c',
+        'user.email=t@t',
+        'commit',
+        '--quiet',
+        '--allow-empty',
+        '-m',
+        `${n}`,
+      )
+    }
+    const sha = git(origin, 'rev-parse', 'HEAD~1')
+    const shallowOf = (cwd: string) => git(cwd, 'rev-parse', '--is-shallow-repository') === 'true'
+    // A person's clone, whole: the commit's fetched and the clone keeps every commit.
+    const full = join(dir, 'full')
+    git(dir, 'clone', '--quiet', `file://${origin}`, full)
+    git(full, ...fetchOf(sha, shallowOf(full)))
+    expect(shallowOf(full)).toBe(false)
+    expect(git(full, 'rev-list', '--count', 'HEAD')).toBe('3')
+    // CI's checkout, shallow: the commit alone is fetched, and it's there to compare with.
+    const ci = join(dir, 'ci')
+    git(dir, 'clone', '--quiet', '--depth=1', `file://${origin}`, ci)
+    expect(fetchOf(sha, shallowOf(ci))).toContain('--depth=1')
+    git(ci, ...fetchOf(sha, shallowOf(ci)))
+    expect(git(ci, 'cat-file', '-t', sha)).toBe('commit')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('main is red unless its newest finished run passed: only a run somebody cancelled says nothing', () => {
