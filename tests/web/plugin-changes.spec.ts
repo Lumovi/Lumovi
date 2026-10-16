@@ -521,6 +521,16 @@ const knobAt = (control: Locator) =>
 const trackOf = (control: Locator) =>
   control.evaluate((track) => getComputedStyle(track).backgroundColor)
 
+/** Lumovi's accent, as the theme drawn now has it. */
+const accentOf = (page: Page) =>
+  page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement('div'))
+    probe.style.backgroundColor = 'var(--color-accent)'
+    const colour = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return colour
+  })
+
 test('a switch in Lumovi’s dialog is Lumovi’s own: off, its knob at the start; on, at the end, on the accent; in both themes', async ({
   serve,
   page,
@@ -544,7 +554,8 @@ test('a switch in Lumovi’s dialog is Lumovi’s own: off, its knob at the star
     await dry.click()
     await expect(dry).toHaveAttribute('aria-checked', 'true')
     await expect.poll(() => knobAt(dry)).toBe('end')
-    await expect.poll(() => trackOf(dry)).not.toBe(off)
+    await expect.poll(() => trackOf(dry)).toBe(await accentOf(page))
+    expect(await trackOf(dry)).not.toBe(off)
     await dry.click()
     await expect.poll(() => knobAt(dry)).toBe('start')
   }
