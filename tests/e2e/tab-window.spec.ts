@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { holds } from '../holds.ts'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
-import { DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import { DEMO, expect, goTo, openCluster, PACKAGED, panel, row, test } from './fixtures.ts'
 
 const WINDOWS = process.platform === 'win32'
 
@@ -97,6 +97,56 @@ test('a terminal moved to a window of its own goes on with its shell there, and 
   await expect(tabs(page).getByRole('tab')).toHaveCount(1)
   await run(page, 'echo "back-$X"')
   await expect(screen(page)).toContainText('back-kept')
+})
+
+/** Waits for the terminal shown below to have its shell's prompt. */
+async function prompted(page: Page) {
+  await expect
+    .poll(async () => /in this terminal\..*[$#>]/s.test((await screen(page).textContent()) ?? ''), {
+      timeout: 60_000,
+    })
+    .toBe(true)
+}
+
+test('a terminal’s window closed before its page takes the shell ends that shell', async ({
+  launch,
+}) => {
+  test.slow(WINDOWS)
+  test.skip(PACKAGED, 'The packaged app runs without the tests’ counters of its shells.')
+  const { app, page } = await launch({ env: { SHELL: '/bin/sh' } })
+  await openCluster(page)
+  await page.keyboard.press('Control+Shift+Backquote')
+  await prompted(page)
+  // The new window goes as soon as it's there: before its page could ask for the shell.
+  await app.evaluate(({ app }) => {
+    app.once('browser-window-created', (_event, win) => setImmediate(() => win.destroy()))
+  })
+  await tabs(page).getByRole('tab', { name: /^demo/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to a new window' }).click()
+  await expect.poll(() => windowCount(app)).toBe(1)
+  await expect(tabs(page).getByRole('tab')).toHaveCount(0)
+  // Its shell's ended, not left running where no one sees it.
+  await expect
+    .poll(() =>
+      app.evaluate(
+        () => (globalThis as unknown as { __ptys: { ended: number | null }[] }).__ptys[0]!.ended,
+      ),
+    )
+    .not.toBeNull()
+})
+
+test('a terminal whose shell exits in its own window has nothing to put back below', async ({
+  launch,
+}) => {
+  test.slow(WINDOWS)
+  const { app, page } = await launch({ env: { SHELL: '/bin/sh' } })
+  await openCluster(page)
+  await page.keyboard.press('Control+Shift+Backquote')
+  await prompted(page)
+  const moved = await moveOut(app, page, /^demo/)
+  await run(moved, 'exit')
+  await expect(moved.getByText('The shell exited with code 0.')).toBeVisible()
+  await expect(moved.getByRole('button', { name: 'Put back below' })).toHaveCount(0)
 })
 
 test('a kept pod in a window of its own: its logs go on there, named in its band, and closing the window closes it', async ({

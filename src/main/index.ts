@@ -259,7 +259,8 @@ if (stdio) {
     // Lumovi's windows: each where it was when Lumovi last closed, or one where a new one goes.
     // Their pages load asynchronously, so the handlers below are in place before one can call
     // them; each window's own events are listened to once all there is to tell them is (wire).
-    const windows = new Windows()
+    // (A shell held for a window that closed before its page took it ends: see closeStreams.)
+    const windows = new Windows((ids) => closeStreams(ids))
     let quitting = false
     /**
      * Where a window is and what it shows: its place, its page's address, what it has below; or,
