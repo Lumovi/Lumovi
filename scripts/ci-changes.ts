@@ -81,10 +81,11 @@ export const alikeOnEverySystem = (path: string) =>
  * shortcut key that differs by it), or reaches for what differs by system (the home folder, a
  * path's separators, starting a process, Windows' own folders): run on every system, wherever it
  * is. (Not a program's `.exe`: in these files it's only ever a test's or a sample's text, and
- * Windows' own programs are started from src/main and src/backend, which run every system.)
+ * Windows' own programs are started from src/main and src/backend, which run every system. Nor
+ * `.platform` in a host's name, `deploy.platform.example.com`: a label with another after it.)
  */
 export const NAMES_A_SYSTEM =
-  /\.platform\b|userAgentData|\bMOD_KEY\b|\bisMac\b|\bisWindows\b|'(darwin|win32|linux)'|\bhomedir\b|\bdelimiter\b|\bsep\b|child_process|\bspawn\b|\bexecFile|USERPROFILE|APPDATA/
+  /\.platform\b(?!\.[\w-]+\.)|userAgentData|\bMOD_KEY\b|\bisMac\b|\bisWindows\b|'(darwin|win32|linux)'|\bhomedir\b|\bdelimiter\b|\bsep\b|child_process|\bspawn\b|\bexecFile|USERPROFILE|APPDATA/
 
 /**
  * Of the files changed, those whose text names a system (NAMES_A_SYSTEM): as each is now, or, for

@@ -163,6 +163,10 @@ test('every system runs for a file that asks which system it’s on, the harness
     'navigator.platform.startsWith("Mac")',
     'if (isMac) return "⌘"',
     "api.host === 'server' && api.platform === 'linux'",
+    "os.platform() === 'win32'",
+    'nameable(name, this.host.platform)',
+    "const windows = this.platform === 'win32'",
+    "process.platform.startsWith('win')",
     "{MOD_KEY === '⌘' ? '⌘↩' : 'Ctrl+↩'}",
     'value.split(delimiter)',
     "join(homedir(), '.kube', 'config')",
@@ -173,6 +177,10 @@ test('every system runs for a file that asks which system it’s on, the harness
     expect(NAMES_A_SYSTEM.test(text), text).toBe(true)
   }
   expect(NAMES_A_SYSTEM.test("const platform = 'phone'")).toBe(false)
+  // `.platform` in a host's name asks nothing (an annotation's key, columns.spec.ts:284).
+  expect(
+    NAMES_A_SYSTEM.test("const prefix = 'deploy.platform.example.com/escalation-contact-for-'"),
+  ).toBe(false)
   expect(NAMES_A_SYSTEM.test('a list of pods, filtered')).toBe(false)
   // A program's name is a test's or a sample's text there: Windows' own are started from src/main
   // and src/backend, which run every system by where they are.
