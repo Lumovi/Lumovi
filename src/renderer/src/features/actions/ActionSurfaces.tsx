@@ -48,6 +48,9 @@ export const isEditable = (target: EventTarget | null) =>
 export function ActionBar({ object, children }: { object: KubeObject; children?: ReactNode }) {
   const available = useObjectActions(object)
   const linksOffered = useLinksOffered()
+  // (Compare reads, as Copy link does: in their group, above what changes the object.)
+  const compare = available.find(({ action }) => action.id === 'compare')
+  const changing = available.filter(({ action }) => action.id !== 'compare')
   const { context } = useCluster()
   const kind = kindOf(object)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
@@ -154,20 +157,32 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
                 Actions <Kbd>.</Kbd>
               </DropdownMenu.Label>
               {/* First, in a group of its own above what changes the object: no key. */}
-              {linksOffered && (
+              {(linksOffered || compare) && (
                 <>
-                  <DropdownMenu.Item
-                    onSelect={() => void copyLink({ ref, kind, context })}
-                    className={menuItem}
-                  >
-                    <Link className="size-4 text-ink-3" />
-                    <span className="flex-1">Copy link</span>
-                  </DropdownMenu.Item>
+                  {linksOffered && (
+                    <DropdownMenu.Item
+                      onSelect={() => void copyLink({ ref, kind, context })}
+                      className={menuItem}
+                    >
+                      <Link className="size-4 text-ink-3" />
+                      <span className="flex-1">Copy link</span>
+                    </DropdownMenu.Item>
+                  )}
+                  {compare && (
+                    <DropdownMenu.Item
+                      disabled={compare.disabled !== undefined}
+                      onSelect={() => run(compare.action, object)}
+                      className={cn(menuItem, 'data-[disabled]:opacity-45')}
+                    >
+                      <compare.action.icon className="size-4 text-ink-3" />
+                      <span className="flex-1">{compare.action.label}</span>
+                    </DropdownMenu.Item>
+                  )}
                   <DropdownMenu.Separator className="mx-1 my-1 h-px bg-line" />
                 </>
               )}
               <ActionItems
-                available={available}
+                available={changing}
                 object={object}
                 Item={DropdownMenu.Item}
                 Separator={DropdownMenu.Separator}

@@ -7,6 +7,7 @@ import {
   Bell,
   ChartSpline,
   Ellipsis,
+  GitCompareArrows,
   Keyboard,
   LayoutDashboard,
   Link,
@@ -50,6 +51,7 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   metrics: ['Metrics', ChartSpline],
   alerts: ['Alerts', Bell],
   'api-resources': ['API resources', Blocks],
+  compare: ['Compare', GitCompareArrows],
   helm: ['Helm releases', ShipWheel],
   // A plugin the cluster doesn't have (the others go by their own names).
   plugins: ['Plugins', Puzzle],
@@ -199,7 +201,8 @@ export function Header() {
   const touch = useTouch()
   const moreGroups: PageAction[][] = [
     // The page's own link: as it stands, filters and the panel's object too. No key.
-    linksOffered
+    // (A comparison has none: no link names two clusters' objects.)
+    linksOffered && page !== 'compare'
       ? [{ key: 'link', label: 'Copy link to this view', icon: Link, run: () => void copyLink() }]
       : [],
     plugin

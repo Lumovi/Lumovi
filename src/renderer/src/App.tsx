@@ -24,6 +24,7 @@ import { OverviewPage } from './features/overview/OverviewPage'
 import { AlertsPage } from './features/alerts/AlertsPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { RightsizingPage } from './features/rightsizing/RightsizingPage'
+import { ComparePage } from './features/compare/ComparePage'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { AuthorizePage } from './features/session/AuthorizePage'
 import { SessionGate } from './features/session/SessionGate'
@@ -120,6 +121,15 @@ const routes: RouteObject[] = [
               { path: 'plugins/:name', element: <PluginPage /> },
               { path: 'plugins/:name/:page', element: <PluginPage /> },
               { path: 'api-resources', element: <ApiResourcesPage /> },
+              // Two objects side by side: not on a phone at first.
+              {
+                path: 'compare',
+                element: (
+                  <OnALargerScreen title="Compare" to="compare two objects">
+                    <ComparePage />
+                  </OnALargerScreen>
+                ),
+              },
               // The kit's parts, each with its hard cases: for the tests' build alone, until
               // something in Lumovi draws a plugin's page from them. A release has none of it.
               ...(LUMOVI_TEST_BUILD

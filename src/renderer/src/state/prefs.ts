@@ -44,6 +44,9 @@ interface Prefs {
   /** Whether the clusters page shows the clusters hidden from it. */
   showHidden: boolean
   setShowHidden: (showHidden: boolean) => void
+  /** Whether a comparison shows status and what the cluster set: as it was last left. */
+  compareNoise: boolean
+  setCompareNoise: (compareNoise: boolean) => void
   /**
    * What was chosen for each list's columns, by `<context>/<list>` (a kind, or a page's own list:
    * "workloads", "helm", a plugin's).
@@ -123,6 +126,8 @@ export const usePrefs = create<Prefs>()(
       setClusterGrouping: (clusterGrouping) => set({ clusterGrouping }),
       showHidden: false,
       setShowHidden: (showHidden) => set({ showHidden }),
+      compareNoise: false,
+      setCompareNoise: (compareNoise) => set({ compareNoise }),
       createSide: 'form',
       setCreateSide: (createSide) => set({ createSide }),
       eventsTabAs: 'list',

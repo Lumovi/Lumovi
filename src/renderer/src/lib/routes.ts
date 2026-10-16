@@ -129,6 +129,26 @@ export function pluginPagePath(context: string, name: string, page: string): str
   return `${pluginPath(context, name)}/${encodeURIComponent(page)}`
 }
 
+/** One side of a comparison: an object (`formatRef`'s) in a cluster. */
+export interface CompareSide {
+  context: string
+  ref: string
+}
+
+/** What the address of a comparison names each side by. (A context's name may hold / or :.) */
+export const COMPARED = { left: 'lc', leftRef: 'l', right: 'rc', rightRef: 'r' } as const
+
+/** Two objects compared, on `context`'s page: each by its cluster and its kind, namespace and name. */
+export function comparePath(context: string, left: CompareSide, right: CompareSide): string {
+  const params = new URLSearchParams({
+    [COMPARED.left]: left.context,
+    [COMPARED.leftRef]: left.ref,
+    [COMPARED.right]: right.context,
+    [COMPARED.rightRef]: right.ref,
+  })
+  return `${clusterPath(context)}/compare?${params}`
+}
+
 /** Every kind the cluster serves, and the views that show them. */
 export function apiResourcesPath(context: string): string {
   return `${clusterPath(context)}/api-resources`
