@@ -49,8 +49,10 @@ import { readOnlyWhy, type ClusterSettings } from './cluster-settings'
 import type { Joins } from './fleet/joins'
 import type { FleetSettings } from './fleet/settings'
 import type { AddedClusters } from './fleet/added'
+import type { ServerRepositories } from './helm-repositories'
 import type { PeopleMarks } from './marks'
 import { checkChartUrl } from './network'
+import { ChartRepositories, recordOf } from '@backend/helm/repositories'
 import { log } from './log'
 import type { PluginCodeStore } from './plugin-code'
 
@@ -187,6 +189,8 @@ export interface ConnectionOptions {
   clusters: ClusterSettings
   /** Everyone's pins and saved views: the page's person's are theirs alone. */
   marks?: PeopleMarks
+  /** The chart repositories its admins added, and what's read of them: everyone's. */
+  repositories: ServerRepositories
   /** Each person's choices of whose plugins' code runs. */
   pluginCode: PluginCodeStore
   /** A fleet's: the clusters its admins connect from the Fleet page. */
@@ -360,6 +364,7 @@ export class PageConnection {
       access,
       clusters,
       marks,
+      repositories,
       joins,
       fleetSettings,
       added,
@@ -394,6 +399,17 @@ export class PageConnection {
       guard,
       localCharts: false,
       checkUrl: config.allowPrivateCharts ? undefined : checkChartUrl,
+      repositories: new ChartRepositories({
+        keeper: repositories,
+        reads: repositories.reads,
+        checkUrl: config.allowPrivateCharts ? undefined : checkChartUrl,
+        person: {
+          // Only its admins: and where it names none, nobody.
+          mayChange: () => access.administered && access.isAdmin(identity.user),
+          admins: () => access.mine(identity.user).admins,
+          record: (change) => recording.record(recordOf(change)),
+        },
+      }),
       // A kubeconfig of its own for each run, acting as this person, removed after.
       target: async (context) => {
         configs.forContext(context)

@@ -16,7 +16,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
 import type { Duplex } from 'node:stream'
-import { isIP } from 'node:net'
+import { lookup } from 'node:dns/promises'
+import { BlockList, isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import tls from 'node:tls'
@@ -316,4 +317,40 @@ export function fetchFailure(error: unknown): string {
     networkFailure(error) ??
     (code && !deepest.message.includes(code) ? `${deepest.message} (${code})` : deepest.message)
   )
+}
+
+/** Private networks: what's inside a cluster's or a company's, and cloud metadata endpoints. */
+const PRIVATE = new BlockList()
+for (const [network, prefix] of [
+  ['0.0.0.0', 8], // "This network"
+  ['10.0.0.0', 8], // Private
+  ['100.64.0.0', 10], // Shared address space (carrier-grade NAT, some pod networks)
+  ['127.0.0.0', 8], // Loopback
+  ['169.254.0.0', 16], // Link-local: cloud metadata endpoints
+  ['172.16.0.0', 12], // Private
+  ['192.168.0.0', 16], // Private
+] as const) {
+  PRIVATE.addSubnet(network, prefix, 'ipv4')
+}
+for (const [network, prefix] of [
+  ['::', 128], // Unspecified
+  ['::1', 128], // Loopback
+  ['fc00::', 7], // Unique local
+  ['fe80::', 10], // Link-local
+] as const) {
+  PRIVATE.addSubnet(network, prefix, 'ipv6')
+}
+
+/**
+ * A URL's host where it is (or resolves to) a private address: what a server, from inside the
+ * cluster's network, mustn't fetch for someone. Names that don't resolve aren't (their fetch fails).
+ */
+export async function privateHost(url: string): Promise<string | undefined> {
+  const host = new URL(url).hostname.replace(/^\[(.*)\]$/, '$1')
+  const addresses = isIP(host)
+    ? [{ address: host, family: isIP(host) }]
+    : await lookup(host, { all: true }).catch(() => [])
+  return addresses.some(({ address, family }) => PRIVATE.check(address, `ipv${family}` as 'ipv4'))
+    ? host
+    : undefined
 }

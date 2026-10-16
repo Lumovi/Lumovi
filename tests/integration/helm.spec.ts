@@ -77,7 +77,8 @@ async function openRelease(page: Page, name: string) {
 
 test('releases as Helm stores them, with what they made', async ({ page }) => {
   await expect(rows(page, 'Helm releases')).toHaveCount(2)
-  await expect(row(page, 'Helm releases', 'hello-a')).toContainText('Deployedhello 0.1.01.272')
+  // (Its Update column says nothing: no repository Lumovi keeps has its chart.)
+  await expect(row(page, 'Helm releases', 'hello-a')).toContainText('Deployedhello 0.1.0—1.272')
   await expect(row(page, 'Helm releases', 'hello-cm')).toContainText('Deployedhello 0.1.0')
 
   const release = await openRelease(page, 'hello-a')

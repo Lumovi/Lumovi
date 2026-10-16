@@ -35,7 +35,9 @@ import {
   invalid,
   optionalString,
 } from '../kube/validate'
+import { REPOSITORY_ID, REPOSITORY_LABEL } from '@shared/helm-repositories'
 import { listReleases, releaseHistory, type StoredRelease } from './releases'
+import type { ChartRepositories } from './repositories'
 
 /** What a release is having done to it: what the app, quitting, would stop. */
 export type HelmDoing = 'installing' | 'upgrading' | 'rolling back'
@@ -81,6 +83,8 @@ export interface HelmOptions {
   checkUrl?: (url: string) => Promise<void>
   /** A server's: what its person may do (the desktop app has none). */
   guard?: AccessGuard
+  /** The repositories Lumovi keeps: a chart from one is fetched by Lumovi, not by Helm. */
+  repositories: ChartRepositories
 }
 
 /** On the desktop: the context in the user's kubeconfig. */
@@ -97,6 +101,8 @@ export class HelmService {
   readonly #checkUrl: (url: string) => Promise<void>
   readonly #guard?: AccessGuard
   readonly #shipped: string
+  /** The chart repositories and registries Lumovi keeps. */
+  readonly repositories: ChartRepositories
   /** The releases being installed, upgraded or rolled back now: what quitting would stop. */
   readonly #changing = new Set<{ name: string; doing: HelmDoing }>()
 
@@ -111,6 +117,7 @@ export class HelmService {
     this.#checkUrl = options.checkUrl ?? (async () => undefined)
     this.#guard = options.guard
     this.#shipped = options.command ?? 'helm'
+    this.repositories = options.repositories
   }
 
   /** The helm that runs. */
@@ -244,10 +251,13 @@ export class HelmService {
       const waits = r.dryRun !== true ? await this.#waitArgs(r) : []
       if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
       const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
+      let fetchedDone: (() => Promise<void>) | undefined
       try {
         const values = join(directory, 'values.yaml')
         await writeFile(values, r.values)
         let chart: string[]
+        // Where a chart from a repository Lumovi keeps came from, on the release (or none now).
+        let label: string[] = []
         if (r.source === 'stored') {
           // The chart the release runs is stored with it, but without its subcharts.
           const { latest } = await releaseHistory(this.#list(r.context), r.namespace, r.name)
@@ -257,8 +267,23 @@ export class HelmService {
             )
           }
           chart = [await writeChart(latest.chart, join(directory, 'chart'))]
+        } else if (r.source.saved !== undefined) {
+          const fetched = await this.#savedChart(r.source)
+          fetchedDone = fetched.done
+          chart = [fetched.file]
+          label = ['--labels', `${REPOSITORY_LABEL}=${r.source.saved}`]
         } else {
           chart = await this.#sourceArgs(r.source)
+          // Another chart in place of one from a repository Lumovi keeps: no longer from there.
+          // (Only where it was labelled so: a helm older than 3.13 has no --labels. Where its
+          // record can't be read, helm says what's wrong; a label left is never trusted alone.)
+          if (r.install !== true) {
+            const latest = await releaseHistory(this.#list(r.context), r.namespace, r.name).then(
+              (history) => history.latest,
+              () => undefined,
+            )
+            if (latest?.labels?.[REPOSITORY_LABEL]) label = ['--labels', `${REPOSITORY_LABEL}=null`]
+          }
         }
         const doing: HelmDoing = r.install === true ? 'installing' : 'upgrading'
         const deploy = () =>
@@ -277,6 +302,7 @@ export class HelmService {
                 'json',
                 ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
                 ...(r.dryRun === true ? ['--dry-run=server'] : []),
+                ...label,
                 ...waits,
               ],
               env,
@@ -295,6 +321,7 @@ export class HelmService {
           notes: deployed.info.notes,
         }
       } finally {
+        await fetchedDone?.()
         await rm(directory, { recursive: true, force: true })
       }
     })
@@ -358,9 +385,27 @@ export class HelmService {
 
   /** A chart's default values, as its values.yaml has them. */
   defaults(source: unknown): Promise<Result<string>> {
-    return this.#result(async () =>
-      this.#helm(['show', 'values', ...(await this.#sourceArgs(source))]),
-    )
+    return this.#result(async () => {
+      const s = assertQuery<ChartSource>(source)
+      if (s.saved === undefined) {
+        return this.#helm(['show', 'values', ...(await this.#sourceArgs(source))])
+      }
+      const fetched = await this.#savedChart(s)
+      try {
+        return await this.#helm(['show', 'values', fetched.file])
+      } finally {
+        await fetched.done()
+      }
+    })
+  }
+
+  /** A chart from a repository Lumovi keeps: fetched and checked by Lumovi, a file for Helm. */
+  async #savedChart(s: ChartSource): Promise<{ file: string; done: () => Promise<void> }> {
+    assertString(s.saved, 'saved')
+    if (!REPOSITORY_ID.test(s.saved)) throw invalid('saved must be a repository’s id')
+    assertString(s.chart, 'chart')
+    assertString(s.version, 'version')
+    return this.repositories.fetchChart(s.saved, s.chart, s.version)
   }
 
   /** The versions a chart repository lists of a chart, as its index orders them (newest first). */

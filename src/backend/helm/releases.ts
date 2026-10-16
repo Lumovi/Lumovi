@@ -5,6 +5,7 @@
  */
 import { gunzipSync } from 'node:zlib'
 import type { HelmRelease, HelmReleaseDetail, HelmRevision, KubeObject } from '@shared/api'
+import { REPOSITORY_ID, REPOSITORY_LABEL } from '@shared/helm-repositories'
 import { KubeRequestError } from '../kube/errors'
 
 /** What Lumovi reads of Helm's release record. */
@@ -37,6 +38,8 @@ export interface StoredRelease {
   }
   config?: Record<string, unknown> | null
   manifest: string
+  /** Its record's labels (Helm keeps a release's own --labels there, not in this JSON). */
+  labels?: Record<string, string>
 }
 
 type ListRaw = (path: string, labelSelector: string) => Promise<KubeObject[]>
@@ -75,14 +78,20 @@ async function records(
   return [
     ...secrets
       .filter((s) => s.type === RELEASE_SECRET)
-      .map((s) => decodeRelease({ ...s, kind: 'Secret' })),
-    ...configMaps.map((c) => decodeRelease({ ...c, kind: 'ConfigMap' })),
+      .map((s) => labelled(s, decodeRelease({ ...s, kind: 'Secret' }))),
+    ...configMaps.map((c) => labelled(c, decodeRelease({ ...c, kind: 'ConfigMap' }))),
   ]
 }
+
+const labelled = (object: KubeObject, release: StoredRelease): StoredRelease => ({
+  ...release,
+  ...(object.metadata.labels ? { labels: object.metadata.labels } : {}),
+})
 
 function summary(release: StoredRelease): HelmRelease {
   const { metadata } = release.chart
   const fluxName = FLUX_NAME.exec(release.manifest)?.[1]
+  const repository = release.labels?.[REPOSITORY_LABEL]
   return {
     name: release.name,
     namespace: release.namespace,
@@ -93,6 +102,9 @@ function summary(release: StoredRelease): HelmRelease {
     appVersion: metadata.appVersion,
     updated: release.info.last_deployed,
     description: release.info.description,
+    ...(repository && REPOSITORY_ID.test(repository) ? { repository } : {}),
+    ...(typeof metadata.home === 'string' ? { chartHome: metadata.home } : {}),
+    ...(Array.isArray(metadata.sources) ? { chartSources: metadata.sources } : {}),
     ...(fluxName
       ? {
           managedBy: {

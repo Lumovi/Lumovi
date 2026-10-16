@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import type { HelmReleaseDetail, KubeObject } from '@shared/api'
+import { releaseUpdate } from '@shared/helm-repositories'
 import { Button, IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
@@ -25,7 +26,7 @@ import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { YamlText } from '@renderer/components/YamlText'
 import { useGo } from '@renderer/hooks/go'
-import { useHelmCli, useHelmRelease } from '@renderer/hooks/helm'
+import { useHelmCli, useHelmRelease, useHelmRepositories } from '@renderer/hooks/helm'
 import { listPollInterval } from '@renderer/hooks/queries'
 import { resourceFor } from '@renderer/hooks/resources'
 import { useClusterName, useReadOnly } from '@renderer/hooks/settings'
@@ -43,6 +44,7 @@ import { SidePanel, type PanelFrame } from '../details/SidePanel'
 import { NotAllowed } from '../access/NotAllowed'
 import { useAccessHere } from '../access/use-access'
 import { DeployDialog } from './DeployDialog'
+import { UpdatePill } from './UpdatePill'
 import { RollbackReleaseDialog, UninstallReleaseDialog } from './ReleaseDialogs'
 
 /** The release named by `?release=namespace/name`, next to the list. */
@@ -57,13 +59,22 @@ export function ReleasePanel() {
   )
 }
 
-type Dialog = 'upgrade' | 'rollback' | 'uninstall'
+type Dialog = 'upgrade' | 'rollback' | 'uninstall' | 'newer'
+
+/** A release's newer chart, where Lumovi knows where it came from (see releaseUpdate). */
+function useReleaseUpdate(release?: HelmReleaseDetail) {
+  const repositories = useHelmRepositories()
+  return release && repositories.data
+    ? releaseUpdate(release, repositories.data.repositories, repositories.data.charts)
+    : undefined
+}
 
 function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame) {
   const [namespace, name] = value.split('/') as [string, string]
   const release = useHelmRelease(namespace, name)
   const [dialog, setDialog] = useState<Dialog>()
   const data = release.data
+  const update = useReleaseUpdate(data)
   const phone = useLayout() === 'phone'
   const clusterName = useClusterName()(useCluster().context)
   const body = release.isPending ? (
@@ -96,11 +107,13 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
             <CopyButton text={name} label="Copy name" />
           </div>
           {data && (
-            <div className="mt-2.5 flex max-w-full min-w-0">
+            <div className="mt-2.5 flex max-w-full min-w-0 flex-wrap gap-1.5">
               <StatusPill status={releaseStatus(data.status)} />
+              {/* (A fact on a phone: upgrading waits for a larger screen.) */}
+              {update?.version && <UpdatePill version={update.version} />}
             </div>
           )}
-          {data && <ReleaseActions release={data} onAction={setDialog} />}
+          {data && <ReleaseActions release={data} newer={update?.version} onAction={setDialog} />}
         </div>
         {body}
       </>
@@ -123,7 +136,7 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
             </h2>
             <CopyButton text={name} label="Copy name" />
           </div>
-          {data && <ReleaseActions release={data} onAction={setDialog} />}
+          {data && <ReleaseActions release={data} newer={update?.version} onAction={setDialog} />}
         </div>
         {data && <StatusPill status={releaseStatus(data.status)} className="mt-2.5 shrink-0" />}
         {!over && (
@@ -142,6 +155,17 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
       {body}
       {data && dialog === 'upgrade' && (
         <DeployDialog release={data} onClose={() => setDialog(undefined)} />
+      )}
+      {data && dialog === 'newer' && update?.version && (
+        <DeployDialog
+          release={data}
+          fromRepository={{
+            saved: update.repository.id,
+            chart: data.chart,
+            version: update.version,
+          }}
+          onClose={() => setDialog(undefined)}
+        />
       )}
       {data && dialog === 'rollback' && (
         <RollbackReleaseDialog release={data} onClose={() => setDialog(undefined)} />
@@ -162,9 +186,12 @@ function ReleaseDetail({ value, expanded, over, onExpand, onClose }: PanelFrame)
 /** Upgrade, roll back and uninstall, or why they can't be used. */
 function ReleaseActions({
   release,
+  newer,
   onAction,
 }: {
   release: HelmReleaseDetail
+  /** A newer chart where it came from (Update available): first, a button that opens Upgrade with it. */
+  newer?: string
   onAction: (dialog: Dialog) => void
 }) {
   const cli = useHelmCli().data
@@ -187,7 +214,7 @@ function ReleaseActions({
   }
   // Uninstalling is rarer, and dangerous: an icon, so the others fit on one line.
   const actions: {
-    id: Dialog
+    id: Exclude<Dialog, 'newer'>
     label: string
     icon: typeof History
     danger?: boolean
@@ -213,6 +240,19 @@ function ReleaseActions({
       aria-label="Release actions"
     >
       {readOnly && <ReadOnlyBadge />}
+      {newer &&
+        ((disabledAll ?? allowed.upgrade) === undefined ? (
+          <button
+            type="button"
+            aria-label={`Update available: ${newer}. Upgrade to it`}
+            onClick={() => onAction('newer')}
+            className="rounded-full outline-none focus-visible:ring-3 focus-visible:ring-accent-soft"
+          >
+            <UpdatePill version={newer} className="h-7 hover:bg-accent-soft/70" />
+          </button>
+        ) : (
+          <UpdatePill version={newer} className="h-7" />
+        ))}
       {actions.map((action) => {
         const disabled = disabledAll ?? allowed[action.id]
         const button = (
@@ -290,8 +330,14 @@ function ReleaseOverview({ release }: { release: HelmReleaseDetail }) {
   const go = useGo()
   const { context } = useCluster()
   const latest = release.revisions[0]!
+  const update = useReleaseUpdate(release)
   const facts = [
-    { label: 'Chart', value: `${release.chart} ${release.chartVersion}` },
+    {
+      label: 'Chart',
+      value: `${release.chart} ${release.chartVersion}${
+        update?.version ? ` · ${update.version} in ${update.repository.name}` : ''
+      }`,
+    },
     { label: 'App version', value: release.appVersion },
     { label: 'Revision', value: String(release.revision) },
     { label: 'Last change', value: release.description },

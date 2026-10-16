@@ -33,6 +33,7 @@ import { AGENT_JOINED } from './fleet/agents'
 import { FleetSettings } from './fleet/settings'
 import { AddedClusters } from './fleet/added'
 import { addNamespace } from './fleet/secrets'
+import { ServerRepositories } from './helm-repositories'
 import { PeopleMarks } from './marks'
 import { ServerState, stateKey } from './state'
 
@@ -172,6 +173,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // Its clusters' settings (read-only, metrics, node shells), the same for everyone.
   const clusters = new ClusterSettings(state, access, audit)
   // (A fleet's clusters as it has them now; a single cluster's, its own.)
+  // The chart repositories its admins added, the same for everyone.
+  const repositories = new ServerRepositories(state)
   const marks = new PeopleMarks(state, (context) =>
     hosted.hasCluster ? hosted.hasCluster(context) : context === hosted.name,
   )
@@ -491,6 +494,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         access,
         clusters,
         marks,
+        repositories,
         joins,
         fleetSettings,
         added,

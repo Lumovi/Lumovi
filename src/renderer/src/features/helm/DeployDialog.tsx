@@ -2,11 +2,18 @@ import { ArrowUpCircle, ArrowLeft, LoaderCircle, PackagePlus, Search } from 'luc
 import { useState, type ReactNode } from 'react'
 import { formatElapsed, useTicking } from '@renderer/components/Busy'
 import { parse } from 'yaml'
-import type { ChartSearchResult, ChartSource, HelmDeployed, HelmReleaseDetail } from '@shared/api'
+import type {
+  ChartSearchResult,
+  ChartSource,
+  HelmDeployed,
+  HelmReleaseDetail,
+  HelmRepositories,
+} from '@shared/api'
+import { age } from '@renderer/lib/format'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
-import { useHelmChange } from '@renderer/hooks/helm'
+import { useHelmChange, useHelmRepositories } from '@renderer/hooks/helm'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { undoneBy } from '@renderer/lib/helm-diff'
@@ -19,8 +26,11 @@ import { LintFindings, LocalChartPanel, useLocalChart } from './LocalChart'
 import { FluxWarning } from './ReleaseDialogs'
 import { useAccessHere } from '../access/use-access'
 
-/** Where the chart comes from: stored with the release, a repository or registry, or this computer. */
-type ChartMode = 'stored' | 'repository' | 'local'
+/**
+ * Where the chart comes from: a repository Lumovi keeps, stored with the release, another
+ * repository or registry, or this computer.
+ */
+type ChartMode = 'saved' | 'stored' | 'repository' | 'local'
 
 const field =
   'h-8 w-full rounded-lg border border-line-strong bg-surface px-2.5 font-mono text-xs text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft'
@@ -32,9 +42,15 @@ const field =
  */
 export function DeployDialog({
   release,
+  fromRepository,
   onClose,
 }: {
   release?: HelmReleaseDetail
+  /**
+   * A chart in a repository Lumovi keeps, chosen first: one picked in the Charts tab, or the
+   * newer version a release's Update available names.
+   */
+  fromRepository?: ChartSource & { saved: string }
   onClose: () => void
 }) {
   const { context, namespace: picked } = useCluster()
@@ -43,14 +59,17 @@ export function DeployDialog({
   // A chart without subcharts is stored whole with its release: it can upgrade as it is.
   const canReuse = release !== undefined && release.chartInfo.dependencies.length === 0
   const [source, setSource] = useState<ChartSource>({ chart: release?.chart ?? '' })
-  const [name, setName] = useState(release?.name ?? '')
+  const repositories = useHelmRepositories()
+  const [saved, setSaved] = useState<ChartSource | undefined>(fromRepository)
+  // (Installed from the Charts tab, it's named as its chart is, to change.)
+  const [name, setName] = useState(release?.name ?? fromRepository?.chart ?? '')
   const [namespace, setNamespace] = useState(release?.namespace ?? picked ?? 'default')
   // A release deployed from a chart on this computer is likely to be again, from there.
   const releaseKey = `${context}/${namespace}/${name}`
   const remembered = usePrefs((prefs) => prefs.localCharts[releaseKey])
   const setLocalChart = usePrefs((prefs) => prefs.setLocalChart)
   const [mode, setMode] = useState<ChartMode>(
-    remembered ? 'local' : canReuse ? 'stored' : 'repository',
+    fromRepository ? 'saved' : remembered ? 'local' : canReuse ? 'stored' : 'repository',
   )
   const [localPath, setLocalPath] = useState(remembered ?? '')
   const [createNamespace, setCreateNamespace] = useState(false)
@@ -81,15 +100,19 @@ export function DeployDialog({
     setLoads(loads + 1)
   }
 
-  const chartSource: ChartSource = mode === 'local' ? { chart: localPath } : source
+  const chartSource: ChartSource =
+    mode === 'local' ? { chart: localPath } : mode === 'saved' ? (saved ?? { chart: '' }) : source
+  const savedFrom = repositories.data?.repositories.find((r) => r.id === saved?.saved)
   const chartArgs =
     mode === 'stored'
       ? [`./${release!.chart}-${release!.chartVersion}`]
-      : [
-          chartSource.chart || '<chart>',
-          ...(chartSource.repository ? ['--repo', chartSource.repository] : []),
-          ...(chartSource.version ? ['--version', chartSource.version] : []),
-        ]
+      : mode === 'saved'
+        ? [`./${saved?.chart || '<chart>'}-${saved?.version || '<version>'}.tgz`]
+        : [
+            chartSource.chart || '<chart>',
+            ...(chartSource.repository ? ['--repo', chartSource.repository] : []),
+            ...(chartSource.version ? ['--version', chartSource.version] : []),
+          ]
   const command = helm(
     context,
     namespace,
@@ -103,6 +126,13 @@ export function DeployDialog({
     ...(undo ? ['--rollback-on-failure'] : wait ? ['--wait'] : []),
     ...(minutes !== undefined && !badTimeout ? ['--timeout', `${minutes}m0s`] : []),
   )
+  // Helm is handed the chart Lumovi fetched: the command can't say how.
+  const commandNote =
+    mode === 'saved' && savedFrom && saved?.chart && saved.version
+      ? `Lumovi fetches ${saved.chart} ${saved.version} from ${savedFrom.name}${
+          savedFrom.username ? ' with its saved sign-in' : ''
+        }, then hands Helm the chart.${savedFrom.username ? ' The command can’t say the sign-in.' : ''}`
+      : undefined
   const request = (dryRun: boolean) => ({
     context,
     namespace,
@@ -117,6 +147,7 @@ export function DeployDialog({
     ...(minutes !== undefined ? { timeoutSeconds: minutes * 60 } : {}),
   })
   const chartReady = {
+    saved: Boolean(saved?.saved && saved.chart && saved.version),
     stored: true,
     repository: source.chart !== '',
     // Read and checked as it is now (a failed read keeps the last one's data).
@@ -179,6 +210,7 @@ export function DeployDialog({
       name={install ? undefined : release.name}
       subject={install ? 'Helm' : `Helm release · ${release.namespace}`}
       command={command}
+      commandNote={commandNote}
       confirmLabel={reviewed ? (install ? 'Install' : 'Upgrade') : 'Review'}
       wide
       ready={ready && !checking}
@@ -267,6 +299,10 @@ export function DeployDialog({
             onMode={setMode}
             source={source}
             onSource={setSource}
+            repositories={repositories.data}
+            saved={saved}
+            onSaved={setSaved}
+            newer={fromRepository && release ? fromRepository : undefined}
             local={
               <LocalChartPanel
                 path={localPath}
@@ -354,6 +390,10 @@ function ChartPicker({
   onMode,
   source,
   onSource,
+  repositories,
+  saved,
+  onSaved,
+  newer,
   local,
 }: {
   release?: HelmReleaseDetail
@@ -362,9 +402,24 @@ function ChartPicker({
   onMode: (mode: ChartMode) => void
   source: ChartSource
   onSource: (source: ChartSource) => void
+  /** The repositories Lumovi keeps, and their charts. */
+  repositories?: HelmRepositories
+  saved?: ChartSource
+  onSaved: (source: ChartSource) => void
+  /** The newer version a release's Update available names, if that's what opened this. */
+  newer?: ChartSource & { saved: string }
   /** The panel for a chart on this computer. */
   local: ReactNode
 }) {
+  // Repositories with charts to pick from.
+  const kept = (repositories?.repositories ?? []).filter((r) =>
+    repositories!.charts.some((c) => c.repository === r.id),
+  )
+  const newerFrom = newer && kept.find((r) => r.id === newer.saved)
+  const newerChart =
+    newer &&
+    repositories?.charts.find((c) => c.repository === newer.saved && c.name === newer.chart)
+  const newerCreated = newerChart?.versions.find((v) => v.version === newer?.version)?.created
   const [query, setQuery] = useState(release?.chart ?? '')
   const [results, setResults] = useState<ChartSearchResult[]>()
   const [versions, setVersions] = useState<string[]>()
@@ -379,6 +434,17 @@ function ChartPicker({
     setVersions(undefined)
   }
   const options: { mode: ChartMode; label: string; hint: string; disabled?: boolean }[] = [
+    ...(kept.length > 0
+      ? [
+          {
+            mode: 'saved' as const,
+            label: newerFrom ? `A newer version from ${newerFrom.name}` : 'From a saved repository',
+            hint: newerFrom
+              ? `${newer!.chart} ${newer!.version}${newerCreated ? `, released ${age(newerCreated)} ago` : ''}`
+              : 'A chart in a repository Lumovi keeps: Lumovi fetches it and hands it to Helm.',
+          },
+        ]
+      : []),
     ...(release
       ? [
           {
@@ -393,7 +459,9 @@ function ChartPicker({
       : []),
     {
       mode: 'repository',
-      label: 'A chart from a repository or a registry',
+      label: kept.length
+        ? 'A chart from another repository or a registry'
+        : 'A chart from a repository or a registry',
       hint: 'To change its version, or its chart.',
     },
     // Only the desktop app has a computer's files to use.
@@ -407,162 +475,233 @@ function ChartPicker({
         ]
       : []),
   ]
+  // What a choice takes, under it while it's the one picked.
+  const panels: Partial<Record<ChartMode, ReactNode>> = {
+    local,
+    saved: repositories && (
+      <SavedChart repositories={repositories} kept={kept} saved={saved} onSaved={onSaved} />
+    ),
+    repository: (
+      <div className="space-y-2 rounded-lg border border-line p-3">
+        <div className="grid grid-cols-[1fr_1fr_8rem] gap-2">
+          <input
+            aria-label="Chart name or reference"
+            placeholder={
+              api.localCharts ? 'nginx, oci://…, ./chart' : 'nginx, oci://…, https://…/chart.tgz'
+            }
+            value={source.chart}
+            onChange={(event) => set({ chart: event.target.value.trim() })}
+            spellCheck={false}
+            className={field}
+          />
+          <input
+            aria-label="Repository URL"
+            placeholder="https://charts.example.com"
+            value={source.repository ?? ''}
+            onChange={(event) => set({ repository: event.target.value.trim() || undefined })}
+            spellCheck={false}
+            className={field}
+          />
+          {versions ? (
+            <select
+              aria-label="Version"
+              value={source.version ?? ''}
+              onChange={(event) =>
+                onSource({ ...source, version: event.target.value || undefined })
+              }
+              className={field}
+            >
+              <option value="">Latest</option>
+              {versions.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              aria-label="Version"
+              placeholder="Latest"
+              value={source.version ?? ''}
+              onChange={(event) => set({ version: event.target.value.trim() || undefined })}
+              spellCheck={false}
+              className={field}
+            />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={!source.repository || !source.chart}
+            onClick={async () => {
+              const listed = await api.helm.versions(source.repository!, source.chart)
+              setProblem(listed.ok ? undefined : listed.error.message)
+              if (listed.ok) setVersions(listed.data)
+            }}
+          >
+            List its versions
+          </Button>
+          <span className="flex-1" />
+          <input
+            aria-label="Search Artifact Hub"
+            placeholder="Search Artifact Hub"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              // Searches, rather than submitting the dialog.
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              if (query.trim()) void search()
+            }}
+            className={cn(field, 'w-48 font-sans')}
+          />
+          <Button
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={!query.trim()}
+            onClick={search}
+          >
+            <Search /> Search
+          </Button>
+        </div>
+        {problem && (
+          <p role="alert" className="text-xs text-critical-text">
+            {problem}
+          </p>
+        )}
+        {results && (
+          <ul
+            aria-label="Charts found"
+            className="max-h-40 divide-y divide-line overflow-y-auto rounded-lg border border-line"
+          >
+            {results.length === 0 && (
+              <li className="px-3 py-2 text-xs text-ink-3">No charts match.</li>
+            )}
+            {results.map((result) => (
+              <li key={`${result.repository.url}/${result.name}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSource({
+                      chart: result.name,
+                      repository: result.repository.url,
+                      version: result.version,
+                    })
+                    setResults(undefined)
+                  }}
+                  className="block w-full px-3 py-2 text-left hover:bg-surface-3/60"
+                >
+                  <span className="text-[13px] font-medium text-ink-1">
+                    {result.repository.name}/{result.name}
+                  </span>
+                  <span className="ml-2 text-xs text-ink-3">
+                    {result.version}
+                    {result.appVersion && ` · app ${result.appVersion}`}
+                  </span>
+                  {result.description && (
+                    <span className="block truncate text-xs text-ink-2">{result.description}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    ),
+  }
   return (
     <fieldset className="space-y-2">
       <legend className="mb-1 text-xs font-medium text-ink-2">Chart</legend>
       <div role="radiogroup" aria-label="Chart" className="space-y-1.5">
         {options.map((option) => (
-          <label
-            key={option.mode}
-            className={cn('flex gap-2.5 text-[13px]', option.disabled && 'text-ink-3')}
-          >
-            <input
-              type="radio"
-              name="chart"
-              checked={mode === option.mode}
-              disabled={option.disabled}
-              onChange={() => onMode(option.mode)}
-              className="mt-0.5 accent-[var(--accent)]"
-            />
-            <span>
-              {option.label}
-              <span className="block text-xs text-ink-3">{option.hint}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-      {mode === 'local' && local}
-      {mode === 'repository' && (
-        <div className="space-y-2 rounded-lg border border-line p-3">
-          <div className="grid grid-cols-[1fr_1fr_8rem] gap-2">
-            <input
-              aria-label="Chart name or reference"
-              placeholder={
-                api.localCharts ? 'nginx, oci://…, ./chart' : 'nginx, oci://…, https://…/chart.tgz'
-              }
-              value={source.chart}
-              onChange={(event) => set({ chart: event.target.value.trim() })}
-              spellCheck={false}
-              className={field}
-            />
-            <input
-              aria-label="Repository URL"
-              placeholder="https://charts.example.com"
-              value={source.repository ?? ''}
-              onChange={(event) => set({ repository: event.target.value.trim() || undefined })}
-              spellCheck={false}
-              className={field}
-            />
-            {versions ? (
-              <select
-                aria-label="Version"
-                value={source.version ?? ''}
-                onChange={(event) =>
-                  onSource({ ...source, version: event.target.value || undefined })
-                }
-                className={field}
-              >
-                <option value="">Latest</option>
-                {versions.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            ) : (
+          <div key={option.mode} className="space-y-2">
+            <label className={cn('flex gap-2.5 text-[13px]', option.disabled && 'text-ink-3')}>
               <input
-                aria-label="Version"
-                placeholder="Latest"
-                value={source.version ?? ''}
-                onChange={(event) => set({ version: event.target.value.trim() || undefined })}
-                spellCheck={false}
-                className={field}
+                type="radio"
+                name="chart"
+                checked={mode === option.mode}
+                disabled={option.disabled}
+                onChange={() => onMode(option.mode)}
+                className="mt-0.5 accent-[var(--accent)]"
               />
+              <span>
+                {option.label}
+                <span className="block text-xs text-ink-3">{option.hint}</span>
+              </span>
+            </label>
+            {mode === option.mode && panels[option.mode] && (
+              <div className="pl-6">{panels[option.mode]}</div>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              disabled={!source.repository || !source.chart}
-              onClick={async () => {
-                const listed = await api.helm.versions(source.repository!, source.chart)
-                setProblem(listed.ok ? undefined : listed.error.message)
-                if (listed.ok) setVersions(listed.data)
-              }}
-            >
-              List its versions
-            </Button>
-            <span className="flex-1" />
-            <input
-              aria-label="Search Artifact Hub"
-              placeholder="Search Artifact Hub"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                // Searches, rather than submitting the dialog.
-                if (event.key !== 'Enter') return
-                event.preventDefault()
-                if (query.trim()) void search()
-              }}
-              className={cn(field, 'w-48 font-sans')}
-            />
-            <Button
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              disabled={!query.trim()}
-              onClick={search}
-            >
-              <Search /> Search
-            </Button>
-          </div>
-          {problem && (
-            <p role="alert" className="text-xs text-critical-text">
-              {problem}
-            </p>
-          )}
-          {results && (
-            <ul
-              aria-label="Charts found"
-              className="max-h-40 divide-y divide-line overflow-y-auto rounded-lg border border-line"
-            >
-              {results.length === 0 && (
-                <li className="px-3 py-2 text-xs text-ink-3">No charts match.</li>
-              )}
-              {results.map((result) => (
-                <li key={`${result.repository.url}/${result.name}`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSource({
-                        chart: result.name,
-                        repository: result.repository.url,
-                        version: result.version,
-                      })
-                      setResults(undefined)
-                    }}
-                    className="block w-full px-3 py-2 text-left hover:bg-surface-3/60"
-                  >
-                    <span className="text-[13px] font-medium text-ink-1">
-                      {result.repository.name}/{result.name}
-                    </span>
-                    <span className="ml-2 text-xs text-ink-3">
-                      {result.version}
-                      {result.appVersion && ` · app ${result.appVersion}`}
-                    </span>
-                    {result.description && (
-                      <span className="block truncate text-xs text-ink-2">
-                        {result.description}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+        ))}
+      </div>
     </fieldset>
+  )
+}
+
+/** A chart in a repository Lumovi keeps: its repository, its name and its version, each a menu. */
+function SavedChart({
+  repositories,
+  kept,
+  saved,
+  onSaved,
+}: {
+  repositories: HelmRepositories
+  kept: HelmRepositories['repositories']
+  saved?: ChartSource
+  onSaved: (source: ChartSource) => void
+}) {
+  const repository = kept.find((r) => r.id === saved?.saved) ?? kept[0]!
+  const charts = repositories.charts.filter((c) => c.repository === repository.id)
+  const chart = charts.find((c) => c.name === saved?.chart)
+  const pick = (id: string, name?: string) => {
+    const to = repositories.charts.find(
+      (c) => c.repository === id && (name === undefined || c.name === name),
+    )
+    onSaved({ saved: id, chart: to?.name ?? '', version: to?.versions[0]?.version })
+  }
+  return (
+    <div className="grid grid-cols-[1fr_1fr_8rem] gap-2">
+      <select
+        aria-label="Repository"
+        value={repository.id}
+        onChange={(event) => pick(event.target.value)}
+        className={field}
+      >
+        {kept.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Chart"
+        value={chart?.name ?? ''}
+        onChange={(event) => pick(repository.id, event.target.value)}
+        className={field}
+      >
+        {!chart && <option value="">Choose a chart</option>}
+        {charts.map((c) => (
+          <option key={c.name} value={c.name}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Version"
+        value={saved?.version ?? ''}
+        disabled={!chart}
+        onChange={(event) => onSaved({ ...saved!, version: event.target.value })}
+        className={field}
+      >
+        {(chart?.versions ?? []).map((v) => (
+          <option key={v.version} value={v.version}>
+            {v.version}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }
 

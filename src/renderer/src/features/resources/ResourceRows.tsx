@@ -107,7 +107,15 @@ export function ResourceRows({
                   column.id === 'status' ? column.cell(object, ctx) : factOf(column, object),
                 )
                 .filter((fact) => fact !== undefined && fact !== null && fact !== '')
-            : [...first, ...said, ...facts.slice(1).map((column) => factOf(column, object))]
+            : [
+                ...first,
+                ...said,
+                // (A fact a row hasn't, it doesn't say: no dot for it.)
+                ...facts
+                  .slice(1)
+                  .map((column) => factOf(column, object))
+                  .filter((fact) => fact !== undefined && fact !== null && fact !== ''),
+              ]
           return (
             <li
               key={rowKey(object)}

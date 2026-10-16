@@ -49,6 +49,8 @@ export const SECTIONS = [
   'added',
   // Each person's pins and saved views in a cluster (server/marks.ts): never let go to make room.
   'marks',
+  // The chart repositories its admins added, with their sign-ins (helm-repositories.ts): never let go.
+  'repositories',
   // Since when each entry that doesn't open with the key has been there (see #track).
   'unopened',
 ] as const

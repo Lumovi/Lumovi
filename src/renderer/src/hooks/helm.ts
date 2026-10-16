@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { HelmRelease, Result } from '@shared/api'
+import type { HelmRelease, HelmRepositories, HelmRepositoryInput, Result } from '@shared/api'
 import { api, unwrap } from '@renderer/lib/api'
 import { useActivity } from '@renderer/state/activity'
 import {
@@ -81,4 +81,49 @@ export function useHelmChange() {
     toast({ tone: 'success', title: meta.title })
     return result
   }
+}
+
+/** The repositories' indexes are read every 30 minutes, and each time the Helm page opens. */
+const REPOSITORIES_INTERVAL = 30 * 60_000
+const REPOSITORIES_KEY = ['helm-repositories']
+
+/**
+ * The chart repositories Lumovi keeps, and their charts: read again every 30 minutes while
+ * online (never offline: react-query holds a read until it's back), and as the Helm page opens
+ * (`opening`). Elsewhere, as last read.
+ */
+export function useHelmRepositories({ opening = false } = {}) {
+  return useQuery({
+    queryKey: REPOSITORIES_KEY,
+    queryFn: () => unwrap(api.helm.repositories.refresh()),
+    refetchInterval: REPOSITORIES_INTERVAL,
+    refetchOnMount: opening ? 'always' : false,
+    refetchOnWindowFocus: false,
+    networkMode: 'online',
+    staleTime: REPOSITORIES_INTERVAL,
+  })
+}
+
+/** Saves or removes a repository: the list as it is after, shown at once. */
+export function useRepositoryChange() {
+  const queryClient = useQueryClient()
+  const settled = (result: Result<HelmRepositories>) => {
+    if (result.ok) queryClient.setQueryData(REPOSITORIES_KEY, result.data)
+    return result
+  }
+  return {
+    save: async (input: HelmRepositoryInput) => settled(await api.helm.repositories.save(input)),
+    remove: async (id: string) => settled(await api.helm.repositories.remove(id)),
+  }
+}
+
+/** A chart's icon, fetched by the backend (as a data: URL), once. */
+export function useChartIcon(repository: string, chart: string, has: boolean) {
+  return useQuery({
+    queryKey: ['helm-chart-icon', repository, chart],
+    queryFn: () => unwrap(api.helm.repositories.icon(repository, chart)),
+    enabled: has,
+    staleTime: Infinity,
+    retry: false,
+  })
 }
