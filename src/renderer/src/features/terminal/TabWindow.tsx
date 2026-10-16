@@ -6,7 +6,7 @@
 import { PanelBottom, SquareTerminal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { movedTabOf } from '@shared/moved-tab'
+import { movedTabOf, waitsToBeRead } from '@shared/moved-tab'
 import { apiKindOf } from '@shared/resources'
 import { Button } from '@renderer/components/Button'
 import { KindIcon } from '@renderer/components/KindIcon'
@@ -14,9 +14,10 @@ import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { useClusterName } from '@renderer/hooks/settings'
 import { api } from '@renderer/lib/api'
 import { ClusterContext } from '@renderer/state/cluster'
-import { useDock, type KeptTab } from './dock'
+import { useDock, type KeptTab, type TerminalTab } from './dock'
 import { KeptPanel, NotReadYet } from './Kept'
 import { Panel } from './TerminalDock'
+import { usePhase } from './TerminalView'
 
 /** A detail's tab, as the band names it (none for its overview). */
 const TAB_NAMES: Record<string, string> = {
@@ -37,7 +38,8 @@ export function TabWindow() {
   const leaving = useRef(false)
 
   // Its tab, as the main process holds it: one opened again as Lumovi did, on a cluster that
-  // signs in through a program, waits to be asked for before it's read.
+  // signs in through a program (or that can't be told not to), waits to be asked for before it's
+  // read.
   useEffect(() => {
     let gone = false
     void (async () => {
@@ -48,10 +50,8 @@ export function TabWindow() {
       if (gone) return
       const moved = movedTabOf(tab)
       if (!moved) return window.close()
-      const signsIn = contexts?.contexts.some((c) => c.name === moved.context && c.signsInWith)
-      useDock
-        .getState()
-        .receive(moved.kind === 'kept' && restored && signsIn ? { ...moved, waiting: true } : moved)
+      const waits = moved.kind === 'kept' && waitsToBeRead(moved, !!restored, contexts?.contexts)
+      useDock.getState().receive(waits ? { ...moved, waiting: true } : moved)
       setArrived(true)
     })()
     return () => {
@@ -112,11 +112,11 @@ export function TabWindow() {
           {quiet.length > 0 && <span className="truncate text-ink-3">{quiet.join(' · ')}</span>}
         </h1>
         <span className="flex-1" />
-        {(terminal || object) && (
-          <Button variant="secondary" className="shrink-0 no-drag" onClick={() => void putBack()}>
-            <PanelBottom /> Put back below
-          </Button>
-        )}
+        {terminal ? (
+          <PutBackShell tab={terminal} onPress={() => void putBack()} />
+        ) : object ? (
+          <PutBack onPress={() => void putBack()} />
+        ) : null}
       </header>
       <div className="relative min-h-0 flex-1">
         {terminal && <Panel tab={terminal} shown />}
@@ -124,6 +124,24 @@ export function TabWindow() {
       </div>
     </div>
   )
+}
+
+/** "Put back below": the window's one tab goes back below. */
+function PutBack({ onPress }: { onPress: () => void }) {
+  return (
+    <Button variant="secondary" className="shrink-0 no-drag" onClick={onPress}>
+      <PanelBottom /> Put back below
+    </Button>
+  )
+}
+
+/**
+ * A terminal's, only while its shell runs: one that's ended has nothing to take below (as in a
+ * tab's menu there, it wouldn't have moved), and closing its window closes it.
+ */
+function PutBackShell({ tab, onPress }: { tab: TerminalTab; onPress: () => void }) {
+  const phase = usePhase(tab.session)
+  return !tab.quit && phase.state === 'open' ? <PutBack onPress={onPress} /> : null
 }
 
 /** A kept object alone in its window: read once it's asked for, where it waits to be (its card's button focused, so Enter reads it). */

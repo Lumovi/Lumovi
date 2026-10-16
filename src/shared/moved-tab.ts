@@ -2,7 +2,7 @@
  * A tab below moved into a window of its own, as it crosses from one window to another (and is
  * kept for when Lumovi opens it again): checked as data wherever it arrives.
  */
-import type { MovedTab } from './api'
+import type { KubeContext, MovedTab } from './api'
 
 /** The most of a terminal's last lines that go with it, in characters. */
 const LINES_MOST = 400_000
@@ -48,4 +48,19 @@ export function movedTabOf(value: unknown, withShell = true): MovedTab | undefin
     }
   }
   return undefined
+}
+
+/**
+ * Whether a kept tab opened again as Lumovi did waits to be asked for before it's read: unless its
+ * cluster is known not to sign in through a program (the contexts were read, and its own is there
+ * without one). Reading such a cluster runs its program, which can open a browser or ask in a
+ * terminal; where the contexts couldn't be read, it waits.
+ */
+export function waitsToBeRead(
+  tab: MovedTab,
+  restored: boolean,
+  contexts: Pick<KubeContext, 'name' | 'signsInWith'>[] | undefined,
+): boolean {
+  if (tab.kind !== 'kept' || !restored) return false
+  return !contexts || contexts.find((each) => each.name === tab.context)?.signsInWith !== undefined
 }

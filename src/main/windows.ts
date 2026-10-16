@@ -9,7 +9,10 @@ import type { MovedTab } from '@shared/api'
 
 /** The most a page keeps of what it has below, in characters of JSON. */
 const BELOW_MOST = 64_000
-/** The most of a handed stream's messages held for its new page, before it listens. */
+/**
+ * The most of a handed stream's messages held for its new page, before it listens: past it, the
+ * oldest go, so what it said last (its end, a shell's exit) is always there.
+ */
 const HELD_MOST = 5_000
 
 /** What a window's page is given once, as it starts: see `restore`. */
@@ -19,6 +22,9 @@ export interface Restored {
 }
 
 export class Windows {
+  /** `end`: streams to end, held for a window that closed before its page took them. */
+  constructor(private readonly end: (ids: string[]) => void = () => {}) {}
+
   #windows: BrowserWindow[] = []
   /** The page each stream belongs to, by the stream's id. */
   #owners = new Map<string, WebContents>()
@@ -51,6 +57,17 @@ export class Windows {
     })
     const id = win.id
     win.on('closed', () => {
+      // (A shell coming to it that never arrived: it ends with the window, as it would have there.)
+      const coming = this.#coming.get(id)
+      const tab = this.#tabs.get(id)?.tab
+      if (coming && tab?.kind === 'terminal' && tab.shell) {
+        const shell = tab.shell.id
+        if (this.#owners.get(shell) === coming) {
+          this.#owners.delete(shell)
+          this.#held.delete(shell)
+          this.end([shell])
+        }
+      }
       this.#below.delete(id)
       this.#restored.delete(id)
       this.#tabs.delete(id)
@@ -109,8 +126,9 @@ export class Windows {
   toOwner(channel: string, id: string, ...args: unknown[]): void {
     const held = this.#held.get(id)
     if (held) {
-      // (Handed to a page that isn't listening yet: kept for it, the latest dropped past the most.)
-      if (held.length < HELD_MOST) held.push([channel, ...args])
+      // (Handed to a page that isn't listening yet: kept for it, the oldest dropped past the most.)
+      held.push([channel, ...args])
+      if (held.length > HELD_MOST) held.shift()
       return
     }
     const owner = this.#owners.get(id)
