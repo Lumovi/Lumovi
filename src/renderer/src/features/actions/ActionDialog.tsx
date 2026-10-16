@@ -38,6 +38,11 @@ export interface ActionDialogProps {
   name?: string
   /** Where the change happens, e.g. "Deployment · shop". The cluster is added. */
   subject: string
+  /**
+   * False where what changes isn't a cluster's (Lumovi's own chart repositories, say): the subject
+   * says where it's kept, with no cluster after it, nor its Production mark.
+   */
+  cluster?: boolean
   /** The kubectl command that does the same, kept in sync with the form. */
   command: string
   /** Lumovi's line under the command, about what it shows. */
@@ -74,6 +79,7 @@ export function ActionDialog({
   title,
   name,
   subject,
+  cluster = true,
   command,
   commandNote,
   confirmLabel,
@@ -94,7 +100,7 @@ export function ActionDialog({
   const layout = useLayout()
   const [typed, setTyped] = useState('')
   const opener = useOpener()
-  const production = useProduction(context)
+  const production = useProduction(context) && cluster
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const canSubmit = ready && confirmed && !pending
 
@@ -168,7 +174,13 @@ export function ActionDialog({
                 </Dialog.Title>
                 <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 phone:flex-wrap">
                   <span className="truncate phone:[overflow-wrap:anywhere] phone:whitespace-normal">
-                    {subject} · <span className="font-medium text-ink-2">{context}</span>
+                    {subject}
+                    {cluster && (
+                      <>
+                        {' '}
+                        · <span className="font-medium text-ink-2">{context}</span>
+                      </>
+                    )}
                   </span>
                   {production && (
                     <span className="shrink-0 rounded bg-critical/10 px-1.5 py-px text-2xs font-semibold tracking-wide text-critical-text uppercase">

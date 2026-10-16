@@ -240,6 +240,14 @@ export function createWebApi(): LumoviApi {
       defaults: invoke(IPC.helmDefaults),
       versions: invoke(IPC.helmVersions),
       search: invoke(IPC.helmSearch),
+      repositories: {
+        list: invoke(IPC.helmRepositories),
+        refresh: invoke(IPC.helmRepositoriesRefresh),
+        test: invoke(IPC.helmRepositoryTest),
+        save: invoke(IPC.helmRepositorySave),
+        remove: invoke(IPC.helmRepositoryRemove),
+        icon: invoke(IPC.helmChartIcon),
+      },
     },
     files: files.api,
     terminal: {

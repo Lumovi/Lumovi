@@ -836,6 +836,11 @@ export interface HelmRelease {
   description?: string
   /** The Flux HelmRelease that manages it, if one does. */
   managedBy?: { name: string; namespace: string }
+  /** The repository Lumovi installed or upgraded it from (its id: the release's label). */
+  repository?: string
+  /** Where its chart says it's from: what tells a repository's chart by the same name for it. */
+  chartHome?: string
+  chartSources?: string[]
 }
 
 /** One revision of a release: what it was given, and what it rendered. */
@@ -881,7 +886,72 @@ export interface ChartSource {
   /** A chart repository's URL (helm's --repo). */
   repository?: string
   version?: string
+  /**
+   * A repository Lumovi keeps (its id): `chart` is a chart's name there, and `version` one of its
+   * versions. Lumovi fetches it, with its sign-in, and hands Helm the file.
+   */
+  saved?: string
 }
+
+/** A chart repository, or an OCI registry, Lumovi reads charts from: Lumovi's, not Helm's. */
+export interface HelmRepository {
+  /** 16 hex digits: what a release installed from it is labelled with. */
+  id: string
+  name: string
+  kind: 'http' | 'oci'
+  /** https://… (a repository), or oci://host/path (a registry). */
+  url: string
+  /** A registry's: the charts Lumovi looks for there (a registry has no index to list them). */
+  charts: string[]
+  /** Its sign-in's user name, where one is saved: its password or token never leaves the backend. */
+  username?: string
+  /** When Lumovi last read it, and how many charts it had; or why it couldn't. */
+  read?: { at: string; charts: number } | { at: string; error: string }
+}
+
+/** A chart in a repository Lumovi keeps. */
+export interface RepositoryChart {
+  /** The repository's id. */
+  repository: string
+  name: string
+  description?: string
+  keywords?: string[]
+  home?: string
+  sources?: string[]
+  /** Whether it names an icon (helm.repositories.icon fetches it). */
+  icon: boolean
+  /** Newest first. */
+  versions: { version: string; appVersion?: string; created?: string }[]
+}
+
+/** The repositories Lumovi keeps, and what's in them. */
+export interface HelmRepositories {
+  repositories: HelmRepository[]
+  charts: RepositoryChart[]
+  /** Where they're kept: on this computer, for every cluster; or on the server, for everyone. */
+  kept: 'computer' | 'server'
+  /** Whether this person may add, edit and remove them. */
+  mayChange: boolean
+  /** A server's admins, who may (where the person may not). */
+  admins?: string[]
+  /** Why no sign-in can be kept here (no keychain), where none can. */
+  noSignIns?: string
+}
+
+/** A repository added, or one changed (`id`). */
+export interface HelmRepositoryInput {
+  id?: string
+  name: string
+  kind: 'http' | 'oci'
+  url: string
+  charts?: string[]
+  /** None; or a user name and its password or token, which left out keeps the saved one. */
+  signIn: { username: string; secret?: string } | null
+}
+
+/** What Test connection found: a repository's charts, or each chart's versions in a registry. */
+export type HelmRepositoryTest =
+  { charts: number } | { found: { chart: string; versions: number }[] }
 
 /** The user's helm, which makes the changes. */
 export interface HelmCli {
@@ -1612,6 +1682,22 @@ export interface LumoviApi {
     versions(repository: string, chart: string): Promise<Result<string[]>>
     /** Charts on Artifact Hub. */
     search(query: string): Promise<Result<ChartSearchResult[]>>
+    /**
+     * The chart repositories and registries Lumovi keeps (on the desktop for every cluster, on a
+     * server for everyone): read every 30 minutes and when the Helm page opens.
+     */
+    repositories: {
+      list(): Promise<Result<HelmRepositories>>
+      /** Every one read again now. */
+      refresh(): Promise<Result<HelmRepositories>>
+      /** Whether one can be read as given (a sign-in left out: the saved one's, where it holds). */
+      test(input: HelmRepositoryInput): Promise<Result<HelmRepositoryTest>>
+      save(input: HelmRepositoryInput): Promise<Result<HelmRepositories>>
+      /** Forgotten, and its sign-in with it. */
+      remove(id: string): Promise<Result<HelmRepositories>>
+      /** A chart's icon, as a data: URL; null where it has none Lumovi fetches. */
+      icon(repository: string, chart: string): Promise<Result<string | null>>
+    }
   }
   /** Helm charts on this computer: the desktop app's. */
   /**
@@ -2028,6 +2114,12 @@ export const IPC = {
   helmLint: 'helm:lint',
   helmValuesFile: 'helm:values-file',
   helmDependencies: 'helm:dependencies',
+  helmRepositories: 'helm:repositories',
+  helmRepositoriesRefresh: 'helm:repositories-refresh',
+  helmRepositoryTest: 'helm:repository-test',
+  helmRepositorySave: 'helm:repository-save',
+  helmRepositoryRemove: 'helm:repository-remove',
+  helmChartIcon: 'helm:chart-icon',
   usageSource: 'usage:source',
   usageTest: 'usage:test',
   usageRange: 'usage:range',

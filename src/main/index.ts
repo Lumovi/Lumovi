@@ -7,6 +7,7 @@ import {
   Menu,
   nativeTheme,
   Notification,
+  safeStorage,
   session,
   shell,
   type BrowserWindow,
@@ -30,6 +31,7 @@ import { recorder } from '@backend/audit/recorder'
 import { pluginHistory } from '@backend/plugin-history'
 import { FileStore, MemoryStore, type AuditStore } from '@backend/audit/store'
 import { MetricsStackService } from '@backend/helm/metrics-stack'
+import { ChartRepositories, recordOf } from '@backend/helm/repositories'
 import { HelmService } from '@backend/helm/service'
 import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
@@ -47,6 +49,7 @@ import { withholdFrom } from '@backend/withholding'
 import { Assistants } from './assistants'
 import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
+import { DesktopRepositories } from './helm-repositories'
 import { KubeconfigFiles } from './kubeconfig-files'
 import { KEYS_QUIET_MS, linkIn, Links } from './links'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
@@ -258,6 +261,13 @@ if (stdio) {
       isReadOnly,
       localCharts: true,
       command: existsSync(shipped) ? shipped : undefined,
+      repositories: new ChartRepositories({
+        keeper: new DesktopRepositories(
+          join(app.getPath('userData'), 'helm-repositories.json'),
+          () => safeStorage,
+        ),
+        person: { mayChange: () => true, record: (change) => audit.record(recordOf(change)) },
+      }),
     })
     const metricsStack = new MetricsStackService(kube, helm, {
       isReadOnly,

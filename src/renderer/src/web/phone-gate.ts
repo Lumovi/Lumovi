@@ -93,6 +93,10 @@ const READS: readonly string[] = [
   IPC.helmDefaults,
   IPC.helmVersions,
   IPC.helmSearch,
+  // The repositories kept, read again, and a chart's icon: a phone reads them, changes none.
+  IPC.helmRepositories,
+  IPC.helmRepositoriesRefresh,
+  IPC.helmChartIcon,
   IPC.logsStart,
   IPC.logsStop,
   IPC.watchStart,

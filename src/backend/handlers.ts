@@ -512,10 +512,24 @@ export function handlers({
         (request: HelmUninstall) => helm.uninstall(request),
         describeUninstall,
       ),
-      [IPC.helmDeploy]: recorded((request: HelmDeploy) => helm.deploy(request), describeDeploy),
+      // A chart from a repository Lumovi keeps is recorded with it: by name, as it's named now.
+      [IPC.helmDeploy]: async (request) => {
+        const saved = (request as { source?: { saved?: unknown } } | undefined)?.source?.saved
+        const from = typeof saved === 'string' ? await helm.repositories.named(saved) : undefined
+        return recorded(
+          (r: HelmDeploy) => helm.deploy(r),
+          (r, result) => describeDeploy(r, result, from),
+        )(request)
+      },
       [IPC.helmDefaults]: (source) => helm.defaults(source),
       [IPC.helmVersions]: (repository, chart) => helm.versions(repository, chart),
       [IPC.helmSearch]: (query) => helm.search(query),
+      [IPC.helmRepositories]: () => helm.repositories.list(),
+      [IPC.helmRepositoriesRefresh]: () => helm.repositories.refresh(),
+      [IPC.helmRepositoryTest]: (input) => helm.repositories.test(input),
+      [IPC.helmRepositorySave]: (input) => helm.repositories.save(input),
+      [IPC.helmRepositoryRemove]: (id) => helm.repositories.remove(id),
+      [IPC.helmChartIcon]: (repository, chart) => helm.repositories.icon(repository, chart),
 
       [IPC.metricsStackStatus]: (context) => metricsStack.status(context),
       // History is looked for again after either: there's a source now, or there's none.

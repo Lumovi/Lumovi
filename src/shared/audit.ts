@@ -101,6 +101,10 @@ export const AUDIT_ACTIONS = {
   'metrics-source.changed': 'settings',
   'assistants.changed': 'settings',
   'access.changed': 'settings',
+  // The chart repositories Lumovi keeps (never a sign-in's secret: only that one was set).
+  'helm-repository.added': 'settings',
+  'helm-repository.changed': 'settings',
+  'helm-repository.removed': 'settings',
   // The server itself, and its audit log.
   'server.started': 'server',
   'server.stopped': 'server',

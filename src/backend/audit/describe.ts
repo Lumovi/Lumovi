@@ -22,6 +22,7 @@ import { helm, kubectl, objectArg } from '@shared/kubectl'
 import { METRICS_STACK, metricsStackChartArgs } from '@shared/metrics-stack'
 import { apiKindOf } from '@shared/resources'
 import { patchSaid, taintsArgs, taintsChange } from '@shared/taints'
+import type { DeployedFrom } from '../helm/repositories'
 import type { Recorded } from './recorder'
 
 /** Whether an error is the cluster (or Lumovi) not allowing it, rather than it failing. */
@@ -283,7 +284,12 @@ function where(text: string): string {
   return url.toString()
 }
 
-export function describeDeploy(r: HelmDeploy, result: Result<unknown>): Recorded {
+export function describeDeploy(
+  r: HelmDeploy,
+  result: Result<unknown>,
+  /** The repository Lumovi keeps that its chart is from, where it is one. */
+  from?: DeployedFrom,
+): Recorded {
   const stored = r.source === 'stored'
   const given = stored ? undefined : (r.source as HelmDeploy['source'] & object)
   const source = given && {
@@ -291,7 +297,9 @@ export function describeDeploy(r: HelmDeploy, result: Result<unknown>): Recorded
     chart: where(given.chart),
     repository: given.repository && where(given.repository),
   }
-  const chart = source ? `${source.chart}${source.version ? ` ${source.version}` : ''}` : ''
+  const chart = source
+    ? `${source.chart}${source.version ? ` ${source.version}` : ''}${from ? ` from ${from.name}` : ''}`
+    : ''
   const values = valueNames(r.values)
   const said = (past: string, present: string) => (result.ok ? past : present)
   return {
@@ -309,9 +317,10 @@ export function describeDeploy(r: HelmDeploy, result: Result<unknown>): Recorded
             r.namespace,
             r.install === true ? 'install' : 'upgrade',
             r.name,
-            source.chart,
+            // (Lumovi fetched it from a repository it keeps: Helm was handed the file.)
+            source.saved !== undefined ? `./${source.chart}-${source.version}.tgz` : source.chart,
             ...(source.repository ? ['--repo', source.repository] : []),
-            ...(source.version ? ['--version', source.version] : []),
+            ...(source.version && source.saved === undefined ? ['--version', source.version] : []),
             ...(values.length ? ['-f', 'values.yaml'] : []),
             ...(r.createNamespace === true ? ['--create-namespace'] : []),
           ),
@@ -321,6 +330,14 @@ export function describeDeploy(r: HelmDeploy, result: Result<unknown>): Recorded
       ...(source ? { chart: source.chart } : {}),
       ...(source?.version ? { version: source.version } : {}),
       ...(source?.repository ? { repository: source.repository } : {}),
+      // The repository Lumovi keeps, by its name and id (the release's label holds the id).
+      ...(from
+        ? {
+            repository: from.name,
+            repositoryId: from.id,
+            ...(from.registry ? { registry: from.registry } : {}),
+          }
+        : {}),
       values,
     },
   }
