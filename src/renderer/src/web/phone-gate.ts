@@ -47,6 +47,8 @@ const READS: readonly string[] = [
   IPC.list,
   IPC.get,
   IPC.secretValues,
+  // What a Secret's certificates say: a read, as a get is.
+  IPC.certificates,
   IPC.pluginRead,
   // A pod's logs, read once for a plugin's code: a read, as a phone's own logs are.
   IPC.pluginLogs,

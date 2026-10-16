@@ -20,6 +20,8 @@ import type {
   RolloutKind,
   SecretValues,
   SecretValuesQuery,
+  CertificatesQuery,
+  CertificateSummary,
   TableColumn,
   UsageSample,
 } from '@shared/api'
@@ -42,6 +44,7 @@ import {
   type ProxyAnswer,
   type RequestOptions,
 } from './client'
+import { certificatesOf } from './certificates'
 import { discover } from './discovery'
 import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
@@ -324,8 +327,13 @@ export class KubeService {
         if (q.namespace) await this.#secretsShown(q.context, q.namespace)
         else list.items = await this.#onlyShown(q.context, list.items)
       }
+      // What the certificates in Secrets' values say, where the person may see those values:
+      // read here, before the values are dropped, and nothing of a value goes with it.
+      const certificates =
+        resource.kind === 'Secret' ? await this.#certificatesIn(q.context, list.items) : undefined
       return {
         ...list,
+        ...(certificates && Object.keys(certificates).length > 0 ? { certificates } : {}),
         // List items omit apiVersion/kind; add them back so detail views and YAML are complete.
         items: list.items.map((item) =>
           slimListItem({ apiVersion, kind: resource.apiKind, ...item }),
@@ -554,6 +562,46 @@ export class KubeService {
       await this.guard!.require(context, 'secrets', 'keys', namespace, 'see Secrets')
     }
     return shown
+  }
+
+  /**
+   * What the certificates in Secrets' values say, by `namespace/name`: only of those in a
+   * namespace whose Secrets' values the person may see (on the desktop, every one).
+   */
+  async #certificatesIn(
+    context: string,
+    items: KubeObject[],
+  ): Promise<Record<string, CertificateSummary[]>> {
+    const levels = new Map<string, Promise<string>>()
+    const said: Record<string, CertificateSummary[]> = {}
+    for (const item of items) {
+      const namespace = item.metadata.namespace!
+      if (this.guard) {
+        if (!levels.has(namespace)) levels.set(namespace, this.guard.secrets(context, namespace))
+        if ((await levels.get(namespace)) !== 'values') continue
+      }
+      const certificates = certificatesOf(item)
+      if (certificates.length > 0) said[`${namespace}/${item.metadata.name}`] = certificates
+    }
+    return said
+  }
+
+  /**
+   * What the certificates in a Secret's values say: read as a get reads it, under the same guard,
+   * and none where the person may see only its keys. Nothing of a value is answered.
+   */
+  certificates(query: unknown): Promise<Result<CertificateSummary[]>> {
+    return this.#run(async () => {
+      const q = assertQuery<CertificatesQuery>(query)
+      assertString(q.context, 'context')
+      assertString(q.namespace, 'namespace')
+      assertString(q.name, 'name')
+      const resource = await this.#resource(q.context, 'Secret')
+      const shown = this.guard ? await this.#secretsShown(q.context, q.namespace) : 'values'
+      if (shown !== 'values') return []
+      const path = resourcePath(resource, q.namespace, q.name)
+      return certificatesOf(await this.#getJson<KubeObject>(q.context, path))
+    })
   }
 
   /** A list of Secrets in many namespaces, but those whose namespaces hide them. */

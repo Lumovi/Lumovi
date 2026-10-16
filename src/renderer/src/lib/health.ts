@@ -61,6 +61,8 @@ const NAMES: Partial<Record<BuiltinKind, Partial<Record<Health, string>>>> = {
     neutral: 'Scaled to zero',
   },
   Namespace: { healthy: 'Active', warning: 'Terminating' },
+  // (By its certificate: see lib/certificates.)
+  Secret: { critical: 'Not valid', warning: 'Expires soon' },
 }
 
 export function healthName(kind: ResourceKind, health: Health): string {

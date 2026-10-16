@@ -70,6 +70,9 @@ export function joinLists(lists: KubeList[]): KubeList {
           },
         }
       : {}),
+    ...(lists.some((list) => list.certificates)
+      ? { certificates: Object.assign({}, ...lists.map((list) => list.certificates ?? {})) }
+      : {}),
   }
 }
 

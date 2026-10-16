@@ -54,7 +54,7 @@ test('a Secret’s value on a plugin’s page: nothing read until a press, and a
   await expectHidden(box('tls.crt'), false)
   expect((await box('tls.crt').locator('pre').innerText()).length).toBeGreaterThan(MASK.length)
   // (Asked of the size alone: a check of the whole box would print the value where it fails.)
-  await expect(box('tls.crt').locator('.tabular-nums')).toHaveText(/^\d+(\.\d+)?\s?(B|KB)$/)
+  await expect(box('tls.crt').locator('.tabular-nums')).toHaveText(/^\d+(\.\d+)?\s?(B|KiB)$/)
   expect(reads('storefront-tls')).toBe(1)
   // The other boxes are as they were: what the read brought was for the pressed key alone.
   await expectHidden(box('tls.key'), true)

@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react'
 import { eventCount, lastSeen } from '@shared/events'
-import type { KubeObject, TableColumn, UsageSample } from '@shared/api'
+import type { CertificateSummary, KubeObject, TableColumn, UsageSample } from '@shared/api'
 import { inPieces, spelled } from '@shared/kit/characters'
 import type { BuiltinKind, ResourceKind } from '@shared/resources'
 import { Meter } from '@renderer/components/Meter'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { StatusPill } from '@renderer/components/Status'
 import { Tail } from '@renderer/components/Tail'
+import { expiresCell } from '@renderer/lib/certificates'
 import { cn } from '@renderer/lib/cn'
 import { age, formatBytes, formatCpu, formatDateTime, percent } from '@renderer/lib/format'
 import { containerStatuses, HEALTH_RANK, replicaCounts, statusOf } from '@renderer/lib/health'
@@ -28,6 +29,8 @@ export interface CellContext {
   open?: (kind: ResourceKind, name: string, namespace?: string) => void
   /** What manages each object, where plugins say what manages workloads (`useManagers`). */
   managers?: Managers
+  /** Secrets': what their certificates say, by `namespace/name` (the list's). */
+  certificates?: Record<string, CertificateSummary[]>
   now: number
 }
 
@@ -108,6 +111,13 @@ export function TheirCell({
     </span>
   )
 }
+
+/** When a Secret's certificate ends, as its list's cell says it. */
+const secretExpires = (object: KubeObject, ctx: CellContext) =>
+  expiresCell(
+    ctx.certificates?.[`${object.metadata.namespace ?? ''}/${object.metadata.name}`],
+    ctx.now,
+  )
 
 /** "1 restart", "3 restarts": a count that says what it's of. */
 const counted = (count: number, one: string, many = `${one}s`) =>
@@ -666,7 +676,50 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'type',
       header: 'Type',
       width: 'minmax(160px, 1.4fr)',
-      cell: (o) => mono(o.type as string),
+      // Cut in its middle: what tells one type from another is at its end (…dockerconfigjson).
+      cell: (o) => (
+        <MiddleTruncate
+          text={String(o.type ?? '')}
+          className="min-w-0 font-mono text-xs text-ink-2"
+        />
+      ),
+      text: (o) => String(o.type ?? ''),
+    },
+    // When its certificate (the one that ends soonest, its chain's included) ends; flagged
+    // within 14 days, or once it has.
+    {
+      id: 'expires',
+      header: 'Expires',
+      width: '104px',
+      cell: (o, ctx) => {
+        const expires = secretExpires(o, ctx)
+        if (!expires) return <span className="text-ink-3">—</span>
+        const tone =
+          expires.state === 'expires-soon'
+            ? 'text-warn-text'
+            : expires.state === 'valid'
+              ? undefined
+              : 'text-critical-text'
+        return <span className={cn('tabular-nums', tone)}>{expires.text}</span>
+      },
+      text: (o, ctx) => secretExpires(o, ctx)?.text ?? '',
+      fact: (o, ctx) => {
+        const expires = secretExpires(o, ctx)
+        if (!expires) return false
+        return expires.state === 'not-yet-valid'
+          ? expires.text
+          : expires.state === 'expired'
+            ? `Expired ${expires.text}`
+            : `Expires ${expires.text}`
+      },
+      csv: {
+        header: 'Expires (UTC)',
+        value: (o, ctx) => {
+          const expires = secretExpires(o, ctx)
+          return expires ? new Date(expires.sort).toISOString() : undefined
+        },
+      },
+      sort: (o, ctx) => secretExpires(o, ctx)?.sort ?? Number.MAX_SAFE_INTEGER,
     },
     {
       id: 'keys',
@@ -841,6 +894,8 @@ const eventColumns: Column[] = [
 
 /** Which columns give way first when the table is narrow (by column id). */
 const PRIORITY: Record<string, 2 | 3> = {
+  // (A Secret's certificate's end gives way before its type.)
+  expires: 2,
   age: 3,
   node: 3,
   version: 3,

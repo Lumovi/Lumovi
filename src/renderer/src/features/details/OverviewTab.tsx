@@ -6,6 +6,7 @@ import { resourceFor, useSchema } from '@renderer/hooks/resources'
 import { viewFor, viewLinks } from '@renderer/lib/plugins'
 import { useAccessHere } from '../access/use-access'
 import { AccountBindings, RulesSection, SubjectsSection } from './access'
+import { CertificatesSection } from './Certificates'
 import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
 import { ManagedNotice } from './ManagedBy'
@@ -159,7 +160,13 @@ const EXTRA_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }
     </Section>
   ),
   ConfigMap: DataSection,
-  Secret: DataSection,
+  // What its certificates say, above its data (LMV-194).
+  Secret: ({ object }) => (
+    <>
+      <CertificatesSection object={object} />
+      <DataSection object={object} />
+    </>
+  ),
   Role: RulesSection,
   ClusterRole: RulesSection,
   RoleBinding: SubjectsSection,

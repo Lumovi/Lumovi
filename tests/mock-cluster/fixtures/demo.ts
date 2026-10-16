@@ -20,6 +20,7 @@ import {
   type PodTemplate,
 } from '../builders.ts'
 import type { ClusterFixture, KubeObject } from '../types.ts'
+import { STOREFRONT_CERTIFICATES } from './certificates.ts'
 import { CUSTOM, demoCustomResources } from './custom.ts'
 import { demoHelmReleases } from './helm.ts'
 import { demoAlertRules } from './demo-alerts.ts'
@@ -852,9 +853,7 @@ export function demoCluster(now = Date.now()): ClusterFixture {
     {
       type: 'kubernetes.io/tls',
       data: {
-        'tls.crt': base64(
-          '-----BEGIN CERTIFICATE-----\nMIIFakeStorefrontCertificateForLumoviDemo\n-----END CERTIFICATE-----\n',
-        ),
+        'tls.crt': base64(STOREFRONT_CERTIFICATES),
         'tls.key': base64(
           '-----BEGIN PRIVATE KEY-----\nMIIFakeStorefrontKeyForLumoviDemo\n-----END PRIVATE KEY-----\n',
         ),

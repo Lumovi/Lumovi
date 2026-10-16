@@ -21,6 +21,7 @@ import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { age } from '@renderer/lib/format'
 import { pinnable } from '@renderer/lib/marks'
+import { certificateStatus } from '@renderer/lib/certificates'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
@@ -32,6 +33,7 @@ import { actionsFor } from '../actions/catalog'
 import { ON_A_PHONE } from '@renderer/web/phone-gate'
 import { GoToPlugins } from '../plugins/PluginPage'
 import { PluginBody } from '../plugins/PluginBody'
+import { useSecretCertificates } from './Certificates'
 import { EventsTab } from './EventsTab'
 import { LogsView, PodLogs } from '../logs/LogsView'
 import { MapTab } from './MapTab'
@@ -89,7 +91,16 @@ function Detail({
   const object = useObject(target.kind, target.name, target.namespace)
   // Views decide the icon, status and actions of the kinds they cover.
   usePlugins()
-  const status = object.data && statusFor(target.kind, object.data)
+  // A Secret's is its certificates' where they're flagged (none where they're fine).
+  const certificates = useSecretCertificates(target.kind === 'Secret' ? object.data : undefined)
+  const flagged = certificateStatus(certificates.data, certificates.dataUpdatedAt)
+  const status =
+    object.data &&
+    (target.kind === 'Secret'
+      ? flagged && flagged.health !== 'healthy'
+        ? flagged
+        : null
+      : statusFor(target.kind, object.data))
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'
   const phone = useLayout() === 'phone'

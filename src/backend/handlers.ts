@@ -7,7 +7,11 @@
 import {
   IPC,
   type ChangeRequest,
+  type CertificateSummary,
+  type CertificatesQuery,
   type GetQuery,
+  type KubeList,
+  type ListQuery,
   type SecretValues,
   type SecretValuesQuery,
   type HelmDeploy,
@@ -154,6 +158,46 @@ export function handlers({
       },
       summary: `Read Secret ${q.name}`,
       ...(kept ? { details: { keys: kept } } : {}),
+    })
+  }
+  /**
+   * What a Secret's certificates say that went to the page (read out of its values, though a
+   * certificate is anyone's to see), or that it was refused: who read which Secret's, and which
+   * keys', a while at a time.
+   */
+  const certificatesRead = (q: CertificatesQuery, result: Result<CertificateSummary[]>) => {
+    const keys = result.ok ? result.data.map((each) => each.key) : []
+    // (None said, nothing of its values went: no read.)
+    if (result.ok && keys.length === 0) return
+    audit.read(`certificates:${q.context}/${q.namespace}/${q.name}:${result.ok}:${keys.join()}`, {
+      action: 'secret.read',
+      ...outcomeOf(result),
+      cluster: q.context,
+      target: { kind: 'Secret', name: q.name, namespace: q.namespace },
+      summary: `Read the certificates of Secret ${q.name}`,
+      ...(keys.length > 0 ? { details: { certificates: keys } } : {}),
+    })
+  }
+  /**
+   * What a list of Secrets said of their certificates: one read for the list, naming the Secrets
+   * whose certificates went to the page, a while at a time.
+   */
+  const listedCertificatesRead = (q: ListQuery, list: KubeList) => {
+    const secrets = Object.keys(list.certificates ?? {}).sort()
+    if (secrets.length === 0) return
+    const namespaces = new Set(secrets.map((each) => each.slice(0, each.indexOf('/'))))
+    const where =
+      namespaces.size === 1 ? `in ${[...namespaces][0]}` : `in ${namespaces.size} namespaces`
+    audit.read(`listed-certificates:${q.context}:${JSON.stringify(secrets)}`, {
+      action: 'secret.read',
+      outcome: 'success',
+      cluster: q.context,
+      target: {
+        kind: 'Secret',
+        ...(namespaces.size === 1 ? { namespace: [...namespaces][0] } : {}),
+      },
+      summary: `Read the certificates of ${secrets.length} ${secrets.length === 1 ? 'Secret' : 'Secrets'} ${where}`,
+      details: { secrets },
     })
   }
   /**
@@ -369,7 +413,20 @@ export function handlers({
       [IPC.version]: (context) => kube.version(context),
       [IPC.resources]: (context) => kube.resources(context),
       [IPC.schema]: (context, kind) => kube.schema(context, kind),
-      [IPC.list]: (query) => kube.list(query),
+      [IPC.list]: async (query) => {
+        const result = await kube.list(query)
+        if (result.ok && result.data.certificates) {
+          listedCertificatesRead(query as ListQuery, result.data)
+        }
+        return result
+      },
+      [IPC.certificates]: async (query) => {
+        const result = await kube.certificates(query)
+        if (result.ok || isRefusal(result.error.code)) {
+          certificatesRead(query as CertificatesQuery, result)
+        }
+        return result
+      },
       [IPC.get]: async (query) => {
         const result = await kube.get(query)
         const q = query as GetQuery
