@@ -9,6 +9,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -761,6 +762,86 @@ test('terminals end, and their kubeconfigs go, when the app quits', async ({ lau
   expect(existsSync(kubeconfig)).toBe(true)
   await lumovi.close()
   expect(existsSync(kubeconfig)).toBe(false)
+})
+
+/** What a terminal says when PowerShell has drawn nothing for 5 s (STILL_STARTING_MS). */
+const STILL_STARTING =
+  '› PowerShell is still starting. Your profile or a virus scan can slow it down.'
+/** PowerShell held before its first line, as a slow profile or a virus scan would (the tests' build). */
+const HELD = { ...SHELL, LUMOVI_TEST_POWERSHELL_HOLD_S: '15' }
+
+test('PowerShell slow to start: after 5 s the terminal says so, resized or not, then gives way to it, and what’s typed meanwhile reaches it', async ({
+  launch,
+}) => {
+  test.skip(!WINDOWS, 'Windows terminals run PowerShell')
+  test.skip(PACKAGED, 'Only the tests’ build holds PowerShell back.')
+  const { page, app } = await launch({ env: HELD })
+  await openCluster(page)
+  const from = Date.now()
+  await page.keyboard.press('Control+Backquote')
+  await focused(page)
+  // Typed while it starts: kept for it.
+  await page.keyboard.type('echo early')
+  await shows(page, STILL_STARTING, 20_000)
+  expect(Date.now() - from).toBeGreaterThanOrEqual(5_000)
+  // Resized meanwhile, the console draws its screen again (none of it PowerShell's): the line's
+  // still there after it, and what PowerShell draws later still lands where the console expects.
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0]!
+    const [width, height] = win.getSize()
+    win.setSize(width! - 160, height! - 80)
+  })
+  await shows(page, STILL_STARTING)
+  // Once PowerShell draws, the line's gone, and what it draws is where it would be without it:
+  // Lumovi's line first, then the prompt, with what was typed on it.
+  await ready(page)
+  await expect(screen(page)).not.toContainText('still starting')
+  const rows = async () =>
+    (await screen(page).locator('> div').allInnerTexts()).map((row) => row.trim()).filter(Boolean)
+  expect((await rows())[0]).toMatch(/^› kubectl points at demo in this terminal\./)
+  await expect.poll(() => inputLine(page)).toMatch(/>\s*echo early$/)
+  await page.keyboard.type('-late')
+  await page.keyboard.press('Enter')
+  await expect.poll(rows).toContain('early-late')
+})
+
+test('quitting while PowerShell starts doesn’t wait for it: its shell and kubeconfig go', async ({
+  launch,
+}) => {
+  test.skip(!WINDOWS, 'Windows terminals run PowerShell')
+  test.skip(PACKAGED, 'Only the tests’ build holds PowerShell back.')
+  const lumovi = await launch({ env: HELD })
+  const { page, app } = lumovi
+  await openCluster(page)
+  await page.keyboard.press('Control+Backquote')
+  await shows(page, STILL_STARTING, 20_000)
+  const pid = await app.evaluate(
+    () => (globalThis as unknown as { __ptys: { pid: number }[] }).__ptys[0]!.pid,
+  )
+  // (Its main process's, as it knows itself, and its temporary folder: each terminal's kubeconfig
+  // is in a folder there named after it.)
+  const [main, temporary] = (await app.evaluate(({ app }) => [
+    process.pid,
+    app.getPath('temp'),
+  ])) as [number, string]
+  const all = () => readdirSync(temporary).filter((name) => name.startsWith('lumovi-terminal-'))
+  const folders = () => all().filter((name) => name.startsWith(`lumovi-terminal-${main}-`))
+  expect(folders(), `of ${JSON.stringify(all())} in ${temporary}`).toHaveLength(1)
+  const alive = () => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  expect(alive()).toBe(true)
+  const asked = Date.now()
+  await lumovi.close()
+  // Well before PowerShell would have drawn anything (15 s).
+  expect(Date.now() - asked).toBeLessThan(10_000)
+  expect(folders()).toEqual([])
+  await expect.poll(alive).toBe(false)
 })
 
 test('on the start screen, ⌃` has nothing to point a terminal at', async ({ page }) => {
