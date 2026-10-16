@@ -265,7 +265,7 @@ jobs:
     if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
-      # Each platform's tests, split over machines that run at once (Linux's fourteen, the others'
+      # Each platform's tests, split over machines that run at once (Linux's sixteen, the others'
       # four: SHARDS in scripts/ci-changes.ts), so that each takes about as long
       # (scripts/e2e-shard.ts); or on macOS, the smoke set. A pull request whose changes are alike
       # on every system runs Linux's alone.
@@ -376,14 +376,21 @@ jobs:
             test-results/
           retention-days: 7
 
-  coverage:
-    name: Coverage (all platforms)
-    needs: [changes, e2e]
+  # A run whose macOS ran only its smoke set, or that ran Linux alone, reached less than a full one
+  # does, having lost nothing. What only the systems that didn't run here reach is taken from
+  # main's newest green run whose macOS ran in full (its nightly one, or one by hand), or for Linux
+  # alone, where none is kept, from its newest merge's: so that the gate judges like with like
+  # (scripts/borrow-coverage.ts). It needs nothing of this run's tests, so it's worked out while
+  # they run, and Coverage only collects it.
+  borrowed:
+    name: Coverage borrowed from main
+    needs: changes
+    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.macos != 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: read
-      # To read main's coverage (below).
+      # To read main's coverage.
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -395,23 +402,47 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: What the systems that didn't run here reach, from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS: ${{ needs.changes.outputs.windows }}
+        run: scripts/judge.sh borrow-coverage.ts
+      # (Nothing where nothing was borrowed: Coverage then judges what ran here as it is.)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: coverage-borrowed-from-main
+          path: .nyc_output/main-borrowed.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  coverage:
+    name: Coverage (all platforms)
+    needs: [changes, e2e, borrowed]
+    # (As before, once every test ran; with what was borrowed, or with nothing borrowed to wait for.)
+    if: >-
+      ${{ !cancelled() && needs.e2e.result == 'success' &&
+      (needs.borrowed.result == 'success' || needs.borrowed.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The pull request's merge commit, and what it's merged into (scripts/judge.sh).
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # (What's borrowed from main, where it is, comes with them: coverage-borrowed-from-main.)
       - name: Collect coverage from every platform
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: coverage-*
           path: .nyc_output
           merge-multiple: true
-      # A run whose macOS ran only its smoke set, or that ran Linux alone, reached less than a full
-      # one does, having lost nothing. What only the systems that didn't run here reach is taken
-      # from main's newest green run whose macOS ran in full (its nightly one, or one by hand), or
-      # for Linux alone, where none is kept, from its newest merge's: so that the gate judges like
-      # with like (scripts/borrow-coverage.ts).
-      - name: What the systems that didn't run here reach, from main
-        if: needs.changes.outputs.macos != 'full'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WINDOWS: ${{ needs.changes.outputs.windows }}
-        run: scripts/judge.sh borrow-coverage.ts
       # One pass: the report, then the gate, from the report's one merged file.
       - name: Report, and require more than 90%
         run: |
@@ -729,7 +760,7 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [changes, checks, e2e, coverage, package, integration, browsers]
+    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
