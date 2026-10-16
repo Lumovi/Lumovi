@@ -1715,6 +1715,7 @@ export const LUMOVIS_PAGES = [
   'Metrics',
   'Alerts',
   'API resources',
+  'Compare',
   'Helm releases',
   'Plugins',
 ]

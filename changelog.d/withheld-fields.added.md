@@ -4,4 +4,5 @@
   and its copy, its Map and Audit tabs, a plugin's code, and AI assistants' tools. The YAML tab
   says which fields are withheld, and whose file withholds them. Such an object isn't edited whole
   in Lumovi, nor patched where a change would touch them: use kubectl. Every plugin file Lumovi
-  has counts, whether or not its plugin is shown or allowed.
+  has counts, whether or not its plugin is shown or allowed, and while a file doesn't read, the
+  custom kinds of its groups aren't shown at all, since it may withhold fields of them.

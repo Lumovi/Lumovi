@@ -8,6 +8,7 @@ import {
   CirclePlay,
   Download,
   FileCode2,
+  GitCompareArrows,
   HardDrive,
   History,
   LogOut,
@@ -32,6 +33,7 @@ import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { actionBusy, holds, viewFor } from '@renderer/lib/plugins'
 import { api } from '@renderer/lib/api'
 import { kindOf, target, type ActionProps } from './common'
+import { ComparePicker } from '../compare/ComparePicker'
 import { EvictDialog, RestartDialog, RestartPodDialog, RunNowDialog } from './ConfirmDialogs'
 import { DeleteDialog } from './DeleteDialog'
 import { DrainDialog } from './DrainDialog'
@@ -154,6 +156,16 @@ const patchArgs = (object: KubeObject) => (spec: Record<string, unknown>) => [
 ]
 
 export const ACTIONS: readonly Action[] = [
+  {
+    // Read-only: another object of the kind, from any namespace or cluster, beside this one.
+    id: 'compare',
+    label: 'Compare with…',
+    icon: GitCompareArrows,
+    kinds: EVERYTHING,
+    access: can('get'),
+    safe: true,
+    dialog: ComparePicker,
+  },
   {
     id: 'scale',
     label: 'Scale',

@@ -18,7 +18,7 @@ import {
 } from '@shared/access'
 import type { KubeContext } from '@shared/api'
 import { useContexts, useList } from '@renderer/hooks/queries'
-import { api } from '@renderer/lib/api'
+import { api, unwrap } from '@renderer/lib/api'
 import { useCluster } from '@renderer/state/cluster'
 
 /** The person's own access: undefined in the desktop app, and until it's read. */
@@ -85,11 +85,25 @@ const DOING: Record<Capability, string> = {
 }
 
 export function useAccessHere(): AccessHere {
+  return useAccessIn(useCluster().context)
+}
+
+/**
+ * What the person may do in `context`'s cluster, as `useAccessHere` says it of the one shown: of
+ * another (a side of a comparison), its namespaces read from it where the policy goes by labels.
+ */
+export function useAccessIn(context: string): AccessHere {
   const mine = useMyAccess()
-  const { context } = useCluster()
+  const shown = useCluster().context
   const cluster = useContexts().data?.contexts.find((c) => c.name === context)
   const labelled = mine ? usesLabels(mine.policy) : false
-  const namespaces = useList('Namespace', { namespace: null, enabled: labelled })
+  const ownList = useList('Namespace', { namespace: null, enabled: labelled && context === shown })
+  const otherList = useQuery({
+    queryKey: ['access-namespaces', context],
+    queryFn: async () => (await unwrap(api.kube.list({ context, kind: 'Namespace' }))).items,
+    enabled: labelled && context !== shown,
+  })
+  const namespaces = context === shown ? ownList : otherList
   return useMemo(() => {
     if (!mine) return ALLOWED
     const decide = myDecider(mine)
