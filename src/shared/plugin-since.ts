@@ -45,6 +45,11 @@ export const PLUGIN_SINCE = {
     choices: '1.22.0',
     /** What of a kind's change does harm (`spec.changes[].harm`), drawn by Lumovi in red. */
     harm: '1.22.0',
+    /**
+     * A view's `withholds`: fields of its kinds Lumovi never shows nor hands over. An older Lumovi
+     * refuses the file (it's a view's key it doesn't know), so it never shows them either.
+     */
+    withholds: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {

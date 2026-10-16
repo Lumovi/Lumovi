@@ -4,7 +4,8 @@ import type { AccessCheck, KubeObject } from '@shared/api'
 import { useAccess } from '@renderer/hooks/access'
 import { useChange } from '@renderer/hooks/change'
 import { useOpenObject } from '@renderer/hooks/open-object'
-import { labelFor } from '@renderer/hooks/resources'
+import { labelFor, useResources } from '@renderer/hooks/resources'
+import { WITHHELD_EDIT } from '@shared/withheld'
 import { useReadOnly } from '@renderer/hooks/settings'
 import { formatRef } from '@renderer/lib/routes'
 import { useActionsUi } from '@renderer/state/actions'
@@ -95,13 +96,18 @@ export function useObjectActions(object: KubeObject): AvailableAction[] {
   const access = useAccess(checks)
   const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
+  // An object that holds fields Lumovi doesn't show is never written whole from here.
+  const kind = kindOf(object)
+  const withheld = Boolean(useResources().data?.find((r) => r.kind === kind)?.withheld?.length)
   return actions.map((action, i) => ({
     action,
     disabled:
-      readOnly && !action.safe
-        ? readOnlyWhy
-        : (notAllowed(action, checks[i]!, object, here) ??
-          (access[i] === false ? forbidden(checks[i]!) : undefined)),
+      withheld && action.id === 'edit-yaml'
+        ? WITHHELD_EDIT
+        : readOnly && !action.safe
+          ? readOnlyWhy
+          : (notAllowed(action, checks[i]!, object, here) ??
+            (access[i] === false ? forbidden(checks[i]!) : undefined)),
   }))
 }
 

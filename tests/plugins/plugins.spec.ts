@@ -175,6 +175,18 @@ function resolves(shape: Shape, steps: Step[]): boolean {
   return Boolean(at)
 }
 
+/** Whether a withheld field's keys lead somewhere in `shape`: a step into a list is of each item. */
+function holds(shape: Shape, keys: readonly string[]): boolean {
+  let at: Shape | undefined = shape
+  for (const key of keys) {
+    while (at?.items) at = at.items
+    if (!at) return false
+    if (at.any) return true
+    at = field(at, key)
+  }
+  return Boolean(at)
+}
+
 // ——— What a view reads and writes ———
 
 /** The paths a template's placeholders read (not `now`, nor an action's inputs). */
@@ -248,13 +260,20 @@ function checker(kinds: string[], problems: string[], where: string) {
       for (const path of templatePaths(template)) check(parse(path), path)
     },
     steps: check,
+    // (A field withheld that no version has would withhold nothing, and say nothing of it.)
+    withheld: (keys: readonly string[], what: string) => {
+      if (found.length && !shapes.some((shape) => holds(shape, keys))) {
+        problems.push(`${where}: ${what} isn’t in ${names}`)
+      }
+    },
   }
 }
 
 function checkView(view: View, problems: string[]) {
   const where = `${view.source}: ${view.name}`
-  const { path, template, steps } = checker(view.kinds, problems, where)
+  const { path, template, steps, withheld } = checker(view.kinds, problems, where)
   for (const field of [...(view.columns ?? []), ...(view.details ?? [])]) path(field.path)
+  for (const field of view.withholds ?? []) withheld(field.keys, `withholds ${field.path}`)
   for (const rule of view.status ?? []) {
     conditionPaths(rule.when).forEach((p) => path(p))
     template(rule.label)

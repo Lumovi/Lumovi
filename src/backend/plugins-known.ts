@@ -6,7 +6,9 @@
  */
 import type { Host } from '@shared/api'
 import { allowedBy } from '@shared/plugin-store'
+import { parsePlugin, type Plugin } from '@shared/plugins'
 import { knownPlugins, readIncluded, type KnownPlugin } from '@shared/plugins-known'
+import { groupsNamed, withheldKinds, type UnreadFile, type Withholding } from '@shared/withheld'
 // The plugins Lumovi comes with, from the release its lock pins, as the build checked them: the
 // same files the page's bundle has, built into this one, and the code beside them, named as each
 // plugin's file is.
@@ -159,4 +161,74 @@ export async function plugins(
     : all
   last = { mark, from, known }
   return known
+}
+
+/**
+ * What's withheld of each kind (`@shared/withheld`), read from every plugin file this Lumovi has:
+ * the ones it comes with, always; in the tests' build, their stand-ins; those installed from
+ * Lumovi-plugins (`installed`: in use or not); and the folder's own (`directory`, its plugins'
+ * folders too where `folders`). Whatever the policy allows, a person turned off, or a newer
+ * Lumovi than this one would read: what a file withholds is data, never code, and a plugin that
+ * isn't shown still keeps its fields from being shown. A file counts where it's whole on its
+ * own, beside another of the same kinds too; one that isn't, or can't be read, is `unread`: what
+ * it withholds can't be told, so nothing of its groups is shown (of any group, where it doesn't
+ * say). Read again only when a file changed (`filesMark`), as `plugins` reads them.
+ */
+export function withholding(
+  directory: { path: string },
+  {
+    folders = false,
+    env = process.env,
+    installed,
+  }: {
+    folders?: boolean
+    env?: NodeJS.ProcessEnv
+    installed?: () => Promise<Readonly<Record<string, string>>>
+  } = {},
+): () => Promise<Withholding> {
+  let read: { mark: string; installed?: object; withholding: Withholding } | undefined
+  const reading: OwnReading = { folders }
+  // Each file as it was read, by its name and text: only a file that changed is read again.
+  let parsed = new Map<string, Plugin | undefined>()
+  const parse = (name: string, text: string, now: Map<string, Plugin | undefined>) => {
+    const key = `${name}\u0000${text}`
+    const plugin = parsed.has(key)
+      ? parsed.get(key)
+      : parsePlugin(text, name.slice(name.lastIndexOf('/') + 1), { carriesCode: true }).plugin
+    now.set(key, plugin)
+    return plugin
+  }
+  return async () => {
+    const fromStore = await installed?.()
+    const mark = await filesMark(directory, env, reading)
+    if (read?.mark === mark && read.installed === fromStore) return read.withholding
+    const files = await readFiles(directory, env, reading)
+    const all: { name: string; text: string; error?: string }[] = [
+      ...Object.entries(SHIPPED).map(([name, text]) => ({ name, text })),
+      ...(LUMOVI_TEST_BUILD ? (files.included ?? []) : []),
+      ...Object.entries(fromStore ?? {}).map(([name, text]) => ({ name, text })),
+      ...files.files,
+    ]
+    const plugins: Plugin[] = []
+    const unread: UnreadFile[] = []
+    const now = new Map<string, Plugin | undefined>()
+    for (const { name, text, error } of all) {
+      // (One that can't be read at all may be of any group.)
+      if (error) {
+        unread.push({ file: name })
+        continue
+      }
+      const plugin = parse(name, text, now)
+      if (plugin) plugins.push(plugin)
+      else {
+        const groups = groupsNamed(text)
+        unread.push({ file: name, ...(groups ? { groups } : {}) })
+      }
+    }
+    const withholding = { kinds: withheldKinds(plugins), unread }
+    // (What's no longer there is let go.)
+    parsed = now
+    read = { mark, installed: fromStore, withholding }
+    return withholding
+  }
 }
