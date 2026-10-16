@@ -27,7 +27,7 @@
  *
  * tests/web/ci-changes.spec.ts tries what it keeps.
  */
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ranMacosInFull, SHARDS } from './ci-changes.ts'
@@ -102,7 +102,7 @@ export function onlyIn(borrowed: Coverage[], judging: Coverage[]): Coverage {
 /**
  * How many coverage files of Linux's and of Windows' shards a run of main has: as many as its E2E
  * jobs' names (`E2E (ubuntu-latest, 2/14)`) say each was split into, which needn't be as many as
- * this run's (Linux's went from four to six to fourteen). Nothing where either has no such job.
+ * this run's (Linux's went from four to six to fourteen to sixteen). Nothing where either has no such job.
  */
 export function shardsIn(jobs: string[]): { linux: number; windows: number } | undefined {
   const of = (os: string) =>
@@ -126,7 +126,6 @@ export const MAINS_OWN = ['push', 'schedule', 'workflow_dispatch'] as const
 export const mainsOwn = <T extends { event: string }>(runs: T[]): T[] =>
   runs.filter(({ event }) => (MAINS_OWN as readonly string[]).includes(event))
 
-/** How many of each system's coverage files a run of main has kept, and whether macOS's are whole. */
 /**
  * How `sha` is fetched to compare with: alone (`--depth=1`) only where the clone is shallow
  * already, as CI's checkout is. A full clone (a person's, run by hand) is never made shallow.
@@ -139,6 +138,7 @@ export const fetchOf = (sha: string, shallow: boolean): string[] => [
   sha,
 ]
 
+/** How many of each system's coverage files a run of main has kept, and whether macOS's are whole. */
 export interface Fit {
   linux: number
   windows: number
@@ -231,9 +231,62 @@ export function borrowedOf(
   return { kept: withoutChanged(onlyIn(borrowed, judging), changed) }
 }
 
+/**
+ * What `each` makes of every item, in the items' order: `atOnce` of them asked at a time, each
+ * next one as one's done. (Main's runs are judged so: one by one, two asks each, took two minutes
+ * of a pull request's Coverage.)
+ */
+export async function inTurns<T, R>(
+  items: readonly T[],
+  atOnce: number,
+  each: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const made: R[] = new Array(items.length)
+  let next = 0
+  const turn = async () => {
+    while (next < items.length) {
+      const at = next++
+      made[at] = await each(items[at]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(atOnce, items.length) }, turn))
+  return made
+}
+
+/** How many of main's runs are asked about at once. */
+const RUNS_AT_ONCE = 10
+
+/**
+ * Each of main's runs judged (`ask`: its artifacts' names and its jobs' names), in their order. A
+ * run whose asks fail is left out of the choice, and said (`skipped`), never the reason none is
+ * borrowed: one run that didn't answer (as one did on 2026-10-16) mustn't cost every other.
+ */
+export async function judgeRuns<T>(
+  runs: readonly T[],
+  ask: (run: T) => Promise<{ names: string[]; jobs: string[] }>,
+): Promise<{ judged: { run: T; fit: Fit | undefined }[]; skipped: { run: T; why: string }[] }> {
+  const skipped: { run: T; why: string }[] = []
+  const judged = await inTurns(runs, RUNS_AT_ONCE, async (run) => {
+    try {
+      const { names, jobs } = await ask(run)
+      return { run, fit: fitOf(names, jobs) }
+    } catch (error) {
+      skipped.push({ run, why: (error as Error).message.split('\n')[0]! })
+      return { run, fit: undefined }
+    }
+  })
+  return { judged, skipped }
+}
+
 if (import.meta.main) {
   const repo = process.env.GITHUB_REPOSITORY!
   const gh = (...args: string[]) => execFileSync('gh', args, { encoding: 'utf8' })
+  const ghLater = (...args: string[]) =>
+    new Promise<string>((resolve, reject) =>
+      execFile('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (error, said) =>
+        error ? reject(error) : resolve(said),
+      ),
+    )
   const nothing = (why: string): never => {
     console.log(`Nothing borrowed from main: ${why}. What ran here is judged as it is.`)
     process.exit(0)
@@ -250,19 +303,22 @@ if (import.meta.main) {
         ...['--status', 'success', '--limit', '30', '--json', 'databaseId,headSha,event'],
       ),
     ) as { databaseId: number; headSha: string; event: string }[]
-    const judged = mainsOwn(runs).map((run) => ({
-      run,
-      fit: fitOf(
-        gh(
+    const { judged, skipped } = await judgeRuns(mainsOwn(runs), async (run) => {
+      const [names, jobs] = await Promise.all([
+        ghLater(
           ...['api', `repos/${repo}/actions/runs/${run.databaseId}/artifacts?per_page=100`],
           ...['--jq', '.artifacts[] | select(.expired | not) | .name'],
-        ).split('\n'),
-        gh(
+        ),
+        ghLater(
           ...['run', 'view', String(run.databaseId), '--repo', repo],
           ...['--json', 'jobs', '--jq', '.jobs[].name'],
-        ).split('\n'),
-      ),
-    }))
+        ),
+      ])
+      return { names: names.split('\n'), jobs: jobs.split('\n') }
+    })
+    for (const { run, why } of skipped) {
+      console.log(`Run ${run.databaseId} of main didn’t answer, so it isn’t borrowed from: ${why}`)
+    }
     chosen = pick(judged, windowsRan)
   } catch (error) {
     nothing(`its runs couldn’t be asked for (${(error as Error).message.split('\n')[0]})`)

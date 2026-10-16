@@ -56,7 +56,7 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
    one able to bypass it.
 
-On a pull request CI runs every test on Linux, over fourteen machines at once. Windows, macOS, the
+On a pull request CI runs every test on Linux, over sixteen machines at once. Windows, macOS, the
 Firefox and WebKit checks and the packages run too where the change touches what differs by system:
 anything outside the pages and what they share (`src/renderer`, `src/shared`), the server's own
 (`src/server`), the chart, the tests themselves (their spec files, not their harness or the mock

@@ -14,6 +14,8 @@ import {
   borrowedOf,
   fetchOf,
   fitOf,
+  inTurns,
+  judgeRuns,
   mainsOwn,
   onlyIn,
   pick,
@@ -37,7 +39,7 @@ const macos = (result: ReturnType<typeof plan>) =>
   result.e2e.filter((shard) => shard.os === 'macos-latest').map((shard) => shard.shard)
 const FULL = ['1/4', '2/4', '3/4', '4/4']
 /** Linux's fourteen shards, as the plan names them. */
-const LINUX = Array.from({ length: 14 }, (_, i) => `${i + 1}/14`)
+const LINUX = Array.from({ length: 16 }, (_, i) => `${i + 1}/16`)
 /** Each system's shards, as the plan names them. */
 const shards = (result: ReturnType<typeof plan>, os: string) =>
   result.e2e.filter((shard) => shard.os === os).map((shard) => shard.shard)
@@ -251,7 +253,8 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     const result = plan({ event: 'push', changed })
     expect(result).toMatchObject({ docs: false, macos: false })
     expect(macos(result)).toEqual(['smoke'])
-    expect(result.e2e).toHaveLength(19)
+    // (Linux's shards, Windows' four and macOS's smoke set.)
+    expect(result.e2e).toHaveLength(LINUX.length + 4 + 1)
     // Every merge runs Windows and macOS, whatever it changed.
     expect(result.platforms).toBe(true)
     expect(shards(result, 'windows-latest')).toEqual(FULL)
@@ -295,7 +298,8 @@ test('main’s nightly run, a run by hand and a release’s pull request run eve
     [pr(['README.md'], 'release-1.16.0'), 'A release’s pull request'],
   ] as const) {
     expect(result).toMatchObject({ docs: false, macos: true })
-    expect(result.e2e).toHaveLength(22)
+    // (Linux's shards, and Windows' and macOS's four each.)
+    expect(result.e2e).toHaveLength(LINUX.length + 4 + 4)
     expect(result.said).toContain(said)
     // Every system runs every test: a break in the browser's on one system shows here.
     expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
@@ -657,6 +661,55 @@ test('main’s commit is fetched to compare with, and a full clone stays full: o
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('main’s runs are asked about a few at a time, and judged in their own order', async () => {
+  let asking = 0
+  let most = 0
+  const asked: number[] = []
+  // Each takes as long as its number says: later ones come back first.
+  const made = await inTurns([50, 10, 40, 0, 30, 20, 5], 3, async (ms) => {
+    asking++
+    most = Math.max(most, asking)
+    asked.push(ms)
+    await new Promise((resolve) => setTimeout(resolve, ms))
+    asking--
+    return `run ${ms}`
+  })
+  expect(made).toEqual(['run 50', 'run 10', 'run 40', 'run 0', 'run 30', 'run 20', 'run 5'])
+  expect(most).toBe(3)
+  expect(asked).toHaveLength(7)
+  expect(await inTurns([], 3, async () => 'none')).toEqual([])
+})
+
+test('a run of main that doesn’t answer is skipped and said; the others are still borrowed from', async () => {
+  const jobs = [
+    ...Array.from({ length: 16 }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/16)`),
+    ...Array.from({ length: 4 }, (_, i) => `E2E (windows-latest, ${i + 1}/4)`),
+  ]
+  const files = (system: string, count: number) =>
+    Array.from({ length: count }, (_, i) => `coverage-${system}-${i + 1}`)
+  const full = [...files('Linux', 16), ...files('Windows', 4), ...files('macOS', 4)]
+  const merge = [...files('Linux', 16), ...files('Windows', 4), 'coverage-macOS-smoke']
+  // The newest, a nightly, doesn't answer; a merge, and an older nightly, do.
+  const runs = ['newest nightly', 'merge', 'older nightly']
+  const { judged, skipped } = await judgeRuns(runs, async (run) => {
+    if (run === 'newest nightly') throw new Error('Command failed: gh run view 1\nmore')
+    return { names: run === 'merge' ? merge : full, jobs }
+  })
+  expect(skipped).toEqual([{ run: 'newest nightly', why: 'Command failed: gh run view 1' }])
+  expect(judged.map(({ run, fit }) => [run, fit?.full])).toEqual([
+    ['newest nightly', undefined],
+    ['merge', false],
+    ['older nightly', true],
+  ])
+  // Borrowed from the newest that fits in full, as ever; where Linux alone ran too.
+  expect(pick(judged, true)?.run).toBe('older nightly')
+  expect(pick(judged, false)?.run).toBe('older nightly')
+  // None answering: nothing to borrow from, said by the choice, never thrown.
+  const none = await judgeRuns(runs, () => Promise.reject(new Error('down')))
+  expect(none.skipped).toHaveLength(3)
+  expect(pick(none.judged, false)).toBeUndefined()
 })
 
 test('main is red unless its newest finished run passed: only a run somebody cancelled says nothing', () => {

@@ -44,7 +44,7 @@ const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'] as const
  * browser's tests and the desktop tests alike on every system as well.
  */
 export const SHARDS = {
-  'ubuntu-latest': 14,
+  'ubuntu-latest': 16,
   'macos-latest': 4,
   'windows-latest': 4,
 } as const satisfies Record<(typeof OSES)[number], number>
