@@ -45,6 +45,20 @@ if (dir && kubeconfig && process.env.FAKE_HELM_REACH) {
   fs.appendFileSync(path.join(dir, 'reached.jsonl'), `${JSON.stringify({ args, status })}\n`)
 }
 
+// Held ($FAKE_HELM_DIR/holds.json: { "<subcommand>": "<a file>" }): it waits for that file to be
+// there, then goes on as it would, as a helm that's slow to finish does.
+const held = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, 'holds.json'), 'utf8'))[command]
+  } catch {
+    return undefined
+  }
+})()
+if (held) {
+  const nap = new Int32Array(new SharedArrayBuffer(4))
+  while (!fs.existsSync(held)) Atomics.wait(nap, 0, 0, 50)
+}
+
 const responses = (() => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, 'responses.json'), 'utf8'))

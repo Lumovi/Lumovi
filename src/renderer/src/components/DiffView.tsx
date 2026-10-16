@@ -11,19 +11,31 @@ interface DiffLine {
   text: string
 }
 
-/** A unified diff with unchanged stretches folded away, and how many lines it adds and removes. */
+/**
+ * A unified diff with unchanged stretches folded away, and how many lines it adds and removes.
+ * `shown`: what each side's lines are shown as (line for line, a masked copy of each), where the
+ * diff is worked out on the real text: a change is never hidden by what it's shown as.
+ */
 export function unifiedDiff(
   before: string,
   after: string,
+  shown?: { before: string; after: string },
 ): { lines: DiffLine[]; added: number; removed: number } {
+  const show = shown && { before: shown.before.split('\n'), after: shown.after.split('\n') }
+  let inBefore = 0
+  let inAfter = 0
   const all: DiffLine[] = diffLines(before, after).flatMap((part) =>
     part.value
       .replace(/\n$/, '')
       .split('\n')
-      .map(
-        (text) =>
-          ({ type: part.added ? 'added' : part.removed ? 'removed' : 'same', text }) as DiffLine,
-      ),
+      .map((text) => {
+        const type = part.added ? 'added' : part.removed ? 'removed' : 'same'
+        // (A line the before has is shown as the before shows it; one only the after has, so.)
+        const at = type === 'added' ? inAfter++ : inBefore++
+        if (type === 'same') inAfter++
+        const as = type === 'added' ? show?.after[at] : show?.before[at]
+        return { type, text: as ?? text } as DiffLine
+      }),
   )
   const near = (i: number) =>
     all.slice(Math.max(0, i - CONTEXT), i + CONTEXT + 1).some((line) => line.type !== 'same')

@@ -50,6 +50,16 @@ function scriptHelm(lumovi: Lumovi, responses: Record<string, object>) {
   writeFileSync(join(lumovi.helmDir!, 'responses.json'), JSON.stringify(responses))
 }
 
+/**
+ * Holds helm's `command` (an upgrade, say) until what's returned is called: as a helm that's slow
+ * to finish does.
+ */
+function holdHelm(lumovi: Lumovi, command: string): () => void {
+  const released = join(lumovi.helmDir!, `${command}.released`)
+  writeFileSync(join(lumovi.helmDir!, 'holds.json'), JSON.stringify({ [command]: released }))
+  return () => writeFileSync(released, '')
+}
+
 /** Adds a release's revision to the cluster, as Helm would store it. */
 function addRelease(
   cluster: MockCluster,
@@ -225,7 +235,9 @@ test('releases in other states, and ones Flux manages', async ({ page, clusters 
   await expect(yaml(grafana, 'Values')).toContainText('adminUser')
   await expect(yaml(grafana, 'Values')).not.toContainText('sidecar')
   await grafana.getByRole('button', { name: 'Roll back…' }).click()
-  await expect(dialog(page)).toContainText('Going back to 1 changes 1 line of its values')
+  await expect(dialog(page)).toContainText(
+    'Going back to 1 changes 1 of its values and 2 lines of its manifest.',
+  )
   // Escape closes the dialog first, and then the panel, as its close button says.
   await page.keyboard.press('Escape')
   await expect(dialog(page)).toHaveCount(0)
@@ -269,6 +281,163 @@ test('releases in other states, and ones Flux manages', async ({ page, clusters 
   await expect(gone).toContainText('shop has no Helm release named gone.')
 })
 
+test('install and upgrade options: wait, undo it if it fails, and a timeout, each said as the helm that runs spells it', async ({
+  page,
+  lumovi,
+}) => {
+  await openCluster(page)
+  await openHelm(page)
+  const storefront = await openRelease(page, HELM.storefront)
+  await storefront.getByRole('button', { name: 'Upgrade…' }).click()
+  const upgrade = dialog(page)
+  const options = upgrade.getByRole('group', { name: 'Options' })
+  const wait = options.getByRole('checkbox', { name: /Wait until it’s ready/ })
+  const undo = options.getByRole('checkbox', { name: /Undo it if it fails/ })
+  const timeout = options.getByRole('textbox', { name: 'Timeout' })
+  // Off and blank, as Helm has them.
+  await expect(wait).not.toBeChecked()
+  await expect(undo).not.toBeChecked()
+  await expect(timeout).toHaveValue('')
+  await expect(timeout).toHaveAttribute('placeholder', '5 minutes, Helm’s default')
+  await expect(options).toContainText('Helm rolls it back to revision 3.')
+  // Undoing waits: Wait is on and held, its line saying why; the command has the flag alone.
+  await undo.check()
+  await expect(wait).toBeChecked()
+  await expect(wait).toBeDisabled()
+  await expect(options).toContainText('On, as undoing a failure has to wait to see it.')
+  // A timeout out of range is said, and Review waits.
+  await timeout.fill('90')
+  await expect(options).toContainText('From 1 to 60 minutes.')
+  await expect(upgrade.getByRole('button', { name: 'Review' })).toBeDisabled()
+  await timeout.fill('10')
+  await expect(upgrade).toContainText('--values values.yaml --rollback-on-failure --timeout 10m0s')
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade).toContainText('storefront is ready.')
+  // (A dry run makes nothing to wait for.)
+  const dryRun = helmCalls(lumovi).at(-1)!
+  expect(dryRun).toContain('--dry-run=server')
+  expect(dryRun).not.toContain('--timeout')
+  // Failed and undone: Lumovi's words first, then Helm's.
+  scriptHelm(lumovi, {
+    upgrade: {
+      code: 1,
+      stderr:
+        'Error: UPGRADE FAILED: release storefront failed, and has been rolled back due to atomic being set: context deadline exceeded\n',
+    },
+  })
+  await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
+  await expect(upgrade.getByRole('alert')).toContainText(
+    'It wasn’t ready within 10 minutes, so Helm rolled it back to revision 3.',
+  )
+  await expect(upgrade.getByRole('alert')).toContainText('has been rolled back')
+  // This helm is Helm 3's: undoing is --atomic, which waits by itself.
+  const asked = helmCalls(lumovi).at(-1)!
+  expect(asked).toContain('--atomic')
+  expect(asked).not.toContain('--wait')
+  expect(asked.slice(asked.indexOf('--timeout'), asked.indexOf('--timeout') + 2)).toEqual([
+    '--timeout',
+    '10m0s',
+  ])
+
+  // Waiting alone, and how long it's taken: Close, as closing doesn't stop it.
+  scriptHelm(lumovi, {})
+  await upgrade.getByRole('button', { name: 'Back to editing' }).click()
+  await undo.uncheck()
+  await expect(wait).not.toBeChecked()
+  await wait.check()
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade).toContainText('storefront is ready.')
+  const release = holdHelm(lumovi, 'upgrade')
+  await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
+  await expect(upgrade.getByRole('status')).toContainText(
+    'Upgrading, then waiting until it’s ready: up to 10 minutes',
+  )
+  await expect(upgrade.getByRole('status')).toContainText(
+    'Closing this doesn’t stop it. The release’s page says how it ended.',
+  )
+  await expect(upgrade.getByRole('button', { name: 'Close' })).toBeVisible()
+  // Quitting while it runs asks first: kept open, nothing's stopped.
+  const asks = await lumovi.app.evaluate(({ app, dialog }) => {
+    const said: string[] = []
+    dialog.showMessageBoxSync = ((options: { message: string; detail?: string }) => {
+      said.push(`${options.message} ${options.detail}`)
+      return 0
+    }) as typeof dialog.showMessageBoxSync
+    ;(globalThis as unknown as { quitAsks: string[] }).quitAsks = said
+    app.quit()
+    return said
+  })
+  expect(asks).toEqual([
+    'storefront is still upgrading. Quitting stops Helm, and can leave the release pending.',
+  ])
+  await expect(upgrade.getByRole('status')).toBeVisible()
+  release()
+  await expect(toasts(page)).toContainText('Upgraded storefront')
+  expect(helmCalls(lumovi).at(-1)).toContain('--wait')
+})
+
+test('on Helm 4, undoing a failure is --rollback-on-failure', async ({ page, lumovi }) => {
+  scriptHelm(lumovi, { version: { stdout: 'v4.3.0+gbec5b06\n' } })
+  await openCluster(page)
+  await openHelm(page)
+  const storefront = await openRelease(page, HELM.storefront)
+  await storefront.getByRole('button', { name: 'Upgrade…' }).click()
+  const upgrade = dialog(page)
+  await upgrade.getByRole('checkbox', { name: /Undo it if it fails/ }).check()
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
+  await expect(toasts(page)).toContainText('Upgraded storefront')
+  const asked = helmCalls(lumovi).at(-1)!
+  expect(asked).toContain('--rollback-on-failure')
+  expect(asked).not.toContain('--atomic')
+  expect(asked).not.toContain('--wait')
+})
+
+test('a rollback shows what a Secret changes masked, until its values are asked for', async ({
+  page,
+  clusters,
+}) => {
+  const secret = (password: string) => `---
+# Source: vault-app/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-app-db
+data:
+  password: ${Buffer.from(password).toString('base64')}
+`
+  addRelease(clusters.demo, 'vault-app', {
+    revision: 1,
+    status: 'superseded',
+    manifest: secret('first'),
+  })
+  addRelease(clusters.demo, 'vault-app', { revision: 2, manifest: secret('second') })
+  try {
+    await openCluster(page)
+    await openHelm(page)
+    const release = await openRelease(page, 'vault-app')
+    await release.getByRole('button', { name: 'Roll back…' }).click()
+    const changes = dialog(page).getByRole('region', { name: 'What changes' })
+    const diff = changes.getByLabel('Manifest changes')
+    // The change is shown, neither value: both sides masked.
+    await expect(changes).toContainText('+1 −1 lines')
+    await expect(changes).toContainText('Secrets’ values hidden')
+    await expect(diff).toContainText('password: ••••••••')
+    await expect(diff).not.toContainText(Buffer.from('first').toString('base64'))
+    await expect(diff).not.toContainText(Buffer.from('second').toString('base64'))
+    await expect(changes).toContainText('No values change.')
+    // Asked for: as they are; and hidden again.
+    await changes.getByRole('button', { name: 'Reveal values' }).click()
+    await expect(diff).toContainText(Buffer.from('first').toString('base64'))
+    await expect(diff).toContainText(Buffer.from('second').toString('base64'))
+    await changes.getByRole('button', { name: 'Hide values' }).click()
+    await expect(diff).not.toContainText(Buffer.from('first').toString('base64'))
+  } finally {
+    clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v1')
+    clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v2')
+  }
+})
+
 test('roll back and uninstall, with helm', async ({ page, lumovi }) => {
   await openCluster(page)
   await openHelm(page)
@@ -276,12 +445,23 @@ test('roll back and uninstall, with helm', async ({ page, lumovi }) => {
   await storefront.getByRole('button', { name: 'Roll back…' }).click()
   const rollback = dialog(page)
   await expect(rollback.getByRole('radio', { name: 'Revision 2' })).toBeChecked()
-  await expect(rollback).toContainText('Going back to 2 changes 3 lines of its values')
+  await expect(rollback).toContainText(
+    'Going back to 2 changes 2 of its values and 2 lines of its manifest.',
+  )
+  // What changes: the values by key alone, the manifest as a diff.
+  const changes = rollback.getByRole('region', { name: 'What changes' })
+  await expect(changes).toContainText('Changedimage.tag')
+  await expect(changes).toContainText('Removedhost')
+  await expect(changes.getByLabel('Manifest changes')).toContainText(
+    'image: ghcr.io/acme/storefront:v3.9.0',
+  )
+  // (No Secret in it: nothing to reveal.)
+  await expect(changes.getByRole('button', { name: 'Reveal values' })).toHaveCount(0)
   await rollback.getByRole('radio', { name: 'Revision 1' }).check()
   await expect(rollback).toContainText(
     'helm rollback storefront 1 --namespace shop --kube-context demo',
   )
-  await expect(rollback).toContainText('Going back to 1 changes 4 lines of its values')
+  await expect(rollback).toContainText(/Going back to 1 changes \d+ of its values/)
   // helm's errors are shown as it says them.
   scriptHelm(lumovi, { rollback: { code: 1, stderr: 'Error: release: not found\n' } })
   await rollback.getByRole('button', { name: 'Roll back', exact: true }).click()

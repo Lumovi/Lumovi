@@ -1,14 +1,15 @@
-import { History, ShipWheel, Trash2 } from 'lucide-react'
+import { Eye, EyeOff, History, Lock, ShipWheel, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { HelmReleaseDetail } from '@shared/api'
-import { unifiedDiff } from '@renderer/components/DiffView'
+import { Button } from '@renderer/components/Button'
+import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { useHelmChange } from '@renderer/hooks/helm'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { manifestObjects } from '@renderer/lib/helm'
+import { maskedManifest, valueKeys } from '@renderer/lib/helm-diff'
 import { helm } from '@renderer/lib/kubectl'
-import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
 
@@ -43,8 +44,17 @@ export function RollbackReleaseDialog({
   const { name, namespace } = release
   const command = helm(context, namespace, 'rollback', name, String(revision))
   const chosen = earlier.find((r) => r.revision === revision)!
-  const values = unifiedDiff(toYaml(current!.values), toYaml(chosen.values))
-  const manifest = unifiedDiff(current!.manifest, chosen.manifest)
+  // The values by key alone; the manifest's diff worked out on its text, shown with each
+  // Secret's values masked until asked (where the person's access shows them at all).
+  const keys = valueKeys(current!.values, chosen.values)
+  const keyCount = keys.changed.length + keys.added.length + keys.removed.length
+  const [revealed, setRevealed] = useState(false)
+  const masked = {
+    before: maskedManifest(current!.manifest),
+    after: maskedManifest(chosen.manifest),
+  }
+  const hidesSome = masked.before !== current!.manifest || masked.after !== chosen.manifest
+  const manifest = unifiedDiff(current!.manifest, chosen.manifest, revealed ? undefined : masked)
   return (
     <ActionDialog
       icon={History}
@@ -107,13 +117,93 @@ export function RollbackReleaseDialog({
         })}
       </div>
       <p className="text-xs text-ink-3" aria-live="polite">
-        Running now: revision {current!.revision}. Going back to {revision} changes{' '}
-        <span className="tabular-nums">
-          {values.added + values.removed} {values.added + values.removed === 1 ? 'line' : 'lines'}
-        </span>{' '}
-        of its values and <span className="tabular-nums">{manifest.added + manifest.removed}</span>{' '}
-        of its manifest.
+        Running now: revision {current!.revision}.
+        {!release.withheld && (
+          <>
+            {' '}
+            Going back to {revision} changes <span className="tabular-nums">{keyCount}</span> of its
+            values and <span className="tabular-nums">{manifest.added + manifest.removed}</span>{' '}
+            {manifest.added + manifest.removed === 1 ? 'line' : 'lines'} of its manifest.
+          </>
+        )}
       </p>
+      <section aria-label="What changes" className="space-y-3">
+        <h3 className="text-xs font-medium text-ink-2">What changes</h3>
+        {release.withheld ? (
+          <div className="flex gap-2.5 rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-xs text-ink-2">
+            <Lock className="mt-0.5 size-4 shrink-0 text-ink-3" />
+            <p>
+              <span className="block font-medium text-ink-1">What it changes is hidden</span>
+              {release.withheld} Roll back still goes back to all that revision {revision} had.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <p className="mb-1 text-xs text-ink-3">Values</p>
+              {keyCount === 0 ? (
+                <p className="text-[13px] text-ink-2">No values change.</p>
+              ) : (
+                <dl className="divide-y divide-line rounded-lg border border-line">
+                  {(
+                    [
+                      ['Changed', keys.changed],
+                      ['Added', keys.added],
+                      ['Removed', keys.removed],
+                    ] as const
+                  )
+                    .filter(([, list]) => list.length > 0)
+                    .map(([what, list]) => (
+                      <div key={what} className="flex gap-3 px-3 py-2">
+                        <dt className="w-16 shrink-0 text-xs text-ink-3">{what}</dt>
+                        <dd className="flex min-w-0 flex-wrap gap-1.5">
+                          {list.map((key) => (
+                            <code
+                              key={key}
+                              className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] break-all text-ink-1"
+                            >
+                              {key}
+                            </code>
+                          ))}
+                        </dd>
+                      </div>
+                    ))}
+                </dl>
+              )}
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-ink-3">Manifest</p>
+              {manifest.added + manifest.removed === 0 ? (
+                <p className="text-[13px] text-ink-2">The manifest doesn’t change.</p>
+              ) : (
+                <div className="flex max-h-[40vh] min-h-0 flex-col overflow-hidden rounded-lg border border-line">
+                  <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-xs">
+                    <span className="flex-1 tabular-nums">
+                      <span className="font-medium text-good-text">+{manifest.added}</span>{' '}
+                      <span className="font-medium text-critical-text">−{manifest.removed}</span>{' '}
+                      <span className="text-ink-3">lines</span>
+                    </span>
+                    {hidesSome && (
+                      <>
+                        {!revealed && <span className="text-ink-3">Secrets’ values hidden</span>}
+                        <Button
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setRevealed(!revealed)}
+                        >
+                          {revealed ? <EyeOff /> : <Eye />}
+                          {revealed ? 'Hide values' : 'Reveal values'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  <DiffView diff={manifest} label="Manifest changes" />
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </section>
     </ActionDialog>
   )
 }

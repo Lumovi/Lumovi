@@ -37,8 +37,13 @@ import {
 } from '../kube/validate'
 import { listReleases, releaseHistory, type StoredRelease } from './releases'
 
+/** What a release is having done to it: what the app, quitting, would stop. */
+export type HelmDoing = 'installing' | 'upgrading' | 'rolling back'
+
 /** Installs and upgrades can take a while (hooks, image pulls with --wait in charts' hooks). */
 const RUN_TIMEOUT_MS = 10 * 60_000
+/** The longest a deploy may have Helm wait, in seconds: an hour. */
+const LONGEST_TIMEOUT_S = 3600
 const FETCH_TIMEOUT_MS = 20_000
 const MAX_VALUES = 1024 * 1024
 /** Release names, like namespaces: DNS labels (Helm allows at most 53 characters). */
@@ -92,6 +97,8 @@ export class HelmService {
   readonly #checkUrl: (url: string) => Promise<void>
   readonly #guard?: AccessGuard
   readonly #shipped: string
+  /** The releases being installed, upgraded or rolled back now: what quitting would stop. */
+  readonly #changing = new Set<{ name: string; doing: HelmDoing }>()
 
   constructor(
     private readonly kube: KubeService,
@@ -160,14 +167,31 @@ export class HelmService {
       this.#assertChangeable(r)
       await this.#allowed(r, 'upgrade', 'roll releases back')
       assertIntegerInRange(r.revision, 'revision', 1, 1_000_000)
-      await this.#onCluster(r.context, (args, env) =>
-        this.#helm(
-          ['rollback', r.name, String(r.revision), '--namespace', r.namespace, ...args],
-          env,
+      await this.#while({ name: r.name, doing: 'rolling back' }, () =>
+        this.#onCluster(r.context, (args, env) =>
+          this.#helm(
+            ['rollback', r.name, String(r.revision), '--namespace', r.namespace, ...args],
+            env,
+          ),
         ),
       )
       return null
     })
+  }
+
+  /** What's being installed, upgraded or rolled back now: what quitting the app would stop. */
+  changing(): { name: string; doing: HelmDoing }[] {
+    return [...this.#changing]
+  }
+
+  /** Runs a change, counted as one under way while it runs. */
+  async #while<T>(change: { name: string; doing: HelmDoing }, run: () => Promise<T>): Promise<T> {
+    this.#changing.add(change)
+    try {
+      return await run()
+    } finally {
+      this.#changing.delete(change)
+    }
   }
 
   uninstall(request: unknown): Promise<Result<null>> {
@@ -208,6 +232,16 @@ export class HelmService {
       }
       // No values at all is fine: the chart's defaults apply.
       if (typeof r.values !== 'string') throw invalid('values must be a string')
+      for (const flag of ['wait', 'rollbackOnFailure'] as const) {
+        if (r[flag] !== undefined && typeof r[flag] !== 'boolean') {
+          throw invalid(`${flag} must be true or false`)
+        }
+      }
+      if (r.timeoutSeconds !== undefined) {
+        assertIntegerInRange(r.timeoutSeconds, 'timeoutSeconds', 30, LONGEST_TIMEOUT_S)
+      }
+      // (A dry run makes nothing to wait for, nor to undo.)
+      const waits = r.dryRun !== true ? await this.#waitArgs(r) : []
       if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
       const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
       try {
@@ -226,25 +260,34 @@ export class HelmService {
         } else {
           chart = await this.#sourceArgs(r.source)
         }
-        const output = await this.#onCluster(r.context, (args, env) =>
-          this.#helm(
-            [
-              r.install === true ? 'install' : 'upgrade',
-              r.name,
-              ...chart,
-              '--namespace',
-              r.namespace,
-              ...args,
-              '--values',
-              values,
-              '--output',
-              'json',
-              ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
-              ...(r.dryRun === true ? ['--dry-run=server'] : []),
-            ],
-            env,
-          ),
-        )
+        const doing: HelmDoing = r.install === true ? 'installing' : 'upgrading'
+        const deploy = () =>
+          this.#onCluster(r.context, (args, env) =>
+            this.#helm(
+              [
+                r.install === true ? 'install' : 'upgrade',
+                r.name,
+                ...chart,
+                '--namespace',
+                r.namespace,
+                ...args,
+                '--values',
+                values,
+                '--output',
+                'json',
+                ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
+                ...(r.dryRun === true ? ['--dry-run=server'] : []),
+                ...waits,
+              ],
+              env,
+              // (Helm's own timeout ends it first: Lumovi's is a while after.)
+              r.timeoutSeconds !== undefined && r.dryRun !== true
+                ? Math.max(RUN_TIMEOUT_MS, (r.timeoutSeconds + 120) * 1000)
+                : undefined,
+            ),
+          )
+        const output =
+          r.dryRun === true ? await deploy() : await this.#while({ name: r.name, doing }, deploy)
         const deployed = JSON.parse(output) as StoredRelease
         return {
           revision: deployed.version,
@@ -495,15 +538,51 @@ export class HelmService {
     }
   }
 
+  /**
+   * What makes a deploy wait, undo itself if it fails, and how long Helm waits: as the helm that
+   * runs spells it (Helm 4 calls --atomic --rollback-on-failure, which Helm 3 doesn't know).
+   */
+  async #waitArgs(r: HelmDeploy): Promise<string[]> {
+    // (Undoing a failure waits for it, as Helm's flag sets: it's said alone.)
+    const waits =
+      r.rollbackOnFailure === true
+        ? [(await this.#major()) >= 4 ? '--rollback-on-failure' : '--atomic']
+        : r.wait === true
+          ? ['--wait']
+          : []
+    const timeout = r.timeoutSeconds
+    return [
+      ...waits,
+      // (As Helm writes a duration: 10m0s.)
+      ...(timeout !== undefined
+        ? ['--timeout', `${Math.floor(timeout / 60)}m${timeout % 60}s`]
+        : []),
+    ]
+  }
+
+  /** The major version of the helm that runs (asked once): 3 where it can't be told. */
+  #majorVersion: Promise<number> | undefined
+  #major(): Promise<number> {
+    this.#majorVersion ??= this.#helm(['version', '--short']).then(
+      (said) => Number(/v?(\d+)\./.exec(said)?.[1] ?? 3),
+      () => 3,
+    )
+    return this.#majorVersion
+  }
+
   /** Runs helm, resolving with what it printed, or rejecting with what it said went wrong. */
-  async #helm(args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
-    const run = await this.#run(args, env)
+  async #helm(args: string[], env?: NodeJS.ProcessEnv, timeoutMs?: number): Promise<string> {
+    const run = await this.#run(args, env, timeoutMs)
     if (run.code !== 0) throw helmError(run)
     return run.stdout
   }
 
   /** Runs helm, resolving with how it ended and what it printed. */
-  async #run(args: string[], env?: NodeJS.ProcessEnv): Promise<HelmRun> {
+  async #run(
+    args: string[],
+    env?: NodeJS.ProcessEnv,
+    timeoutMs = RUN_TIMEOUT_MS,
+  ): Promise<HelmRun> {
     await this.envReady
     const command = this.command
     // A .cmd or .bat wrapper (on Windows) only runs through the shell.
@@ -519,7 +598,7 @@ export class HelmService {
         env: { ...this.env, ...env },
         shell,
         windowsHide: true,
-        timeout: RUN_TIMEOUT_MS,
+        timeout: timeoutMs,
       })
       let stdout = ''
       let stderr = ''
