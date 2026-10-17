@@ -44,6 +44,7 @@ import { useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
 import { useAgree, useOwnChanges } from './own-code'
 import { useKindNames } from './PluginsPage'
+import { TableOwner } from '@renderer/kit/table-csv'
 
 /** Lumovi's parts, but for the Logs part: for a plugin whose file says nothing of logs. */
 const WITHOUT_LOGS = Object.fromEntries(
@@ -190,46 +191,49 @@ export function PluginBody({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col" data-plugin-body={plugin.name}>
       <TickedRows.Provider value={tickPlace}>
-        <OpenBeside.Provider value={new URLSearchParams(location.search).get('open')}>
-          <StartFilters.Provider value={startFilters}>
-            <Opened
-              key={`${context}\u0000${which}\u0000${again}\u0000${yours ? changes : 0}`}
-              shown={{
-                plugin: plugin.name,
-                name: plugin.label,
-                version: plugin.version,
-                context,
-                opening: page !== undefined ? { page } : { tab, object },
-                // (Its Logs part only where its file says its pages show logs, or its code reads them:
-                // elsewhere the door knows no such part, and a page that names it is stopped.)
-                parts: plugin.logs ? KIT_PARTS : WITHOUT_LOGS,
-                kinds: plugin.named,
-                opens: plugin.opens,
-                links: plugin.links,
-                pages: plugin.added.pages.map((each) => each.id),
-                open,
-                // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
-                // person's to confirm.
-                propose: (proposal, handed) =>
-                  proposeChange(
-                    {
-                      plugin: plugin.name,
-                      label: plugin.label,
-                      version: plugin.version,
-                      ...handed,
-                      context,
-                      ...(namespace && { namespace }),
-                      // (Its file's: what does harm, which Lumovi checks what it sends against.)
-                      changes: plugin.changes,
-                    },
-                    proposal,
-                    layout,
-                  ),
-              }}
-              onAgain={() => setAgain((n) => n + 1)}
-            />
-          </StartFilters.Provider>
-        </OpenBeside.Provider>
+        {/* (Whose its tables are, as a CSV's name begins: its file's label, never its code's.) */}
+        <TableOwner.Provider value={plugin.label}>
+          <OpenBeside.Provider value={new URLSearchParams(location.search).get('open')}>
+            <StartFilters.Provider value={startFilters}>
+              <Opened
+                key={`${context}\u0000${which}\u0000${again}\u0000${yours ? changes : 0}`}
+                shown={{
+                  plugin: plugin.name,
+                  name: plugin.label,
+                  version: plugin.version,
+                  context,
+                  opening: page !== undefined ? { page } : { tab, object },
+                  // (Its Logs part only where its file says its pages show logs, or its code reads them:
+                  // elsewhere the door knows no such part, and a page that names it is stopped.)
+                  parts: plugin.logs ? KIT_PARTS : WITHOUT_LOGS,
+                  kinds: plugin.named,
+                  opens: plugin.opens,
+                  links: plugin.links,
+                  pages: plugin.added.pages.map((each) => each.id),
+                  open,
+                  // A change its page proposes, in Lumovi's own dialog: on the cluster it's open on, the
+                  // person's to confirm.
+                  propose: (proposal, handed) =>
+                    proposeChange(
+                      {
+                        plugin: plugin.name,
+                        label: plugin.label,
+                        version: plugin.version,
+                        ...handed,
+                        context,
+                        ...(namespace && { namespace }),
+                        // (Its file's: what does harm, which Lumovi checks what it sends against.)
+                        changes: plugin.changes,
+                      },
+                      proposal,
+                      layout,
+                    ),
+                }}
+                onAgain={() => setAgain((n) => n + 1)}
+              />
+            </StartFilters.Provider>
+          </OpenBeside.Provider>
+        </TableOwner.Provider>
       </TickedRows.Provider>
       {/* Lumovi's own bar for what's ticked: the file's actions for several, never the plugin's. */}
       <TickedBar ticked={[...ticked.values()]} onLetGo={() => setTicked(new Map())} />

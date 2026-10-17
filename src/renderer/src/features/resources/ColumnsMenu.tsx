@@ -23,16 +23,15 @@ import { ALT_KEY, Kbd } from '@renderer/components/Kbd'
 import { Picker } from '@renderer/components/Picker'
 import { barButton } from '@renderer/components/Sheet'
 import { Tooltip } from '@renderer/components/Tooltip'
-import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { csvName, toCsv, toTabs } from '@renderer/lib/csv'
+import { csvName, toTabs } from '@renderer/lib/csv'
+import { saveCsv } from '@renderer/lib/save-csv'
 import { useLayout } from '@renderer/lib/layout'
 import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { Pieces, TheirText } from '@renderer/plugins/TheirText'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { toast } from '@renderer/state/toasts'
-import { REVEAL } from '../welcome/clusters'
 import {
   ADDED_WIDTH,
   addedId,
@@ -195,20 +194,7 @@ export function useListColumns({
     const { header, rows: lines } = csvTable(shown, rows, ctx)
     const plural = count(2).replace(/^\S+ /, '')
     const where = namespaced && namespace ? namespace : context
-    const name = csvName(plural, where, new Date())
-    const saved = await api.app.saveFile(name, toCsv(header, lines))
-    if (!saved.ok) {
-      toast({ tone: 'error', title: `Couldn’t save ${name}`, description: saved.error.message })
-    } else if (saved.data) {
-      const { token } = saved.data
-      toast({
-        tone: 'success',
-        title: `Saved ${saved.data.name}`,
-        ...(token && api.app.showSaved
-          ? { action: { label: REVEAL, run: () => void api.app.showSaved!(token) } }
-          : {}),
-      })
-    }
+    await saveCsv(csvName(plural, where, new Date()), header, lines)
   }
 
   return {

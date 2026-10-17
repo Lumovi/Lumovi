@@ -69,8 +69,10 @@ test('a table on a phone: cards, facts side by side only where they all fit, and
   )
   await page.keyboard.press('Escape')
   await expect(sheet).toHaveCount(0)
-  // A table with nothing to sort by has no such button.
-  await expect(page.getByRole('region', { name: 'Node pools' }).getByRole('button')).toHaveCount(0)
+  // A table with nothing to sort by has no such button (its Download CSV is its only one).
+  const pools = page.getByRole('region', { name: 'Node pools' })
+  await expect(pools.getByRole('button', { name: /^Sort / })).toHaveCount(0)
+  await expect(pools.getByRole('button')).toHaveText(['Download CSV'])
 
   // A row that holds rows opens from a chevron a finger's size, and its rows are cards under it.
   const cart = resources.getByRole('button', { name: 'Open cart' })

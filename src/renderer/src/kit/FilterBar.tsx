@@ -75,6 +75,8 @@ export function FilterBar({
     noun: string
     /** Its status's levels, as chips: how many rows are at each, and the ones pressed. */
     levels: { counts: Map<Health, number>; active: Health[]; onToggle: (level: Health) => void }
+    /** At the bar's end, where Lumovi's lists have their Columns square: a square of its own. */
+    end?: ReactNode
   }
 }) {
   const [sheet, setSheet] = useState(false)
@@ -194,6 +196,7 @@ export function FilterBar({
     return (
       <ListFilters
         count={list.count}
+        end={list.end}
         filters={
           <>
             {list.levels.counts.size > 0 && (
@@ -284,8 +287,11 @@ function ListFilters({
   filters,
   field,
   set,
+  end,
 }: {
   count: string
+  /** A square at the bar's end, after the field (a Table's Download CSV). */
+  end?: ReactNode
   filters: ReactNode
   /** The field, drawn as the bar's width has it: `narrow` under `NARROW`. None where there's none. */
   field: false | ((narrow: boolean) => ReactNode)
@@ -316,9 +322,10 @@ function ListFilters({
       counted.current!.offsetWidth + 4,
       ...(each.length > 0 ? [each.reduce((sum, w) => sum + w, 0) + GAP * (each.length - 1)] : []),
       ...(field ? [FIELD_LEAST] : []),
+      ...(end ? [END_SQUARE] : []),
     ]
     setStacked(parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width)
-  }, [width, count, filters, field])
+  }, [width, count, filters, field, end])
   // (On the second row its chips are that row's own, wrapping.)
   const chips = (
     <span
@@ -337,12 +344,16 @@ function ListFilters({
         {!stacked && chips}
         <div className="flex-1" />
         {field && field(width < NARROW)}
+        {end}
       </div>
       {stacked && <div className="flex flex-wrap items-center gap-2">{chips}</div>}
       {set}
     </div>
   )
 }
+
+/** The square at a list bar's end, as Lumovi's Columns square is: 32 px. */
+const END_SQUARE = 32
 
 /** How many are set, in a small filled count. */
 function Counted({ count }: { count: number }) {

@@ -27,6 +27,7 @@ import {
   ChevronRight,
   CircleCheck,
   CornerDownLeft,
+  Download,
   SearchX,
   TriangleAlert,
 } from 'lucide-react'
@@ -59,12 +60,17 @@ import {
   type DrawnRow,
 } from '@shared/kit/table'
 import { Popover } from 'radix-ui'
+import { createPortal } from 'react-dom'
 import { Button } from '@renderer/components/Button'
 import { Elapsed } from '@renderer/components/Busy'
 import { Sheet } from '@renderer/components/Sheet'
 import { EmptyState } from '@renderer/components/States'
 import { HEALTH_STYLE } from '@renderer/components/Status'
 import { filtering, keptRows, menusOf, startOf } from '@renderer/lib/table-filters'
+import { csvName } from '@renderer/lib/csv'
+import { HEALTH_NAMES } from '@renderer/lib/health'
+import { saveCsv } from '@renderer/lib/save-csv'
+import { ClusterContext } from '@renderer/state/cluster'
 import { TIP, Tooltip } from '@renderer/components/Tooltip'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
@@ -86,7 +92,8 @@ import {
 } from '../features/resources/list-look'
 import { DEFAULT_PAGE_SIZE } from '../features/resources/list-state'
 import { Pagination } from '../features/resources/Pagination'
-import { InCard } from './Card'
+import { CardHeadingEnd, InCard } from './Card'
+import { tableCsv, TableOwner } from './table-csv'
 import { CARD, HEADING, Lead, leadIsCut, said } from './Lead'
 import { FilterBar, StartFilters } from './FilterBar'
 import { IsPageList, OpenBeside } from './list-page'
@@ -591,6 +598,10 @@ export function Table({
 
   /** What the table is called where a mark can't be drawn: what a screen reader says. */
   const named = spelled(title.their)
+  const owner = useContext(TableOwner)
+  const headingEnd = useContext(CardHeadingEnd)
+  const cluster = useContext(ClusterContext)
+  const levelFilter = filters?.find((filter) => filter.level)
   // The bar's filters and search, Lumovi's alone: set as the page was opened where a link to it
   // said so, and never told to the plugin.
   const start = useContext(StartFilters)
@@ -659,9 +670,9 @@ export function Table({
   const shownPage = Math.min(pageAt, pages)
   const showWhole = (g: number) => setWhole((was) => (was === 'all' ? was : new Set([...was, g])))
 
-  // Sorted, then cut to what shows first: the same rows on every draw, whatever is scrolled.
-  const lines = useMemo(() => {
-    const ordered = (rows: DrawnRow[]) => {
+  // A group's rows as sorted: what's drawn, and what a CSV holds.
+  const ordered = useCallback(
+    (rows: DrawnRow[]) => {
       if (!sort) return rows
       // (A name or a text as it was written: never as its marks are spelled.)
       const by = (row: DrawnRow) =>
@@ -672,7 +683,11 @@ export function Table({
         const order = x < y ? -1 : x > y ? 1 : 0
         return sort.down ? -order : order
       })
-    }
+    },
+    [sort],
+  )
+  // Sorted, then cut to what shows first: the same rows on every draw, whatever is scrolled.
+  const lines = useMemo(() => {
     const out: Line[] = []
     // (A page's list draws its page's rows, counted across its groups.)
     const from = (shownPage - 1) * size
@@ -715,7 +730,7 @@ export function Table({
       }
     }
     return out
-  }, [groups, sort, turned, startOpen, limitOf, grouped, lineKeyOf, asList, shownPage, size])
+  }, [groups, ordered, turned, startOpen, limitOf, grouped, lineKeyOf, asList, shownPage, size])
 
   // Each column's natural width: its widest value, as drawn (of all the rows it was given, not of
   // the ones drawn, so nothing shifts as a long table scrolls), and its heading where headings
@@ -1024,24 +1039,69 @@ export function Table({
         ? `${counted(showing)} of ${counted(total)}`
         : counted(total)
 
+  // Saved as CSV, as Lumovi's own lists are: the rows as filtered and sorted, all of them, each
+  // column as a spreadsheet reads it. Lumovi writes the file, from what it drew. (Not a graph's
+  // table, which is the graph's: `bare` from it.)
+  const saves = bareSaid !== true && !state && rows.length > 0
+  const download = () => {
+    const { header, rows: lines } = tableCsv(
+      columns,
+      leadHeading?.their ? spelled(leadHeading.their) : 'Name',
+      levelFilter?.name.their ? spelled(levelFilter.name.their) : 'Health',
+      (level) => HEALTH_NAMES[level],
+      groups.flatMap((group) => ordered(group.rows)),
+    )
+    const where = cluster?.namespace ?? cluster?.context ?? ''
+    // (The file's name from the plugin's words as written, made safe as Lumovi's own are:
+    // `csvName` keeps letters, digits, dots and hyphens alone, short, never a name Windows keeps.)
+    const whose = [owner, title.their].filter(Boolean).join(' ')
+    void saveCsv(csvName(whose, where, new Date()), header, lines)
+  }
+  // In a heading: its words, as Lumovi's lists' menu has them; at a page list's bar's end, a
+  // square where Lumovi's lists have their Columns square, named the same.
+  const saveButton = saves && (
+    <Button
+      variant="secondary"
+      onClick={download}
+      className="h-7 shrink-0 px-2.5 text-xs font-normal phone:h-11 phone:px-3 phone:text-[13px] [&_svg]:size-3.5"
+    >
+      <Download /> Download CSV
+    </Button>
+  )
+  const saveSquare = saves && (
+    <Tooltip content="Download CSV">
+      <button
+        type="button"
+        aria-label="Download CSV"
+        onClick={download}
+        className="relative grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink-1 touch:size-11 [&_svg]:size-4"
+      >
+        <Download />
+      </button>
+    </Tooltip>
+  )
+  // (Its Download CSV beside the heading, not in it: the heading is read as its title and count.)
   const heading = (
-    <h3 className="flex items-center px-4 pt-3.5 pb-1.5 text-[13px] font-semibold text-ink-1 phone:px-0 phone:pt-0 phone:pb-2.5">
-      <TheirText text={title} />
-      {count && (
-        <small className="ml-auto text-xs font-normal text-ink-3 tabular-nums">{count}</small>
-      )}
-      {/* Where a thumb is: after the count, at the edge. */}
-      {phone && sortable.length > 0 && total > 0 && (
-        <button
-          type="button"
-          aria-label={`Sort ${named}`}
-          onClick={() => setSorting(true)}
-          className="-my-3 -mr-3 grid size-11 place-items-center text-ink-2"
-        >
-          <ArrowUpDown className="size-4" />
-        </button>
-      )}
-    </h3>
+    <div className="flex items-center px-4 pt-3.5 pb-1.5 phone:px-0 phone:pt-0 phone:pb-2.5">
+      <h3 className="flex min-w-0 flex-1 items-center text-[13px] font-semibold text-ink-1">
+        <TheirText text={title} />
+        {count && (
+          <small className="ml-auto text-xs font-normal text-ink-3 tabular-nums">{count}</small>
+        )}
+        {/* Where a thumb is: after the count, at the edge. */}
+        {phone && sortable.length > 0 && total > 0 && (
+          <button
+            type="button"
+            aria-label={`Sort ${named}`}
+            onClick={() => setSorting(true)}
+            className="-my-3 -mr-3 grid size-11 place-items-center text-ink-2"
+          >
+            <ArrowUpDown className="size-4" />
+          </button>
+        )}
+      </h3>
+      {saveButton && <span className="ml-3 flex">{saveButton}</span>}
+    </div>
   )
   // A cut read: what's listed is from the first `at` Lumovi read, said in Lumovi's words above
   // the rows (never as a failure: what was read is there).
@@ -1060,7 +1120,7 @@ export function Table({
   // match"; one called as a built-in's list ("Pods"), as that list, "Filter pods".
   const noun = listNoun(named)
   // (Its filters changed, a page's list shows its first page.)
-  const bar = (hasBar || asList) && !state && rows.length > 0 && (
+  const filterBar = (hasBar || asList) && !state && rows.length > 0 && (
     <FilterBar
       title={named}
       menus={menus}
@@ -1081,6 +1141,7 @@ export function Table({
             list: {
               count: `${counted(rows.length)} ${rows.length === 1 ? 'item' : 'items'}`,
               noun,
+              ...(saveSquare ? { end: saveSquare } : {}),
               levels: {
                 counts: levelCounts,
                 active: levels,
@@ -1095,6 +1156,13 @@ export function Table({
           }
         : {})}
     />
+  )
+  // In a card, its Download CSV is at the end of the card's heading, after the card's note.
+  const bar = (
+    <>
+      {filterBar}
+      {inCard && headingEnd && saveButton ? createPortal(saveButton, headingEnd) : null}
+    </>
   )
   // Nothing kept: said so in Lumovi's words, with the way back.
   if (narrowed && total === 0 && !state && asList) {

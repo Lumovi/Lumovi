@@ -3,7 +3,7 @@
  * right (words too, "20 · 3 still starting"), cut at its end; and the one part it holds (a Table,
  * a Graph or Counts), drawn bare inside it, so there's one frame and one title.
  */
-import { createContext, useRef, type ReactNode } from 'react'
+import { createContext, useRef, useState, type ReactNode } from 'react'
 import type { Their } from '@shared/kit/declare'
 import type { CardProps } from '@shared/kit/page'
 import { Card as Framed } from '@renderer/components/Card'
@@ -16,20 +16,32 @@ import { TheirText } from '@renderer/plugins/TheirText'
  */
 export const InCard = createContext(false)
 
+/**
+ * The place at the end of a card's heading, after its note, where the part it holds puts what
+ * it has to press (a Table's Download CSV). Lumovi's own, as the heading is.
+ */
+export const CardHeadingEnd = createContext<HTMLElement | null>(null)
+
 export function Card({ title, note, about, children }: CardProps & { children?: ReactNode }) {
+  const [end, setEnd] = useState<HTMLElement | null>(null)
   return (
     <Framed
       title={<TheirText text={title} inline />}
       {...(about?.their ? { about: <About text={about} /> } : {})}
       action={
-        note?.their ? (
-          <span className="min-w-0 truncate text-xs text-ink-3 tabular-nums">
-            <TheirText text={note} inline />
-          </span>
-        ) : undefined
+        <span className="flex min-w-0 items-center gap-3">
+          {note?.their && (
+            <span className="min-w-0 truncate text-xs text-ink-3 tabular-nums">
+              <TheirText text={note} inline />
+            </span>
+          )}
+          <span ref={setEnd} className="contents" />
+        </span>
       }
     >
-      <InCard.Provider value>{children}</InCard.Provider>
+      <InCard.Provider value>
+        <CardHeadingEnd.Provider value={end}>{children}</CardHeadingEnd.Provider>
+      </InCard.Provider>
     </Framed>
   )
 }
