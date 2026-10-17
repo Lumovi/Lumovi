@@ -47,6 +47,7 @@ import type {
   AuditQuery,
   AuditTarget,
 } from '@shared/audit'
+import { withTime } from '@renderer/lib/time'
 
 export type Via = AuditEvent['actor']['via']
 
@@ -294,20 +295,26 @@ export function dayOf(time: string, now: Date): string {
   const days = Math.round((start(now) - start(day)) / 86_400_000)
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
-  return day.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    ...(day.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  })
+  return day.toLocaleDateString(
+    undefined,
+    withTime({
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      ...(day.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+    }),
+  )
 }
 
 export const clock = (time: string) =>
-  new Date(time).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+  new Date(time).toLocaleTimeString(
+    undefined,
+    withTime({
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+  )
 
 const DURATION = new Intl.DurationFormat(undefined, { style: 'narrow', secondsDisplay: 'always' })
 

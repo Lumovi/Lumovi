@@ -39,6 +39,7 @@ import type {
   PickedFiles,
 } from './files'
 import type { Marks } from './marks'
+import type { PreferenceKey, Preferences } from './preferences'
 import type { AppCommand } from './navigation'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
@@ -132,6 +133,10 @@ export interface ChangedOutside {
 
 export interface Settings {
   theme: ThemePreference
+  /** The person's own settings, as they are: the defaults, theirs, and what policy sets over them. */
+  preferences?: Preferences
+  /** Those an organization's policy sets: shown locked, and refused if changed. */
+  locked?: PreferenceKey[]
   /** Where Lumovi's windows were when it last closed: each opens there again, the first first. */
   windows?: WindowState[]
   /** Contexts the user has made read-only: Lumovi refuses to change them. */
@@ -302,6 +307,8 @@ export interface ManagedSettings {
   pluginDeveloperModeOff?: true
   /** lumovi:// links open nothing, and Copy link isn't offered. */
   linksOff?: true
+  /** The person's own settings it sets (and locks): Settings shows them, its controls off. */
+  settings?: Partial<Preferences> & { theme?: ThemePreference }
   /** Why it can't be used: it locks the most it could, until it's put right. */
   problem?: string
 }
@@ -1537,6 +1544,17 @@ export interface LumoviApi {
      */
     problems?(): Promise<string[]>
     setTheme(theme: ThemePreference): Promise<Settings>
+    /**
+     * Changes the person's own settings (null puts one back to its default): at once, in every
+     * window, and kept. One a policy sets is refused.
+     */
+    setPreferences(
+      patch: Partial<Record<keyof Preferences | 'autoUpdate', unknown>>,
+    ): Promise<Result<Settings>>
+    /** The desktop app's: its settings changed (in another window, say). */
+    onSettingsChanged?(listener: () => void): () => void
+    /** The desktop app's: the shells this computer has, for Settings to offer, and the login one. */
+    shells?(): Promise<{ login: string; shells: string[] }>
     setReadOnly(context: string, readOnly: boolean): Promise<Settings>
     /** The desktop app's: how a cluster shows in Lumovi (all of it: what's left out is unset). */
     setCluster?(context: string, settings: ClusterSettings): Promise<Result<Settings>>
@@ -2029,6 +2047,8 @@ export const IPC = {
   /** A server's: someone changed its clusters' settings (everyone's pages read them again). */
   settingsChanged: 'app:settings-changed',
   setTheme: 'app:set-theme',
+  setPreferences: 'app:set-preferences',
+  shells: 'app:shells',
   setReadOnly: 'app:set-read-only',
   setCluster: 'app:set-cluster',
   warningNotices: 'app:warning-notices',

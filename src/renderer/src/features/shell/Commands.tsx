@@ -9,6 +9,9 @@ import { targetPath } from '@renderer/lib/routes'
 import { useUi } from '@renderer/state/ui'
 import { useDock } from '../terminal/dock'
 import { useLinkCard } from '../links/LinkCard'
+import { TEXT_SIZES } from '@shared/preferences'
+import { useSetPreferences } from '@renderer/hooks/settings'
+import type { Settings } from '@shared/api'
 
 /** How long `g` waits for the second key of a "go to" shortcut. */
 const SEQUENCE_TIMEOUT = 1200
@@ -57,6 +60,16 @@ export function Commands() {
   const { setPalette, setShortcuts, setCreate } = useUi()
   const pendingGo = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const setPreferences = useSetPreferences()
+  const textSize = (step: -1 | 0 | 1) => {
+    const now =
+      (queryClient.getQueryData(['settings']) as Settings | undefined)?.preferences?.textSize ?? 100
+    const at = (TEXT_SIZES as readonly number[]).indexOf(now)
+    const next =
+      step === 0 ? 100 : TEXT_SIZES[Math.min(TEXT_SIZES.length - 1, Math.max(0, at + step))]
+    if (next !== undefined && next !== now) return setPreferences({ textSize: next })
+  }
+
   const run = (command: AppCommand) => {
     // (Where a notification was about: the app opens it, whatever screen is shown.)
     if (command.startsWith('open:')) return
@@ -91,6 +104,13 @@ export function Commands() {
         if (here) add(here.context, here.namespace)
       },
       assistants: () => void navigate('/assistants'),
+      // Settings: in the cluster that's open, as its page; from the start screen, on its own.
+      settings: () =>
+        void navigate(context ? `/cluster/${encodeURIComponent(context)}/settings` : '/settings'),
+      // The text size the View menu's zoom steps through: one setting, kept, in every window.
+      'text-actual': () => void textSize(0),
+      'text-bigger': () => void textSize(1),
+      'text-smaller': () => void textSize(-1),
       // Asked only while a terminal has focus (its ⌘W and ⌘K, on macOS).
       'close-terminal': () => useDock.getState().close(useDock.getState().active!),
       'clear-terminal': () => {

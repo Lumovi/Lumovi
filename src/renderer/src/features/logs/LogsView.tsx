@@ -52,6 +52,7 @@ import { useLineSearch } from './line-search'
 import { RANGES, RangePicker, type Picked } from './RangePicker'
 import { Histogram, stretchSaid, type Stretch } from './Histogram'
 import { SearchField, SearchSteps, SearchToggles, type Count } from './SearchField'
+import { withTime } from '@renderer/lib/time'
 
 /** A search the lines can be filtered by: anything but an expression that isn't one. */
 type Usable = Exclude<Searched, { kind: 'invalid' }>
@@ -149,7 +150,8 @@ const LEVEL_CLASS: Record<Level, string> = {
   info: 'text-ink-1 hover:bg-surface-3',
 }
 
-const time = (line: LogLine) => new Date(line.at).toLocaleTimeString(undefined, { hour12: false })
+const time = (line: LogLine) =>
+  new Date(line.at).toLocaleTimeString(undefined, withTime({ hour12: false }))
 
 /** A match in one of the texts a line shows: where, and whether it's the current one. */
 type Mark = readonly [start: number, end: number, current?: boolean]
@@ -169,7 +171,10 @@ function marked(text: string, ranges: readonly Mark[]): ReactNode {
       <mark
         key={start}
         data-current={current || undefined}
-        className={cn('rounded-sm', current ? 'bg-accent text-white' : 'bg-warn/40 text-inherit')}
+        className={cn(
+          'rounded-sm',
+          current ? 'bg-accent text-on-accent' : 'bg-warn/40 text-inherit',
+        )}
       >
         {text.slice(start, end)}
       </mark>,

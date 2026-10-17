@@ -15,7 +15,10 @@ interface UiState {
    * which Lumovi wrote. A row's name is its plugin's text, and no plugin's text is drawn in
    * Lumovi's bar; it has no field to come by.
    */
-  inside?: { back: () => void }
+  inside?: {
+    back: () => void
+    /** What Back is named, where not "Back to the list". */ label?: string
+  }
   setPalette: (open: boolean) => void
   setShortcuts: (open: boolean) => void
   setCreate: (open: boolean) => void

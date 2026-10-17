@@ -577,7 +577,7 @@ function ColumnList({
                   className={cn(
                     'grid size-4 place-items-center rounded border',
                     row.shown
-                      ? 'border-accent bg-accent text-white'
+                      ? 'border-accent bg-accent text-on-accent'
                       : 'border-line-strong bg-surface',
                     named && 'opacity-45',
                   )}

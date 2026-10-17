@@ -3,6 +3,7 @@
  * date and time ("14:30" is today; "2026-10-11 09:00"), in their own time zone. Read here, said
  * back in words, and named for the picker.
  */
+import { withTime } from '@renderer/lib/time'
 
 /** A since: so long ago (counted from when the logs are asked for), or from a moment. */
 export type Since = { seconds: number } | { at: number }
@@ -79,11 +80,14 @@ export function momentOf(at: number, now: number, { today = '' } = {}): string {
   const midnight = day.getTime()
   if (at >= midnight) return `${clockOf(moment)}${today ? ` ${today}` : ''}`
   if (at >= midnight - 86_400_000) return `${clockOf(moment)} yesterday`
-  const date = moment.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(moment.getFullYear() !== day.getFullYear() && { year: 'numeric' }),
-  })
+  const date = moment.toLocaleDateString(
+    'en-GB',
+    withTime({
+      day: 'numeric',
+      month: 'short',
+      ...(moment.getFullYear() !== day.getFullYear() && { year: 'numeric' }),
+    }),
+  )
   return `${date} ${clockOf(moment)}`
 }
 

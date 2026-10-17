@@ -46,7 +46,7 @@ export function Switch({
       }}
       className="relative inline-flex h-[18px] w-8 shrink-0 cursor-default items-center rounded-full bg-ink-3/40 transition-colors outline-none focus-visible:ring-3 focus-visible:ring-accent-soft disabled:opacity-50 aria-disabled:opacity-50 data-[state=checked]:bg-accent"
     >
-      <SwitchPrimitive.Thumb className="block size-3.5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[15px]" />
+      <SwitchPrimitive.Thumb className="block size-3.5 translate-x-0.5 rounded-full bg-white shadow-sm transition-transform data-[state=checked]:translate-x-[15px] data-[state=checked]:bg-on-accent" />
     </SwitchPrimitive.Root>
   )
 }

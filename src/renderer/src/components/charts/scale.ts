@@ -1,5 +1,6 @@
 import { formatBytes } from '@renderer/lib/format'
 import type { Unit } from '@renderer/lib/promql'
+import { withTime } from '@renderer/lib/time'
 
 const count = new Intl.NumberFormat()
 
@@ -83,20 +84,26 @@ export function timeTicks(
 export function formatTick(time: number, step: number): string {
   // (Weeks apart and more, a weekday says nothing: the month does.)
   if (step >= 1_209_600_000) {
-    return new Date(time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    return new Date(time).toLocaleDateString(
+      undefined,
+      withTime({ month: 'short', day: 'numeric' }),
+    )
   }
   return step >= 86_400_000
-    ? new Date(time).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })
-    : new Date(time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    ? new Date(time).toLocaleDateString(undefined, withTime({ weekday: 'short', day: 'numeric' }))
+    : new Date(time).toLocaleTimeString(undefined, withTime({ hour: '2-digit', minute: '2-digit' }))
 }
 
 /** A moment in a tooltip: the time, and the day when the window spans several. */
 export function formatMoment(time: number, span: number): string {
-  return new Date(time).toLocaleString(undefined, {
-    ...(span > 86_400_000 ? { weekday: 'short', day: 'numeric', month: 'short' } : {}),
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return new Date(time).toLocaleString(
+    undefined,
+    withTime({
+      ...(span > 86_400_000 ? { weekday: 'short', day: 'numeric', month: 'short' } : {}),
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  )
 }
 
 /** Average, peak and latest of a series, ignoring gaps. */

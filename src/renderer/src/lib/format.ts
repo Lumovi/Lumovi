@@ -1,4 +1,5 @@
 import type { KubeErrorCode } from '@shared/api'
+import { withTime } from './time'
 
 const BYTE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
 
@@ -42,10 +43,10 @@ export function percent(ratio: number): string {
 }
 
 export function formatDateTime(timestamp: string): string {
-  return new Date(timestamp).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
+  return new Date(timestamp).toLocaleString(
+    undefined,
+    withTime({ dateStyle: 'medium', timeStyle: 'short' }),
+  )
 }
 
 export function pluralize(count: number, noun: string): string {

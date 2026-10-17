@@ -51,6 +51,8 @@ export const SECTIONS = [
   'marks',
   // The chart repositories its admins added, with their sign-ins (helm-repositories.ts): never let go.
   'repositories',
+  // Each person's own settings (server/preferences.ts): never let go to make room.
+  'preferences',
   // Since when each entry that doesn't open with the key has been there (see #track).
   'unopened',
 ] as const

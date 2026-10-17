@@ -14,6 +14,7 @@ import {
   Lock,
   Plug,
   ScrollText,
+  Settings,
   ShipWheel,
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
@@ -164,6 +165,7 @@ export function Sidebar() {
   const plugins = useServedPlugins()
   const version = useQuery({ queryKey: ['app-info'], queryFn: () => api.app.info() }).data?.version
   const navigate = useNavigate()
+  const onSettings = useLocation().pathname.split('/')[3] === 'settings'
   const nav = useRef<HTMLElement>(null)
   const goesOn = useGoesOn(nav)
   // Over the sponsor card, the nav fades out where it goes on, so the card's label doesn't read as
@@ -261,6 +263,15 @@ export function Sidebar() {
         {api.serverAssistants && <ServerAssistantsButton assistants={api.serverAssistants} />}
         <IconButton label="Audit log" onClick={() => void navigate('/audit')}>
           <ScrollText />
+        </IconButton>
+        {/* (The desktop's Settings is ⌘, and its app menu too.) */}
+        <IconButton
+          label="Settings"
+          aria-current={onSettings ? 'page' : undefined}
+          className={cn(onSettings && 'bg-surface-3 text-ink-1')}
+          onClick={() => void navigate(`/cluster/${encodeURIComponent(context)}/settings`)}
+        >
+          <Settings />
         </IconButton>
         <AdminButton />
         {session && <AccountMenu session={session} />}

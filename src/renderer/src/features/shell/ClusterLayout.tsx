@@ -19,7 +19,7 @@ import {
 } from '@renderer/lib/namespaces'
 import { clusterPath } from '@renderer/lib/routes'
 import { ClusterContext, useCluster } from '@renderer/state/cluster'
-import { useClusterSettings } from '@renderer/hooks/settings'
+import { useClusterSettings, usePreferences } from '@renderer/hooks/settings'
 import { usePrefs } from '@renderer/state/prefs'
 import { useSession, useSwitching } from '@renderer/state/session'
 import { useUi } from '@renderer/state/ui'
@@ -65,7 +65,21 @@ export function ClusterLayout() {
           .slice(0, MOST_NAMESPACES)
   const kept = names?.length === 0 ? undefined : names
   const opening = opensIn ?? contextInfo?.namespace ?? null
-  const remembered = kept !== undefined ? kept : opening === null ? null : [opening]
+  // Which a cluster opens in, as Settings says: the last picked there (as kept), all, or a
+  // named one; where the cluster's own settings name one, that one.
+  const opensWith = usePreferences().namespaces
+  const remembered =
+    opensWith.mode === 'all'
+      ? opensIn
+        ? [opensIn]
+        : null
+      : opensWith.mode === 'named'
+        ? [opensIn ?? opensWith.namespace]
+        : kept !== undefined
+          ? kept
+          : opening === null
+            ? null
+            : [opening]
   // What this view shows: what an address picked (a link), until the picker picks; or what was
   // last picked in the picker. A link changes the view, never what's remembered, and the view
   // is the cluster's own: back to the cluster, fresh, is what's remembered.
@@ -150,7 +164,7 @@ export function ClusterLayout() {
         <button
           type="button"
           onClick={() => document.getElementById('content')!.focus()}
-          className="fixed top-2 left-2 z-50 -translate-y-16 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition-transform focus:translate-y-0"
+          className="fixed top-2 left-2 z-50 -translate-y-16 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-accent transition-transform focus:translate-y-0"
         >
           Skip to content
         </button>

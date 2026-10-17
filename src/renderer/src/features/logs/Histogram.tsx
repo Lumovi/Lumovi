@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { cn } from '@renderer/lib/cn'
 import type { LogLine } from '@renderer/lib/logs'
 import type { CountAnswer, CountRequest } from './histogram.worker'
+import { withTime } from '@renderer/lib/time'
 
 /** A stretch of time picked on the strip: from, and up to (not including) to, in ms. */
 export interface Stretch {
@@ -46,7 +47,7 @@ const clock = (at: number) => {
   return `${pad(time.getHours())}:${pad(time.getMinutes())}`
 }
 const dayOf = (at: number) =>
-  new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  new Date(at).toLocaleDateString('en-GB', withTime({ day: 'numeric', month: 'short' }))
 
 /** What a stretch's chip says: "14:02–14:09". */
 export const stretchSaid = ({ from, to }: Stretch) => `${clock(from)}–${clock(to)}`

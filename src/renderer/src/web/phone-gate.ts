@@ -157,6 +157,8 @@ const PHONE_CHANGES: Record<string, (args: unknown[]) => boolean> = {
   [IPC.assistantsDecide]: () => true,
   // A person's own pins and saved views, kept for them: nothing of a cluster's or Lumovi's.
   [IPC.setMarks]: () => true,
+  // A person's own settings (how Lumovi looks to them, their theme): theirs, on any screen.
+  [IPC.setPreferences]: () => true,
   // A plugin's code turned off: stopping it is done anywhere. (Turned on again: a larger screen's.)
   [IPC.setPluginCode]: ([, on]) => on === false,
 }

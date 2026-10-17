@@ -10,7 +10,15 @@
  * from your files. Tokens that credential plugins refresh land in your files,
  * and `kubectl config use-context` there changes this terminal only.
  */
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { spawn, type IPty } from 'node-pty'
@@ -107,6 +115,8 @@ export function localShell(
   env: NodeJS.ProcessEnv,
   first: string,
   kubectl?: { dir: string; files: string },
+  /** The shell Settings names (a path); none or empty: yours. On Windows, a PowerShell alone. */
+  chosen?: string,
 ): { file: string; args: string[]; says: boolean; env: Record<string, string> } {
   const vars: Record<string, string> = kubectl ? { LUMOVI_KUBECTL: kubectl.dir } : {}
   if (process.platform === 'win32') {
@@ -119,7 +129,10 @@ export function localShell(
       Number.isInteger(hold) && hold > 0 && hold <= 60 ? `Start-Sleep -Seconds ${hold}; ` : ''
     const script = `${held}${kubectl ? "$env:Path = $env:LUMOVI_KUBECTL + ';' + $env:Path; Remove-Item Env:LUMOVI_KUBECTL; " : ''}Write-Host ('› ' + '${quoted}') -ForegroundColor DarkGray`
     return {
-      file: join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      file:
+        chosen && /(^|[\\/])(pwsh|powershell)\.exe$/i.test(chosen)
+          ? chosen
+          : join(env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       args: [
         '-NoLogo',
         '-NoExit',
@@ -130,7 +143,7 @@ export function localShell(
       env: vars,
     }
   }
-  const file = env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+  const file = chosen || env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
   const login = process.platform === 'darwin'
   const args = login ? ['-l'] : []
   if (!kubectl) return { file, args, says: false, env: vars }
@@ -256,6 +269,35 @@ function running(pid: number): boolean {
   }
 }
 
+/**
+ * The shells this computer has, for Settings to offer: what /etc/shells lists (those that are
+ * there), or on Windows its PowerShells; and the one a terminal starts unless another is chosen.
+ */
+export function availableShells(env: NodeJS.ProcessEnv): { login: string; shells: string[] } {
+  if (process.platform === 'win32') {
+    const builtIn = join(
+      env.SystemRoot ?? 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe',
+    )
+    const seven = join(env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe')
+    return { login: builtIn, shells: [builtIn, seven].filter((file) => existsSync(file)) }
+  }
+  const login = env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+  let listed: string[] = []
+  try {
+    listed = readFileSync('/etc/shells', 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('/') && existsSync(line))
+  } catch {
+    // None listed: the login shell alone.
+  }
+  return { login, shells: [...new Set([login, ...listed])] }
+}
+
 export class LocalTerminals {
   readonly #sessions = new Map<string, Session>()
 
@@ -269,6 +311,8 @@ export class LocalTerminals {
       version: string
       /** The helm Lumovi runs (LUMOVI_HELM, or the one it ships with). */
       helm: () => string
+      /** The shell Settings names (or the organization's policy): empty, the login shell. */
+      shell?: () => string
       /** The kubectl matching a cluster, when terminals get one (`getting`: one's downloaded). */
       kubectl?: (
         context: string,
@@ -335,15 +379,18 @@ export class LocalTerminals {
       ]
         .map(plain)
         .join(' ')
-      const shellFile = localShell(env, first).file
-      if (!existsSync(shellFile)) {
+      const chosen = this.deps.shell?.() || undefined
+      const shellFile = localShell(env, first, undefined, chosen).file
+      if (!existsSync(shellFile) || !statSync(shellFile).isFile()) {
         throw new KubeRequestError(
           'invalid',
-          `Your shell, ${shellFile}, isn’t there: set SHELL to one that is.`,
+          chosen
+            ? `The shell Settings names, ${shellFile}, isn’t there: choose another in Settings.`
+            : `Your shell, ${shellFile}, isn’t there: set SHELL to one that is.`,
         )
       }
       const dir = mkdtempSync(join(tmpdir(), `${PREFIX}${process.pid}-`))
-      const shell = localShell(env, first, matching && { dir: matching.dir, files: dir })
+      const shell = localShell(env, first, matching && { dir: matching.dir, files: dir }, chosen)
       const kubeconfig = join(dir, 'kubeconfig')
       writeFileSync(
         kubeconfig,

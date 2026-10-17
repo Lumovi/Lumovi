@@ -178,7 +178,7 @@ export function NamespacePicker({
           <span
             className={cn(
               'grid size-4 place-items-center rounded border',
-              on ? 'border-accent bg-accent text-white' : 'border-line-strong bg-surface',
+              on ? 'border-accent bg-accent text-on-accent' : 'border-line-strong bg-surface',
             )}
           >
             {on && <Check className="size-3" strokeWidth={3} />}

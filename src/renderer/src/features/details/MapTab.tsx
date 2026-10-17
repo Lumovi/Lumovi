@@ -349,7 +349,7 @@ function Card({
       <span
         className={cn(
           'grid size-7 shrink-0 place-items-center rounded-lg',
-          focus ? 'bg-accent text-white' : 'bg-surface-3 text-ink-2',
+          focus ? 'bg-accent text-on-accent' : 'bg-surface-3 text-ink-2',
         )}
       >
         <KindIcon kind={node.kind} className="size-[15px]" />

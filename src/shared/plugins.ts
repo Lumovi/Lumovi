@@ -1702,6 +1702,7 @@ export const LUMOVIS_COMMANDS = [
   'Audit log',
   'Access',
   'Your access',
+  'Settings',
   'Keyboard shortcuts',
 ]
 /**
@@ -1718,6 +1719,7 @@ export const LUMOVIS_PAGES = [
   'Compare',
   'Helm releases',
   'Plugins',
+  'Settings',
 ]
 /**
  * What a plugin may do is Lumovi's to say, in its own places (the bar's More, the palette's

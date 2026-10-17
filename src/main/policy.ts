@@ -41,6 +41,10 @@
  *     "pluginDeveloperMode": "off",      Developer mode stays off: no plugin of a person's own runs
  *                                        code (as with "plugins" "bundled", "off" or "no-code")
  *     "links": "off",                    lumovi:// links open nothing, and Copy link isn't there
+ *     "settings": {                      a person's own settings, set and locked (Settings shows
+ *       "theme": "dark",                 them, its controls off): theme, accent, density,
+ *       "shell": "/bin/bash"             textSize, timeZone, clock, terminalFont, terminalFontSize,
+ *     },                                 copyOnSelect, shell ("" for the login shell), namespaces
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -76,6 +80,8 @@ import { parseDocument } from 'yaml'
 import { checkedLimits, type AiRule } from '@shared/ai-permissions'
 import type { ManagedSettings } from '@shared/api'
 import { PLUGIN_NAME } from '@shared/plugins'
+import { checkedPreferences, type Preferences } from '@shared/preferences'
+import { isTheme } from '@backend/settings'
 import { trustedMirror } from './kubectl'
 
 export interface Policy {
@@ -118,6 +124,7 @@ const KEYS = [
   'pluginServers',
   'pluginDeveloperMode',
   'links',
+  'settings',
   'network',
 ]
 const NETWORK_KEYS = ['proxy', 'noProxy', 'caFiles']
@@ -395,6 +402,7 @@ function checked(given: unknown, path: string): Policy {
     pluginServers,
     pluginDeveloperMode,
     links,
+    settings,
     network = {},
   } = policy
   if (
@@ -481,6 +489,23 @@ function checked(given: unknown, path: string): Policy {
     if (value !== undefined && value !== 'off') throw new Error(`${key} must be "off".`)
   }
   const pluginsSet = new Set((pluginsSaid ?? []) as string[])
+  // A person's own settings, set and locked: each a setting, each one of its values.
+  let locked: ManagedSettings['settings']
+  if (settings !== undefined) {
+    const { preferences, problems } = checkedPreferences(settings)
+    const theme = (settings as { theme?: unknown }).theme
+    if (theme !== undefined && !isTheme(theme))
+      problems.push('theme must be system, light or dark.')
+    if ((settings as { autoUpdate?: unknown }).autoUpdate !== undefined) {
+      problems.push('autoUpdate isn’t set here: "updates": false turns updates off.')
+    }
+    if (Object.values(preferences).includes(null)) problems.push('A setting can’t be null.')
+    if (problems.length) throw new Error(`settings: ${problems.join(' ')}`)
+    locked = {
+      ...(preferences as Partial<Preferences>),
+      ...(isTheme(theme) ? { theme } : {}),
+    }
+  }
   if (typeof network !== 'object' || network === null || Array.isArray(network)) {
     throw new Error('network must be an object: proxy, noProxy and caFiles.')
   }
@@ -526,6 +551,7 @@ function checked(given: unknown, path: string): Policy {
     ...(pluginServers === 'off' ? { pluginServersOff: true as const } : {}),
     ...(pluginDeveloperMode === 'off' ? { pluginDeveloperModeOff: true as const } : {}),
     ...(links === 'off' ? { linksOff: true as const } : {}),
+    ...(locked && Object.keys(locked).length ? { settings: locked } : {}),
   }
   return {
     managed,

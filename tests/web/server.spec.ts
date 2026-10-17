@@ -22,6 +22,7 @@ import {
   test,
   type Served,
 } from './fixtures.ts'
+import { PREFERENCE_DEFAULTS } from '../../src/shared/preferences.ts'
 
 /** Signs in over HTTP, as the page does; resolves with the session's cookie. */
 async function sessionCookie(served: Served, token = DEMO_TOKEN): Promise<string> {
@@ -250,6 +251,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   const defaults = { namespace: 'kube-system', image: 'alpine:3.22' }
   expect((await page.call(5, IPC.settings)).value).toEqual({
     theme: 'system',
+    preferences: PREFERENCE_DEFAULTS,
     readOnly: ['demo'],
     readOnlyBy: { demo: { by: 'lumovi-demo', at: expect.any(String) } },
     metricsSource: { demo: { mode: 'off' } },
@@ -263,6 +265,7 @@ test('the WebSocket only takes the server’s own pages’ messages', async ({ s
   await page.call(18, IPC.setNodeShell, 'demo', null)
   expect((await page.call(6, IPC.settings)).value).toEqual({
     theme: 'system',
+    preferences: PREFERENCE_DEFAULTS,
     readOnly: [],
     readOnlyBy: {},
     metricsSource: { demo: { mode: 'auto' } },
