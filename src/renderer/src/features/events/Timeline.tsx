@@ -38,6 +38,7 @@ import {
   type TimelineRow,
   type TimelineSelection,
 } from './timeline-rows'
+import { withTime } from '@renderer/lib/time'
 
 /** Room after "now", so a count by the last mark is never cut off. */
 const AFTER = 48
@@ -74,12 +75,15 @@ export const leastForTimeline = (inset: number) =>
 
 /** A time to the second, with its day where the window spans days. */
 const moment = (time: number, span: number) =>
-  new Date(time).toLocaleString(undefined, {
-    ...(span > 86_400_000 ? { weekday: 'short', day: 'numeric', month: 'short' } : {}),
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+  new Date(time).toLocaleString(
+    undefined,
+    withTime({
+      ...(span > 86_400_000 ? { weekday: 'short', day: 'numeric', month: 'short' } : {}),
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+  )
 
 /** What a row is called: a kind and name, or a reason. */
 const rowWords = (row: TimelineRow) => (row.kind ? `${row.kind} ${row.name}` : row.name)

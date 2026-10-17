@@ -5,6 +5,7 @@
 import type { KubeconfigFiles, KubeContext } from '@shared/api'
 import { api } from '@renderer/lib/api'
 import { pluralize } from '@renderer/lib/format'
+import { withTime } from '@renderer/lib/time'
 
 /** One or two letters for a cluster's tile: a display name's words, or the context's first letter. */
 export function initials(context: string, name?: string): string {
@@ -65,7 +66,7 @@ export function trouble(
 
 /** A time of day, as this computer says it. */
 const clock = (iso: string) =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleTimeString(undefined, withTime({ hour: '2-digit', minute: '2-digit' }))
 
 /** What a file that can't be read now, and whose last read is kept, says. */
 function keptNote(file: KubeconfigFile | FolderFile): string {

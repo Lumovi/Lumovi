@@ -20,6 +20,7 @@ import { cn } from '@renderer/lib/cn'
 import { toast } from '@renderer/state/toasts'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { fromOf, type Range } from './audit-model'
+import { withTime } from '@renderer/lib/time'
 
 type Format = 'csv' | 'jsonl'
 
@@ -126,7 +127,7 @@ export function VerifyButton({ onResult }: { onResult: (result: AuditVerificatio
 }
 
 const day = (time: string) =>
-  new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  new Date(time).toLocaleString(undefined, withTime({ dateStyle: 'medium', timeStyle: 'short' }))
 
 /**
  * What checking found: that every event follows from the one before it, or each place one

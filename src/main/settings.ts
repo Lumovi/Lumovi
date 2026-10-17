@@ -26,6 +26,13 @@ import {
 import { checkedClusterSettings, type ClusterSettings } from '@shared/cluster-settings'
 import type { InstalledCopy, InstalledRecord } from '@shared/plugin-store'
 import { PLUGIN_NAME } from '@shared/plugins'
+import {
+  checkedPreferences,
+  effectivePreferences,
+  isDefault,
+  type PreferenceKey,
+  type Preferences,
+} from '@shared/preferences'
 import { NO_POLICY, type Policy } from './policy'
 
 const DEFAULTS: Settings = {
@@ -67,8 +74,16 @@ export class SettingsStore implements SettingsAccess {
 
   get(): Settings {
     const { managed } = this.policy
+    const { theme: lockedTheme, ...lockedOwn } = managed?.settings ?? {}
+    const locked: PreferenceKey[] = [
+      ...(Object.keys(managed?.settings ?? {}) as PreferenceKey[]),
+      ...(managed?.updatesOff ? (['autoUpdate'] as const) : []),
+    ]
     return {
       ...this.#settings,
+      ...(lockedTheme ? { theme: lockedTheme } : {}),
+      preferences: effectivePreferences(this.#own(), lockedOwn),
+      ...(locked.length ? { locked } : {}),
       nodeShellDefault: NODE_SHELL_DEFAULTS,
       ...(this.#readOnlyAll ? { readOnlyAll: true } : {}),
       // As the policy sets them, whatever was kept.
@@ -81,6 +96,31 @@ export class SettingsStore implements SettingsAccess {
         }),
       }),
     }
+  }
+
+  /** The person's own settings, as kept (what they set, not the defaults). */
+  #own(): Partial<Preferences> {
+    return (this.#settings.preferences ?? {}) as Partial<Preferences>
+  }
+
+  /**
+   * Changes the person's own settings, checked; null puts one back. One the policy sets, or a
+   * value a setting doesn't take, is refused, and nothing changes.
+   */
+  setPreferences(patch: unknown): Settings {
+    const { preferences, problems } = checkedPreferences(patch)
+    const locked = Object.keys(preferences).filter((key) =>
+      Object.hasOwn(this.policy.managed?.settings ?? {}, key),
+    )
+    if (locked.length) problems.push(`${locked.join(', ')}: set by your organization.`)
+    if (problems.length) throw new Error(problems.join(' '))
+    const own: Record<string, unknown> = { ...this.#own() }
+    // (One set to its default is kept as unset: it follows the default, and Restore has nothing.)
+    for (const [key, value] of Object.entries(preferences)) {
+      if (value === null || isDefault(key, value)) delete own[key]
+      else own[key] = value
+    }
+    return this.update({ preferences: own as unknown as Preferences })
   }
 
   isReadOnly(context: string): boolean {
@@ -292,6 +332,12 @@ export class SettingsStore implements SettingsAccess {
         ...consentsOf(stored.kubeconfigConsents),
         // A cluster's that don't make sense (edited by hand, say) are left as if unset.
         ...clustersOf(stored.clusters),
+        // The person's own settings: each that doesn't make sense (edited by hand) left as unset.
+        preferences: Object.fromEntries(
+          Object.entries(checkedPreferences(stored.preferences ?? {}).preferences).filter(
+            ([, value]) => value !== null,
+          ),
+        ) as unknown as Preferences,
         // On unless turned off.
         autoUpdate: stored.autoUpdate !== false,
         matchingKubectl: stored.matchingKubectl !== false,

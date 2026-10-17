@@ -5,6 +5,7 @@
  */
 import type { CertificateSummary } from '@shared/api'
 import type { Health, Status } from '@shared/health'
+import { withTime } from '@renderer/lib/time'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -81,7 +82,7 @@ export const fromNow = (time: number, now: number) =>
 
 /** A date as the app writes one: "Nov 1, 2026". */
 export const dateOf = (time: number) =>
-  new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' })
+  new Date(time).toLocaleDateString(undefined, withTime({ dateStyle: 'medium' }))
 
 /** A while, in words: "9 days", "5 hours", "less than an hour". */
 function inWords(ms: number): string {

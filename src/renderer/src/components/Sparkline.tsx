@@ -1,5 +1,6 @@
 import { useId, useState, type PointerEvent } from 'react'
 import { percent } from '@renderer/lib/format'
+import { withTime } from '@renderer/lib/time'
 
 const WIDTH = 240
 const HEIGHT = 48
@@ -87,7 +88,12 @@ export function Sparkline({
           style={{ left: `${(x(hover) / WIDTH) * 100}%` }}
         >
           <span className="font-semibold">{percent(values[hover]!)}</span>
-          <span className="ml-1.5 opacity-70">{new Date(times[hover]!).toLocaleTimeString()}</span>
+          <span className="ml-1.5 opacity-70">
+            {new Date(times[hover]!).toLocaleTimeString(
+              undefined,
+              withTime({ timeStyle: 'medium' }),
+            )}
+          </span>
         </div>
       )}
     </div>

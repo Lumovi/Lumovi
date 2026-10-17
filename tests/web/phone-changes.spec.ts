@@ -31,7 +31,9 @@ const CALLS: Record<string, 'reads' | 'here' | 'listens' | 'answers' | 'changes'
   'app.info': 'reads',
   'app.settings': 'reads',
   'app.plugins': 'reads',
-  'app.setTheme': 'here',
+  // (The person's theme, kept for them on the server: their own, as their settings are.)
+  'app.setTheme': 'answers',
+  'app.setPreferences': 'answers',
   'app.openExternal': 'here',
   'app.saveFile': 'here',
   'app.setReadOnly': 'changes',

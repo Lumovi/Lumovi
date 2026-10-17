@@ -40,6 +40,9 @@ import { watchQueries } from './lib/watches'
 import { clusterPath } from './lib/routes'
 import { useSession } from './state/session'
 import { SETTINGS_CHANGED } from './web/api'
+import { PreferencesApplied } from './features/settings/Applied'
+import { SettingsPage } from './features/settings/SettingsPage'
+import { SettingsWindow } from './features/settings/SettingsWindow'
 import { BelowKept } from './features/terminal/BelowKept'
 import { TabWindow } from './features/terminal/TabWindow'
 import { LinkCard } from './features/links/LinkCard'
@@ -105,6 +108,8 @@ const routes: RouteObject[] = [
         element: <SeveralLayout />,
         children: [{ index: true, element: <SeveralList /> }],
       },
+      // Settings from the start screen (in a cluster, its own page: the cluster's frame around it).
+      { path: '/settings', element: <SettingsWindow /> },
       // The desktop app's: a tab below, in a window of its own.
       ...(api.desktop ? [{ path: '/tab', element: <TabWindow /> }] : []),
       {
@@ -150,6 +155,7 @@ const routes: RouteObject[] = [
                   ]
                 : []),
               { path: 'helm', element: <HelmPage /> },
+              { path: 'settings', element: <SettingsPage /> },
               { path: '*', element: <NotFound /> },
             ],
           },
@@ -162,6 +168,8 @@ const routes: RouteObject[] = [
 
 // Someone changed the server's clusters' settings: which are read-only, or where their metrics
 // come from (and so their history).
+// The desktop's settings changed (in another window, say): read again, here too.
+api.app.onSettingsChanged?.(() => dispatchEvent(new Event(SETTINGS_CHANGED)))
 addEventListener(SETTINGS_CHANGED, () => {
   void queryClient.invalidateQueries({ queryKey: ['settings'] })
   void queryClient.invalidateQueries({ queryKey: ['usage-source'] })
@@ -201,6 +209,8 @@ export function App() {
       <TooltipProvider delayDuration={500} skipDelayDuration={200}>
         {api.host === 'server' ? (
           <SessionGate>
+            {/* (The signed-in person's: read over the connection a session opens.) */}
+            <PreferencesApplied />
             <AccessUpdates />
             <ServerWarningNotices navigate={openNotice} />
             <RouterProvider router={router} />
@@ -210,6 +220,7 @@ export function App() {
           </SessionGate>
         ) : (
           <>
+            <PreferencesApplied />
             <RouterProvider router={router} />
             {assistants}
             {proposals}

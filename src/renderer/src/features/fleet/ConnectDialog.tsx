@@ -15,6 +15,7 @@ import { cn } from '@renderer/lib/cn'
 import { toast } from '@renderer/state/toasts'
 import { DialogIcon, PageDialog } from '../welcome/PageDialog'
 import { ChipsField, labelError, labelMap, lastOfEachKey } from './ChipsField'
+import { withTime } from '@renderer/lib/time'
 
 /** On the cluster an agent runs in: its certificate authority's SHA-256, to compare. */
 export const FINGERPRINT_COMMAND =
@@ -46,7 +47,7 @@ export function agentCommand(name: string, version?: string): string {
 
 /** A time, as people read it here. */
 export const timeOf = (iso: string) =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  new Date(iso).toLocaleTimeString(undefined, withTime({ hour: '2-digit', minute: '2-digit' }))
 
 /** What's left until `iso`, as mm:ss (none once it's past). */
 function useLeft(iso: string | undefined): string | undefined {

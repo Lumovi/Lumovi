@@ -51,6 +51,7 @@ import type { FleetSettings } from './fleet/settings'
 import type { AddedClusters } from './fleet/added'
 import type { ServerRepositories } from './helm-repositories'
 import type { PeopleMarks } from './marks'
+import type { PeoplePreferences } from './preferences'
 import { checkChartUrl } from './network'
 import { ChartRepositories, recordOf } from '@backend/helm/repositories'
 import { log } from './log'
@@ -72,7 +73,14 @@ class PagePreferences implements SettingsAccess {
     private readonly configs: ClusterConfigs,
     /** Each person's choices of whose plugins' code runs, and the plugins whose code the server lets run. */
     private readonly code: { store: PluginCodeStore; only?: string[] },
+    /** The person's own settings (Settings), kept for them. */
+    private readonly own: ReturnType<PeoplePreferences['of']>,
   ) {}
+
+  /** Changes the person's own settings (refused where whoever runs the server set them). */
+  setPreferences(patch: unknown): Promise<void> {
+    return this.own.set(patch)
+  }
 
   get(): Settings {
     const readOnlyBy = this.clusters.readOnlyBy()
@@ -81,9 +89,12 @@ class PagePreferences implements SettingsAccess {
     const outside = mayChange ? this.clusters.changedOutside() : {}
     // (Its choices of plugins' code, where it made any: as the desktop app says them.)
     const chosen = this.code.store.get(this.user.name)
+    const own = this.own.settings()
     return {
-      // The browser keeps the theme itself.
-      theme: 'system',
+      // The person's, where they chose one here; else the browser's own, which it keeps.
+      theme: own.theme ?? 'system',
+      ...(own.preferences ? { preferences: own.preferences } : {}),
+      ...(own.locked ? { locked: own.locked } : {}),
       readOnly: Object.keys(readOnlyBy),
       readOnlyBy,
       metricsSource: this.clusters.metricsSources(),
@@ -191,6 +202,8 @@ export interface ConnectionOptions {
   marks?: PeopleMarks
   /** The chart repositories its admins added, and what's read of them: everyone's. */
   repositories: ServerRepositories
+  /** Everyone's own settings (Settings): the page's person's are theirs alone. */
+  preferences: PeoplePreferences
   /** Each person's choices of whose plugins' code runs. */
   pluginCode: PluginCodeStore
   /** A fleet's: the clusters its admins connect from the Fleet page. */
@@ -365,6 +378,7 @@ export class PageConnection {
       clusters,
       marks,
       repositories,
+      preferences: people,
       joins,
       fleetSettings,
       added,
@@ -387,6 +401,7 @@ export class PageConnection {
       identity.user,
       configs,
       { store: pluginCode, ...(config.pluginCode ? { only: config.pluginCode } : {}) },
+      people.of(identity.user),
     )
     const isReadOnly = (context: string) => preferences.readOnly(context)
     const ready = Promise.resolve()
@@ -624,6 +639,15 @@ export class PageConnection {
           })()
         : {}),
       [IPC.appInfo]: () => info,
+      // The person's own settings: kept for them, on whatever device they sign in from.
+      [IPC.setPreferences]: async (patch: unknown) => {
+        try {
+          await preferences.setPreferences(patch)
+          return { ok: true, data: preferences.get() }
+        } catch (error) {
+          return { ok: false, error: { code: 'invalid', message: (error as Error).message } }
+        }
+      },
       [IPC.sponsorCard]: () => sponsor.card(),
       // What's uploaded was picked in the browser: the page says what it will send, and that's
       // checked and held for the copy it's for, and no longer: one that's refused holds nothing.

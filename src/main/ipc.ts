@@ -5,6 +5,7 @@ import {
   app,
   dialog,
   ipcMain,
+  Menu,
   nativeTheme,
   shell,
   type IpcMainEvent,
@@ -15,6 +16,7 @@ import {
   IPC,
   type AppInfo,
   type Result,
+  type Settings,
   type SavedFile,
   type WarningNoticesState,
 } from '@shared/api'
@@ -34,7 +36,7 @@ import type { Assistants } from './assistants'
 import type { AddedClusters } from './added-clusters'
 import type { DesktopFiles } from './file-copies'
 import type { KubeconfigFiles } from './kubeconfig-files'
-import { LocalTerminals } from './local-terminal'
+import { availableShells, LocalTerminals } from './local-terminal'
 import { SavedFiles } from './saved-files'
 import type { SettingsStore } from './settings'
 import type { TerminalKeys } from './terminal-keys'
@@ -204,8 +206,45 @@ export function registerIpc(deps: Dependencies): void {
     },
     [IPC.setTheme]: (theme) => {
       if (!isTheme(theme)) throw new Error(`Unknown theme "${String(theme)}"`)
+      // (What the organization's policy sets stays: the person's own is kept for when it's gone.)
+      if (settings.get().locked?.includes('theme')) return settings.get()
       nativeTheme.themeSource = theme
-      return settings.update({ theme })
+      const changed = settings.update({ theme })
+      send(IPC.settingsChanged)
+      return changed
+    },
+    // The shells this computer lists (/etc/shells; on Windows, its PowerShells), and the login one.
+    [IPC.shells]: () => availableShells(process.env),
+    // The person's own settings: kept, then applied in every window (the zoom by main).
+    [IPC.setPreferences]: (patch): Result<Settings> => {
+      try {
+        const before = settings.get().preferences?.textSize
+        // Whether updates are checked for: the desktop's own setting, as Help's menu has it.
+        const { autoUpdate, ...rest } = (patch ?? {}) as { autoUpdate?: unknown }
+        if (autoUpdate !== undefined) {
+          if (autoUpdate !== null && typeof autoUpdate !== 'boolean') {
+            throw new Error('autoUpdate must be true or false.')
+          }
+          if (settings.get().locked?.includes('autoUpdate')) {
+            throw new Error('autoUpdate: set by your organization.')
+          }
+          const on = autoUpdate ?? true
+          settings.update({ autoUpdate: on })
+          updates.setAuto(on)
+          const item = Menu.getApplicationMenu()?.getMenuItemById('auto-updates')
+          if (item) item.checked = on
+        }
+        const changed = settings.setPreferences(rest)
+        if (changed.preferences && changed.preferences.textSize !== before) {
+          for (const win of windows.all()) {
+            win.webContents.setZoomFactor(changed.preferences.textSize / 100)
+          }
+        }
+        send(IPC.settingsChanged)
+        return { ok: true, data: changed }
+      } catch (error) {
+        return { ok: false, error: { code: 'invalid', message: (error as Error).message } }
+      }
     },
     [IPC.openExternal]: async (url) => {
       // Only hand web links to the OS (plain HTTP only for forwarded ports on this machine);

@@ -7,6 +7,7 @@ import {
   type ThemePreference,
 } from '@shared/api'
 import type { ClusterSettings } from '@shared/cluster-settings'
+import { PREFERENCE_DEFAULTS, type PreferenceKey, type Preferences } from '@shared/preferences'
 import { api } from '@renderer/lib/api'
 import { looksLikeProduction } from '@renderer/lib/production'
 import { useCluster } from '@renderer/state/cluster'
@@ -33,6 +34,33 @@ export function useSharedSettings() {
   return {
     shared: settings?.shared !== undefined,
     mayChange: settings?.shared?.mayChange !== false,
+  }
+}
+
+/** The person's own settings, as they are (the defaults until they're read). */
+export function usePreferences(): Preferences {
+  return useSettings().data?.preferences ?? PREFERENCE_DEFAULTS
+}
+
+/** Whether a setting is set by an organization's policy (or whoever runs the server). */
+export function useLocked(): (key: PreferenceKey) => boolean {
+  const locked = useSettings().data?.locked
+  return (key) => locked?.includes(key) ?? false
+}
+
+/** Changes the person's own settings: shown at once, and said where it couldn't be. */
+export function useSetPreferences() {
+  const queryClient = useQueryClient()
+  return async (patch: Partial<Record<keyof Preferences | 'autoUpdate', unknown>>) => {
+    const result = await api.app.setPreferences(patch)
+    if (result.ok) queryClient.setQueryData(['settings'], result.data)
+    else
+      toast({
+        tone: 'error',
+        title: 'Couldn’t change that setting',
+        description: result.error.message,
+      })
+    return result.ok
   }
 }
 

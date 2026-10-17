@@ -27,6 +27,7 @@ import {
   PinOff,
   Scale,
   ScrollText,
+  Settings,
   Server,
   Settings2,
   Shield,
@@ -710,6 +711,13 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go('/audit'))}
           >
             Audit log
+          </Item>
+          <Item
+            icon={<Settings />}
+            value="Settings preferences appearance theme accent density text size time zone clock terminal font shell namespaces updates"
+            onSelect={run(() => go(`/cluster/${encodeURIComponent(context)}/settings`))}
+          >
+            Settings
           </Item>
           {access?.admin && (
             <Item

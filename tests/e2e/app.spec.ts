@@ -21,6 +21,7 @@ import {
   test,
 } from './fixtures.ts'
 import { holds } from '../holds.ts'
+import { PREFERENCE_DEFAULTS } from '../../src/shared/preferences.ts'
 
 const posixOnly = process.platform === 'win32'
 
@@ -261,6 +262,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
   const first = await launch({ userDataDir: corrupt })
   expect(await first.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'system',
+    preferences: PREFERENCE_DEFAULTS,
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,
@@ -315,6 +317,7 @@ test('recovers from unreadable settings', async ({ launch }) => {
   const second = await launch({ userDataDir: unknown })
   expect(await second.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'system',
+    preferences: PREFERENCE_DEFAULTS,
     readOnly: ['prod'],
     metricsSource: { demo: { mode: 'off' } },
     clusters: { demo: { name: 'Shop', color: 2, labels: { env: 'prod' } } },
@@ -356,11 +359,14 @@ test('recovers from unreadable settings', async ({ launch }) => {
       metricsSource: 'none',
       autoUpdate: 'no',
       assistants: { enabled: false, port: 47999, token, launch: ['/Applications/Lumovi.app'] },
+      // A setting that isn't one of its values is as if unset; the rest are kept.
+      preferences: { accent: 'neon', clock: '24', textSize: 300 },
     }),
   )
   const third = await launch({ userDataDir: odd })
   expect(await third.page.evaluate(() => window.lumovi!.app.settings())).toEqual({
     theme: 'dark',
+    preferences: { ...PREFERENCE_DEFAULTS, clock: '24' },
     readOnly: [],
     metricsSource: {},
     autoUpdate: true,

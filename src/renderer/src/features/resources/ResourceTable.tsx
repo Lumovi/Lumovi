@@ -39,6 +39,7 @@ import { RowActions } from '../actions/ActionSurfaces'
 import { actionsFor } from '../actions/catalog'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { useLayout } from '@renderer/lib/layout'
+import { usePreferences } from '@renderer/hooks/settings'
 import {
   ALWAYS_SHOWN,
   fitInOrder,
@@ -63,7 +64,8 @@ import {
 } from './list-look'
 import { ResourceRows } from './ResourceRows'
 
-const ROW_HEIGHT = LIST_ROW_HEIGHT
+/** A compact list's rows (Settings' Density). */
+const COMPACT_ROW_HEIGHT = 36
 /** The checkbox column of tables that can pick rows. */
 const PICK_WIDTH = 40
 /** The pin's column, last, of tables of the cluster's objects: its 16 px pin, 6 px each side. */
@@ -188,6 +190,7 @@ function ResourceGrid({
 }: ResourceTableProps) {
   const id = useId()
   const pinning = usePinning()
+  const rowHeight = usePreferences().density === 'compact' ? COMPACT_ROW_HEIGHT : LIST_ROW_HEIGHT
   const scrollRef = useRef<HTMLDivElement>(null)
   useImperativeHandle(ref, () => scrollRef.current!, [])
   const [active, setActive] = useState(-1)
@@ -337,9 +340,11 @@ function ResourceGrid({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 12,
   })
+  // (A row's height changed, in Settings: every row is measured again.)
+  useEffect(() => virtualizer.measure(), [virtualizer, rowHeight])
   const grid = {
     gridTemplateColumns: [
       ...(selectable ? [`${PICK_WIDTH}px`] : []),
@@ -605,7 +610,7 @@ function ResourceGrid({
                     onOpen(object)
                   }}
                   className={cn(listRow, 'absolute inset-x-0 top-0')}
-                  style={{ ...grid, height: ROW_HEIGHT, transform: `translateY(${item.start}px)` }}
+                  style={{ ...grid, height: rowHeight, transform: `translateY(${item.start}px)` }}
                 >
                   {selectable && (
                     <div

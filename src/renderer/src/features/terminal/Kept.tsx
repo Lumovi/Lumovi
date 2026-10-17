@@ -33,6 +33,7 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { useDock, type KeptTab } from './dock'
 import { keptState } from './kept-state'
+import { withTime } from '@renderer/lib/time'
 
 /** A detail's tab, as a kept object's tab names it (none for its overview). */
 const TAB_NAMES: Record<string, string> = {
@@ -268,7 +269,10 @@ export function NotReadYet({ kept, focused = false }: { kept: KeptTab; focused?:
 
 /** A moment, as the tabs below say it ("14:32"). */
 const clock = (at: number) =>
-  new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+  new Date(at).toLocaleTimeString(
+    undefined,
+    withTime({ hour: '2-digit', minute: '2-digit', hour12: false }),
+  )
 
 function KeptDetail({ kept, onOpen }: { kept: KeptTab; onOpen?: () => void }) {
   const { kind, name, namespace } = kept.object
