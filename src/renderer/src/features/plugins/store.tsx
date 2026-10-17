@@ -12,6 +12,7 @@ import { older, parsePlugin, type Plugin } from '@shared/plugins'
 import { Button } from '@renderer/components/Button'
 import { api } from '@renderer/lib/api'
 import { lumovisOwnKinds } from '@renderer/lib/plugins'
+import { withTime } from '@renderer/lib/time'
 
 /**
  * The store's check, as last asked: asked again each time the page opens (the main process
@@ -150,7 +151,7 @@ export function checkedAgo(at: number, now: number): string {
 
 /** The time of a check, for the filters that keep what it found: "14:02". */
 export const timeOf = (at: number) =>
-  new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  new Date(at).toLocaleTimeString(undefined, withTime({ hour: '2-digit', minute: '2-digit' }))
 
 /** Now, again every half minute: for "checked 2m ago". */
 function useNow(): number {

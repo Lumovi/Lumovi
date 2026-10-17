@@ -37,6 +37,7 @@ import { AddedClusters } from './fleet/added'
 import { addNamespace } from './fleet/secrets'
 import { ServerRepositories } from './helm-repositories'
 import { PeopleMarks } from './marks'
+import { lockedSettings, PeoplePreferences } from './preferences'
 import { ServerState, stateKey } from './state'
 
 /** How long closing waits for pages' node shells' pods to be deleted (Kubernetes gives 30 s). */
@@ -179,6 +180,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // (A fleet's clusters as it has them now; a single cluster's, its own.)
   // The chart repositories its admins added, the same for everyone.
   const repositories = new ServerRepositories(state)
+  // Each person's own settings; what LUMOVI_SETTINGS sets is everyone's, and locked.
+  const preferences = new PeoplePreferences(state, lockedSettings(options.env.LUMOVI_SETTINGS))
   const marks = new PeopleMarks(state, (context) =>
     hosted.hasCluster ? hosted.hasCluster(context) : context === hosted.name,
   )
@@ -499,6 +502,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         clusters,
         marks,
         repositories,
+        preferences,
         joins,
         fleetSettings,
         added,

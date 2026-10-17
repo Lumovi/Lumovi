@@ -38,6 +38,7 @@ import type { Cluster } from './ClusterPicker'
 import { initials, REVEAL, tilde } from './clusters'
 import { ClusterTile } from './ClusterTile'
 import { PageDialog } from './PageDialog'
+import { withTime } from '@renderer/lib/time'
 
 /** The data colors' names, for those who don't see them. */
 export const COLOR_NAMES = ['Blue', 'Orange', 'Teal', 'Amber', 'Pink', 'Green', 'Indigo', 'Red']
@@ -281,7 +282,7 @@ export function ClusterSettingsDialog({
       )}
       {notify && pausedAt !== undefined && (
         <p className="mt-2 ml-12 text-xs font-medium text-ink-2">
-          {`Paused at ${new Date(pausedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}: signing in failed. Open the cluster to sign in again, and notifications go on.`}
+          {`Paused at ${new Date(pausedAt).toLocaleTimeString(undefined, withTime({ hour: '2-digit', minute: '2-digit' }))}: signing in failed. Open the cluster to sign in again, and notifications go on.`}
         </p>
       )}
 
@@ -645,7 +646,7 @@ function Connection({
           <span className="ml-auto min-w-0 truncate text-xs text-ink-2">
             Added in Lumovi
             {addedAt
-              ? `, ${new Date(addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`
+              ? `, ${new Date(addedAt).toLocaleDateString(undefined, withTime({ day: 'numeric', month: 'long' }))}`
               : ''}
           </span>
         ) : (

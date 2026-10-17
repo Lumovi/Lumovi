@@ -93,11 +93,16 @@ export function createWebApi(): LumoviApi {
     <A extends unknown[]>(channel: string) =>
     (listener: (...args: A) => void) =>
       connection.on(channel, listener as (...args: unknown[]) => void)
-  /** The server's settings for this page, with the browser's theme. */
-  const settings = async (pending: Promise<unknown>): Promise<Settings> => ({
-    ...((await pending) as Settings),
-    theme: storedTheme(),
-  })
+  /**
+   * The server's settings for this page. Its theme: the person's, where they chose one (or whoever
+   * runs the server set it), shown and kept by this browser too; else the browser's own.
+   */
+  const settings = async (pending: Promise<unknown>): Promise<Settings> => {
+    const given = (await pending) as Settings
+    const kept = given.theme !== 'system' || given.locked?.includes('theme')
+    if (kept && given.theme !== storedTheme()) storeTheme(given.theme)
+    return { ...given, theme: kept ? given.theme : storedTheme() }
+  }
   /** Starts a stream, and keeps track of it while it runs. */
   const started = (ids: Set<string>) => async (id: string, pending: Promise<unknown>) => {
     const result = (await pending) as Result<null>
@@ -111,9 +116,15 @@ export function createWebApi(): LumoviApi {
     app: {
       info: invoke(IPC.appInfo),
       settings: () => settings(connection.invoke(IPC.settings)),
-      setTheme: (theme) => {
-        storeTheme(theme)
+      // Shown at once, and kept for the person on the server (refused where it's set for everyone).
+      setTheme: async (theme) => {
+        const set = (await connection.invoke(IPC.setPreferences, { theme })) as Result<Settings>
+        if (set.ok) storeTheme(theme)
         return settings(connection.invoke(IPC.settings))
+      },
+      setPreferences: async (patch) => {
+        const set = (await connection.invoke(IPC.setPreferences, patch)) as Result<Settings>
+        return set.ok ? { ok: true, data: await settings(Promise.resolve(set.data)) } : set
       },
       setReadOnly: (context, readOnly) =>
         settings(connection.invoke(IPC.setReadOnly, context, readOnly)),

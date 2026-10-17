@@ -192,7 +192,7 @@ export function RangePicker({
               type="submit"
               disabled={!read || !('since' in read)}
               className={cn(
-                'rounded-md bg-accent px-3 text-[13px] font-medium text-white hover:bg-accent-hover disabled:opacity-50',
+                'rounded-md bg-accent px-3 text-[13px] font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50',
                 phone ? 'h-11' : 'h-8 touch:h-11',
               )}
             >

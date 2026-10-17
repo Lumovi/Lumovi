@@ -1,4 +1,5 @@
 import {
+  app,
   BrowserWindow,
   Menu,
   shell,
@@ -54,8 +55,27 @@ export function buildMenu({
   })
 
   const template: MenuItemConstructorOptions[] = [
-    // macOS puts About, Hide and Quit under the app's own menu.
-    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+    // macOS puts About, Settings…, Hide and Quit under the app's own menu.
+    ...(process.platform === 'darwin'
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              command('settings', 'Settings…', 'CmdOrCtrl+,'),
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ]
+      : []),
     {
       label: 'File',
       submenu: [
@@ -67,6 +87,9 @@ export function buildMenu({
         },
         command('create', 'Create…', 'CmdOrCtrl+N'),
         { type: 'separator' },
+        ...(process.platform === 'darwin'
+          ? []
+          : [command('settings', 'Settings…', 'CmdOrCtrl+,'), { type: 'separator' as const }]),
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
       ],
     },
@@ -91,9 +114,15 @@ export function buildMenu({
         { type: 'separator' },
         command('assistants', 'AI Assistants…'),
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        // The text size Settings has too: one setting, kept, in every window.
+        command('text-actual', 'Actual Size', 'CmdOrCtrl+0'),
+        command('text-bigger', 'Zoom In', 'CmdOrCtrl+Plus'),
+        {
+          ...command('text-bigger', 'Zoom In', 'CmdOrCtrl+='),
+          id: 'text-bigger-equals',
+          visible: false,
+        },
+        command('text-smaller', 'Zoom Out', 'CmdOrCtrl+-'),
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { role: 'toggleDevTools' },

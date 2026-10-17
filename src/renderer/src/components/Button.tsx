@@ -4,7 +4,7 @@ import { Tooltip } from './Tooltip'
 
 const VARIANTS = {
   primary:
-    'bg-accent text-white shadow-sm hover:bg-accent-hover active:translate-y-px disabled:opacity-50',
+    'bg-accent text-on-accent shadow-sm hover:bg-accent-hover active:translate-y-px disabled:opacity-50',
   secondary:
     'border border-line-strong bg-surface-2 text-ink-1 shadow-xs hover:bg-surface-3 active:translate-y-px',
   // (Under a finger there's no hovering: what was last tapped would stay filled.)

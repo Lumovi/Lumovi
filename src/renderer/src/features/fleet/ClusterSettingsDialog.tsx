@@ -23,6 +23,7 @@ import { toast } from '@renderer/state/toasts'
 import { DialogIcon, PageDialog } from '../welcome/PageDialog'
 import { ChipsField, labelError, labelMap, lastOfEachKey } from './ChipsField'
 import { AuditNote, Box } from './ConnectDialog'
+import { withTime } from '@renderer/lib/time'
 
 const field =
   'h-8 w-full min-w-0 rounded-lg border border-line-strong bg-surface px-2.5 text-[13px] text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft'
@@ -333,12 +334,15 @@ function ComesFrom({
         <dl className="grid grid-cols-[96px_1fr] gap-x-3 gap-y-1 text-xs">
           <dt className="text-ink-3">Added</dt>
           <dd className="text-ink-1">
-            {new Date(added.at).toLocaleString(undefined, {
-              day: 'numeric',
-              month: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {new Date(added.at).toLocaleString(
+              undefined,
+              withTime({
+                day: 'numeric',
+                month: 'long',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            )}
             , by {added.by}
           </dd>
           <dt className="text-ink-3">Kept as</dt>
@@ -363,12 +367,15 @@ function ComesFrom({
           <dt className="text-ink-3">Connected</dt>
           <dd className="text-ink-1">
             from this page,{' '}
-            {new Date(origin.joined.at).toLocaleString(undefined, {
-              day: 'numeric',
-              month: 'long',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {new Date(origin.joined.at).toLocaleString(
+              undefined,
+              withTime({
+                day: 'numeric',
+                month: 'long',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            )}
           </dd>
           <dt className="text-ink-3">Certificate</dt>
           <dd className="truncate text-ink-1">

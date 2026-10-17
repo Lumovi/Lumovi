@@ -14,6 +14,7 @@ import { useContexts } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
 import { formatRef, helmPath, kindPath } from '@renderer/lib/routes'
 import { ACTIONS, CATEGORY_LABELS, OUTCOME_STYLES, waited } from './audit-model'
+import { withTime } from '@renderer/lib/time'
 
 const APPROVALS = {
   approved: 'Approved',
@@ -71,7 +72,10 @@ export function EventDetail({
               {outcome.label}
             </span>
             <time dateTime={event.time} title={event.time}>
-              {time.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })}
+              {time.toLocaleString(
+                undefined,
+                withTime({ dateStyle: 'medium', timeStyle: 'medium' }),
+              )}
             </time>
           </p>
           <p className="mt-1 text-xs text-ink-3">

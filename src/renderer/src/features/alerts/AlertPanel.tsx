@@ -19,6 +19,7 @@ import { age } from '@renderer/lib/format'
 import { KeyValueGrid, Section } from '../details/sections'
 import { SidePanel, type PanelFrame } from '../details/SidePanel'
 import { ObjectLink, SeverityWord } from './parts'
+import { withTime } from '@renderer/lib/time'
 
 export function AlertPanel() {
   return (
@@ -36,10 +37,13 @@ function standing(alert: PrometheusAlert, now: number): string {
   if (alert.activeAt === undefined) return alert.state === 'firing' ? 'firing' : 'pending'
   const active = age(new Date(alert.activeAt).toISOString(), now)
   const line = stateLine(alert, now)!
-  const since = new Date(alert.activeAt).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const since = new Date(alert.activeAt).toLocaleTimeString(
+    undefined,
+    withTime({
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  )
   return alert.state === 'firing'
     ? `active ${active}, firing ${line.replace(/^for /, '')} · since ${since}`
     : `pending ${active}, ${line} if it holds`

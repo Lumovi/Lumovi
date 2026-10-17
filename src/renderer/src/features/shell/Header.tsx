@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ShipWheel,
   type LucideIcon,
+  Settings,
 } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import { Fragment, useCallback, useEffect, useState } from 'react'
@@ -53,6 +54,7 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   'api-resources': ['API resources', Blocks],
   compare: ['Compare', GitCompareArrows],
   helm: ['Helm releases', ShipWheel],
+  settings: ['Settings', Settings],
   // A plugin the cluster doesn't have (the others go by their own names).
   plugins: ['Plugins', Puzzle],
 }
@@ -249,7 +251,7 @@ export function Header() {
             <button
               ref={toBack}
               type="button"
-              aria-label="Back to the list"
+              aria-label={inside.label ?? 'Back to the list'}
               onClick={inside.back}
               className={barButton}
             >
@@ -302,7 +304,8 @@ export function Header() {
           </button>
         </header>
         {/* Where the screen is short it's the page's first thing, and scrolls away with it. */}
-        {!short && <ContextRow clusterScoped={clusterScoped} />}
+        {/* (Settings belong to no namespace: no picker says one.) */}
+        {!short && page !== 'settings' && <ContextRow clusterScoped={clusterScoped} />}
       </>
     )
   }
@@ -325,11 +328,15 @@ export function Header() {
         )}
         <h1 className="truncate text-[14px] font-semibold tracking-[-0.01em]">{title}</h1>
       </div>
-      <NamespacePicker
-        clusterScoped={
-          kind ? resource?.namespaced === false : Boolean(plugin?.kinds.every((r) => !r.namespaced))
-        }
-      />
+      {page !== 'settings' && (
+        <NamespacePicker
+          clusterScoped={
+            kind
+              ? resource?.namespaced === false
+              : Boolean(plugin?.kinds.every((r) => !r.namespaced))
+          }
+        />
+      )}
       <button
         type="button"
         onClick={() => setPalette(true)}

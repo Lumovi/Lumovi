@@ -22,6 +22,7 @@ import { EventList, type EventListHandle } from './EventList'
 import { Toolbar } from './Toolbar'
 import { ExportMenu, Verification, VerifyButton } from './Tools'
 import { useAuditEvents, useAuditInfo } from './use-audit'
+import { withTime } from '@renderer/lib/time'
 
 export function AuditPage() {
   useEffect(() => {
@@ -190,7 +191,8 @@ export function AuditPage() {
 /** Where the history is kept, for how long, and whose it is. */
 function Kept({ info }: { info: AuditInfo }) {
   const oldest =
-    info.oldest && new Date(info.oldest).toLocaleDateString(undefined, { dateStyle: 'medium' })
+    info.oldest &&
+    new Date(info.oldest).toLocaleDateString(undefined, withTime({ dateStyle: 'medium' }))
   return (
     <p className="mt-3 max-w-[640px] text-[13px] text-ink-2">
       {info.kept === 'files'

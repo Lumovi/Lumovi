@@ -181,6 +181,71 @@
   }
 }
 
+/*
+ * Under Graphite, a link's strong shade is the text's own grey: text links are underlined there,
+ * so they still read as links. (Buttons and tabs aren't text links, and stay as they are.)
+ */
+:root[data-accent='graphite'] :where(a, button).text-accent-strong {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/*
+ * The accents (Settings' Appearance): each as Blue is, per theme. A fill, and the label on it
+ * (4.5:1 or more); a strong shade for links and words on the surfaces (4.5:1 or more); its soft
+ * tint and track made as Blue's. None is near a status's hue. Blue is the tokens above.
+ */
+:root {
+  --accent-on: #ffffff;
+  &[data-accent='cyan'] {
+    --accent: #0e7490;
+    --accent-strong: #0e6a83;
+    --accent-hover: #0e6a83;
+    --accent-soft: rgb(14 116 144 / 0.1);
+    --accent-track: rgb(14 116 144 / 0.16);
+  }
+  &[data-accent='violet'] {
+    --accent: #6d4fd6;
+    --accent-strong: #5b3fc4;
+    --accent-hover: #5b3fc4;
+    --accent-soft: rgb(109 79 214 / 0.1);
+    --accent-track: rgb(109 79 214 / 0.16);
+  }
+  &[data-accent='graphite'] {
+    --accent: #404040;
+    --accent-strong: #404040;
+    --accent-hover: #262626;
+    --accent-soft: rgb(64 64 64 / 0.08);
+    --accent-track: rgb(64 64 64 / 0.14);
+  }
+  @variant theme-dark {
+    &[data-accent='cyan'] {
+      --accent: #0e7490;
+      --accent-strong: #3cc4dd;
+      --accent-hover: #0e6a83;
+      --accent-soft: rgb(60 196 221 / 0.16);
+      --accent-track: rgb(60 196 221 / 0.2);
+    }
+    &[data-accent='violet'] {
+      --accent: #6d4fd6;
+      --accent-strong: #a99bf5;
+      --accent-hover: #5b3fc4;
+      --accent-soft: rgb(169 155 245 / 0.16);
+      --accent-track: rgb(169 155 245 / 0.2);
+    }
+    /* (Its dark fill takes a dark label.) */
+    &[data-accent='graphite'] {
+      --accent: #d4d4d4;
+      --accent-strong: #d4d4d4;
+      --accent-hover: #ededed;
+      --accent-on: #0a0a0a;
+      --accent-soft: rgb(212 212 212 / 0.12);
+      --accent-track: rgb(212 212 212 / 0.18);
+    }
+  }
+}
+
 @theme inline {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -199,6 +264,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-track: var(--accent-track);
+  --color-on-accent: var(--accent-on);
   --color-series-1: var(--series-1);
   --color-series-2: var(--series-2);
   --color-series-3: var(--series-3);

@@ -350,6 +350,12 @@ if (stdio) {
     const keepLast = (win: BrowserWindow) => {
       if (!quitting && windows.all().length === 1) settings.update({ windows: keptAll([win]) })
     }
+    // Text size (Settings, or the View menu's zoom): each window as it opens; then changed by it.
+    const zoomed = (win: BrowserWindow) => {
+      const size = settings.get().preferences?.textSize ?? 100
+      if (size === 100) return
+      win.webContents.once('did-finish-load', () => win.webContents.setZoomFactor(size / 100))
+    }
     const makeWindow = (saved?: WindowState, opens?: { address: string; tab?: string }) => {
       const tab = movedTabOf(saved?.tab, false)
       if (saved && tab) return makeTabWindow(tab, 'restored', saved)
@@ -361,6 +367,7 @@ if (stdio) {
       const page =
         typeof wanted === 'string' && /^#\/[^#]{0,2047}$/.test(wanted) ? wanted : undefined
       const win = createMainWindow(url, saved, () => keepLast(win))
+      zoomed(win)
       windows.add(win)
       windows.restore(win, {
         page,
@@ -382,6 +389,7 @@ if (stdio) {
         ...TAB_WINDOW,
         ...(from === 'restored' ? {} : { over: from.getBounds() }),
       })
+      zoomed(win)
       windows.add(win)
       windows.holdTab(win, tab, from)
       return win
@@ -529,6 +537,7 @@ if (stdio) {
         isReadOnly,
         version: app.getVersion(),
         helm: () => helm.command,
+        shell: () => settings.get().preferences?.shell ?? '',
       },
       shellEvents,
     )

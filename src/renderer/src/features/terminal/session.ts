@@ -73,6 +73,33 @@ export function dockKey(event: KeyboardEvent): boolean {
 const live = new Set<TerminalSession>()
 let watching = false
 
+/** The terminal's settings (Settings' Terminal), as the person's are now. */
+let looks = { font: 'JetBrains Mono', size: 12, copyOnSelect: false }
+
+/** A font family as xterm takes it: Lumovi's own mono stack for its own, else that one first. */
+function familyOf(font: string): string {
+  const mono = getComputedStyle(document.documentElement).getPropertyValue('--font-mono')
+  return terminalFont(font === 'JetBrains Mono' ? mono : `'${font}', ${mono}`)
+}
+
+/** Applies the person's terminal settings: to terminals opened from now on, and open ones at once. */
+export function setTerminalSettings(next: typeof looks): void {
+  if (
+    next.font === looks.font &&
+    next.size === looks.size &&
+    next.copyOnSelect === looks.copyOnSelect
+  ) {
+    return
+  }
+  const refit = next.font !== looks.font || next.size !== looks.size
+  looks = next
+  for (const session of live) {
+    session.term.options.fontFamily = familyOf(next.font)
+    session.term.options.fontSize = next.size
+    if (refit) session.refit()
+  }
+}
+
 /** Terminals follow the theme: the system's (the desktop app's) and the one a browser picked. */
 function watchTheme() {
   if (watching) return
@@ -129,15 +156,19 @@ export class TerminalSession {
     this.element.className = 'h-full w-full'
     this.term = new Terminal({
       cursorBlink: true,
-      fontFamily: terminalFont(
-        getComputedStyle(document.documentElement).getPropertyValue('--font-mono'),
-      ),
-      fontSize: 12,
+      fontFamily: familyOf(looks.font),
+      fontSize: looks.size,
       lineHeight: 1.25,
       scrollback: 10_000,
       theme: theme(),
     })
     this.term.loadAddon(this.#fit)
+    // What's selected, copied at once where the person's settings say so.
+    this.term.onSelectionChange(() => {
+      if (looks.copyOnSelect && this.term.hasSelection()) {
+        void navigator.clipboard.writeText(this.term.getSelection()).catch(() => undefined)
+      }
+    })
     // The terminal takes every key but the dock's.
     this.term.attachCustomKeyEventHandler((event) => !dockKey(event))
   }
@@ -304,6 +335,11 @@ export class TerminalSession {
     for (const off of this.#cleanup) off()
     api.terminal.close(this.id)
     this.term.dispose()
+  }
+
+  /** Fitted again to where it is (its font changed, say). */
+  refit(): void {
+    this.#resize()
   }
 
   #resize(): void {

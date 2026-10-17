@@ -65,6 +65,11 @@ export type AppCommand =
   | 'close-terminal'
   | 'clear-terminal'
   | 'assistants'
+  /** Settings, and the text size the View menu's zoom steps through (one setting). */
+  | 'settings'
+  | 'text-actual'
+  | 'text-bigger'
+  | 'text-smaller'
   | `go:${NavTarget}`
   /** A place in Lumovi, by its path: where a notification was about. */
   | `open:${string}`
