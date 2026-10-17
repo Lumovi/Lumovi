@@ -4,12 +4,12 @@
  * browser). A change shows at once and is put back if the server refuses it, saying why.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useCallback, useContext } from 'react'
 import { spelled } from '@shared/kit/characters'
 import { NO_MARKS, type Marks, type Pin } from '@shared/marks'
 import { api, unwrap } from '@renderer/lib/api'
 import { pinAt, pinning, repinning, unpinning } from '@renderer/lib/marks'
-import { useCluster } from '@renderer/state/cluster'
+import { ClusterContext } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
 import { useToasts } from '@renderer/state/toasts'
 
@@ -25,14 +25,15 @@ export interface MarksStore {
 }
 
 export function useMarks(): MarksStore {
-  const { context } = useCluster()
+  // (Outside any one cluster, as a page of several clusters' list is: none, and nothing read.)
+  const context = useContext(ClusterContext)?.context ?? ''
   const queryClient = useQueryClient()
   const local = usePrefs((prefs) => prefs.marks[context])
   const setLocal = usePrefs((prefs) => prefs.setMarks)
   const server = useQuery({
     queryKey: ['marks', context],
     queryFn: () => unwrap(kept!.get(context)),
-    enabled: kept !== undefined,
+    enabled: kept !== undefined && context !== '',
   })
   const marks = kept ? (server.data ?? NO_MARKS) : (local ?? NO_MARKS)
   const latest = useCallback(

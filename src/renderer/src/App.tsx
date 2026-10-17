@@ -25,6 +25,8 @@ import { AlertsPage } from './features/alerts/AlertsPage'
 import { MetricsPage } from './features/metrics/MetricsPage'
 import { RightsizingPage } from './features/rightsizing/RightsizingPage'
 import { ComparePage } from './features/compare/ComparePage'
+import { SeveralLayout } from './features/several/SeveralLayout'
+import { SeveralList } from './features/several/SeveralList'
 import { CustomResourcePage, ResourcePage } from './features/resources/ResourcePage'
 import { AuthorizePage } from './features/session/AuthorizePage'
 import { SessionGate } from './features/session/SessionGate'
@@ -97,6 +99,12 @@ const routes: RouteObject[] = [
         ),
       },
       { path: '/your-access', element: <YourAccessPage /> },
+      // Several clusters' lists, merged: a page of its own, outside any one cluster.
+      {
+        path: '/clusters/:page',
+        element: <SeveralLayout />,
+        children: [{ index: true, element: <SeveralList /> }],
+      },
       // The desktop app's: a tab below, in a window of its own.
       ...(api.desktop ? [{ path: '/tab', element: <TabWindow /> }] : []),
       {

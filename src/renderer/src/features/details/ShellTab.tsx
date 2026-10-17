@@ -403,7 +403,7 @@ function Session({
           actions={
             <>
               {noShell && (
-                <Button onClick={() => start('debug', pod)}>
+                <Button onClick={() => start('debug', pod, { context: request.context })}>
                   <Bug /> Debug
                 </Button>
               )}

@@ -7,7 +7,7 @@ export const KEPT_END = 6
 let canvas: CanvasRenderingContext2D | null | undefined
 
 /** How wide a text is as `element` sets it. */
-function widthIn(element: HTMLElement): (text: string) => number {
+export function widthIn(element: HTMLElement): (text: string) => number {
   canvas ??= document.createElement('canvas').getContext('2d')
   const style = getComputedStyle(element)
   const spacing = Number.parseFloat(style.letterSpacing) || 0

@@ -25,7 +25,7 @@ import { certificateStatus } from '@renderer/lib/certificates'
 import { statusFor } from '@renderer/lib/health'
 import { formatRef, parseRef, type ObjectRef } from '@renderer/lib/routes'
 import { useShownTab } from '../links/copy'
-import { useActionsUi } from '@renderer/state/actions'
+import { editsHere, useActionsUi } from '@renderer/state/actions'
 import { useDock } from '../terminal/dock'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionBar } from '../actions/ActionSurfaces'
@@ -47,6 +47,7 @@ import { PinButton } from './PinButton'
 import { ShellTab } from './ShellTab'
 import { SidePanel, type PanelFrame } from './SidePanel'
 import { YamlTab } from './YamlTab'
+import { ClusterDot } from '../several/ClusterDot'
 
 /**
  * The object named by the `?open=Kind/namespace/name` search param, in a
@@ -54,11 +55,15 @@ import { YamlTab } from './YamlTab'
  */
 export function DetailPanel() {
   const value = useSearchParams()[0].get('open')
-  // An edit in progress belongs to the object it was started on: opening another ends it.
+  const { context } = useCluster()
+  // An edit in progress belongs to the object it was started on: opening another ends it, as
+  // does one of its name on another cluster.
   useEffect(() => {
-    const { editing, edit } = useActionsUi.getState()
-    if (editing && editing !== value) edit(null)
-  }, [value])
+    const { editing, editingOn, edit } = useActionsUi.getState()
+    if (editing && (editing !== value || (editingOn !== undefined && editingOn !== context))) {
+      edit(null)
+    }
+  }, [value, context])
   return (
     <SidePanel
       param="open"
@@ -105,7 +110,8 @@ function Detail({
   const involved = object.data?.involvedObject as { kind: string; name: string } | undefined
   const gone = (object.error as KubeApiError | null)?.code === 'not-found'
   const phone = useLayout() === 'phone'
-  const clusterName = useClusterName()(useCluster().context)
+  const { context, oneOfSeveral } = useCluster()
+  const clusterName = useClusterName()(context)
   const listName = useResource(target.kind).resource?.label ?? apiKindOf(target.kind)
   // Whether the object's own header has scrolled out from under the top bar (a phone's page).
   const page = useRef<HTMLDivElement>(null)
@@ -219,6 +225,14 @@ function Detail({
           <p className="truncate text-xs text-ink-3">
             {apiKindOf(target.kind)}
             {target.namespace && <span> · {target.namespace}</span>}
+            {/* With several clusters on the page, which one it's on. */}
+            {oneOfSeveral && (
+              <span>
+                {' · on '}
+                <ClusterDot context={context} className="mx-0.5 size-2 align-[0.5px]" />{' '}
+                {clusterName}
+              </span>
+            )}
             {object.data && <span> · {age(object.data.metadata.creationTimestamp!)} old</span>}
           </p>
           <div className="flex min-w-0 items-start gap-1">
@@ -324,7 +338,7 @@ export function DetailTabs({
     : podQuery(object)
   const podsNamespace = ownPods ? ownPods.namespace : (object.metadata.namespace ?? null)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
-  const editing = useActionsUi((state) => state.editing === ref)
+  const editing = useActionsUi((state) => editsHere(state, ref, context))
   const requested = useActionsUi((state) => (state.tab?.ref === ref ? state.tab.tab : null))
   // (A container a plugin's link asked its logs from: shown from it, each ask anew.)
   const logsAsked = useActionsUi((state) => (state.logs?.ref === ref ? state.logs : null))

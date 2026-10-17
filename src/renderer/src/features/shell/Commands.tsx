@@ -83,12 +83,14 @@ export function Commands() {
       // A terminal on this computer, pointed at the cluster that's open (the desktop app's dock
       // says which, and its namespace; on the start screen, there's none).
       terminal: () => {
-        const { here, toggle } = useDock.getState()
+        const { here, toggle, ask } = useDock.getState()
         if (here) toggle(here.context, here.namespace)
+        else ask?.(false)
       },
       'new-terminal': () => {
-        const { here, add } = useDock.getState()
+        const { here, add, ask } = useDock.getState()
         if (here) add(here.context, here.namespace)
+        else ask?.(true)
       },
       assistants: () => void navigate('/assistants'),
       // Asked only while a terminal has focus (its ⌘W and ⌘K, on macOS).

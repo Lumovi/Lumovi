@@ -9,9 +9,11 @@ import {
   Check,
   ChevronDown,
   CornerDownLeft,
+  Ellipsis,
   Eye,
   EyeOff,
   Layers,
+  ListChecks,
   Lock,
   Minus,
   Plus,
@@ -20,10 +22,10 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { managedReadOnly, type KubeconfigFiles, type KubeContext } from '@shared/api'
 import type { ClusterSettings } from '@shared/cluster-settings'
-import { Button } from '@renderer/components/Button'
+import { Button, IconButton } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { spelled } from '@shared/kit/characters'
@@ -35,6 +37,10 @@ import { ERROR_LABELS, hostOf } from '@renderer/lib/format'
 import { matchWords } from '@renderer/lib/match'
 import { looksLikeProduction } from '@renderer/lib/production'
 import { clusterPath } from '@renderer/lib/routes'
+import { useLayout } from '@renderer/lib/layout'
+import { ClusterDot } from '../several/ClusterDot'
+import { TickedBar } from '../several/TickedBar'
+import { severalPath } from '../several/set'
 import { usePrefs } from '@renderer/state/prefs'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { ClusterActions, type ClusterActionHandlers } from './ClusterActions'
@@ -50,6 +56,10 @@ const ownName = (user: string) => (/^lumovi-[0-9a-f]{12}$/.test(user) ? undefine
 const RECENT = 3
 /** Recent's rows are the same clusters again: told apart by this before their value. */
 const RECENT_VALUE = 'recent\u0000'
+/** The set opened together last time, a row of its own above Recent. */
+const LAST_SET_VALUE = 'last set\u0000'
+/** The groups whose heading opens them together: a Lumovi group's, or a label value's. */
+const TOGETHER = /^(group |label:)/
 
 /** What went wrong, as a row says it. */
 const PROBLEMS: Partial<Record<keyof typeof ERROR_LABELS, string>> = {
@@ -118,6 +128,29 @@ interface Group {
   clusters: Cluster[]
 }
 
+/** Several clusters picked to be listed together: on while the bar's Several clusters is. */
+interface Ticking {
+  ticked: readonly string[]
+  toggle: (context: string) => void
+}
+const TickingContext = createContext<Ticking | null>(null)
+
+/**
+ * Opens `clusters` together, on the person's press: those that sign in are opened by it, as
+ * opening one alone would.
+ */
+function useOpenTogether() {
+  const go = useGo()
+  return (clusters: readonly KubeContext[]) =>
+    go(
+      severalPath(
+        'pods',
+        clusters.map((c) => c.name),
+        clusters.filter((c) => c.signsInWith && !c.signedIn).map((c) => c.name),
+      ),
+    )
+}
+
 /** The clusters in their groups, as the page groups them. */
 function grouped(clusters: Cluster[], grouping: string, hasRecent: boolean): Group[] {
   const all = (): Group[] => [
@@ -181,6 +214,42 @@ export function ClusterPicker({
   const showHidden = usePrefs((prefs) => prefs.showHidden)
   const [selected, setSelected] = useState('')
   const [menuFor, setMenuFor] = useState<string>()
+  // Several clusters: a box on every row, and the ones ticked.
+  const phone = useLayout() === 'phone'
+  const [ticking, setTicking] = useState(false)
+  const [ticked, setTicked] = useState<readonly string[]>([])
+  const openTogether = useOpenTogether()
+  const toggle = (context: string) =>
+    setTicked((now) =>
+      now.includes(context) ? now.filter((c) => c !== context) : [...now, context],
+    )
+  const tickedClusters = ticked
+    .map((name) => everyCluster.find((cluster) => cluster.context.name === name))
+    .filter((cluster): cluster is Cluster => cluster !== undefined)
+  const openTicked = () => {
+    if (tickedClusters.length > 0) openTogether(tickedClusters.map((c) => c.context))
+  }
+  const leave = () => {
+    setTicking(false)
+    setTicked([])
+    list.current?.querySelector<HTMLInputElement>('[cmdk-input]')?.focus()
+  }
+  // The set opened together last time (as it was opened: those that sign in wait for their Open).
+  const go = useGo()
+  const lastSet = usePrefs((prefs) => prefs.severalSet)
+  const forgetSet = usePrefs((prefs) => prefs.setSeveralSet)
+  const lastClusters = lastSet
+    .map((name) => everyCluster.find((cluster) => cluster.context.name === name))
+    .filter((cluster): cluster is Cluster => cluster !== undefined)
+  const openLast = () =>
+    go(
+      severalPath(
+        'pods',
+        lastClusters.map((cluster) => cluster.context.name),
+      ),
+    )
+  // In the list, where Space ticks with words in the search (Tab, from the search).
+  const listBox = useRef<HTMLDivElement>(null)
   // The one just added lands selected, in its group.
   const [landed, setLanded] = useState(justAdded)
   if (justAdded !== landed) {
@@ -195,6 +264,11 @@ export function ClusterPicker({
     .filter((cluster): cluster is Cluster => cluster !== undefined)
     .slice(0, RECENT)
   const groups = grouped(clusters, grouping, recent.length > 0)
+  // The last set's row comes first, but Enter still opens the cluster opened last, as it did.
+  const showLast = !ticking && !phone && lastClusters.length > 1
+  if (selected === '' && showLast && recent[0]) {
+    setSelected(RECENT_VALUE + recent[0].context.name)
+  }
   const list = useRef<HTMLDivElement>(null)
   // ⌘I opens the selected one's settings wherever the focus is on the page (not in a dialog).
   const settingsOf = useRef<() => void>(undefined)
@@ -233,8 +307,55 @@ export function ClusterPicker({
       target.click()
       return
     }
+    const searchBox = () => list.current?.querySelector<HTMLInputElement>('[cmdk-input]')
+    // Ticking, in the list (Tab from the search): Space ticks the row under the cursor, ↑↓ move,
+    // Enter opens the ticked ones, and a letter goes back to the search with it.
+    if (ticking && target === listBox.current) {
+      if (event.key === ' ' || event.key === 'Enter' || event.key === 'Escape') {
+        event.preventDefault()
+        if (event.key === 'Escape') leave()
+        else if (event.key === 'Enter') openTicked()
+        else if (selected) toggle(selected.replace(RECENT_VALUE, ''))
+      } else if (event.key === 'Tab' && event.shiftKey) {
+        event.preventDefault()
+        searchBox()?.focus()
+      } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        searchBox()?.focus()
+      }
+      return
+    }
     // A key in the search, not elsewhere (a menu's own keys reach here through its portal).
     if (target.tagName !== 'INPUT') return
+    // Several clusters: Enter opens the ticked ones (not the one under the cursor), Space ticks
+    // the one under it while nothing's searched for, Tab goes into the list, and Esc leaves.
+    if (ticking) {
+      if (event.key === 'Tab' && !event.shiftKey) {
+        event.preventDefault()
+        listBox.current?.focus()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        leave()
+        return
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        openTicked()
+        return
+      }
+      // (Not while searching: there a space parts the words searched for.)
+      if (event.key === ' ' && (event.target as HTMLInputElement).value === '') {
+        const value = (event.currentTarget as HTMLElement)
+          .querySelector('[cmdk-item][data-selected="true"]')
+          ?.getAttribute('data-value')
+        if (value) {
+          event.preventDefault()
+          toggle(value.replace(RECENT_VALUE, ''))
+        }
+        return
+      }
+    }
     // As the list shows it now: a key can come before the page is drawn again.
     const value = (event.currentTarget as HTMLElement)
       .querySelector('[cmdk-item][data-selected="true"]')
@@ -242,14 +363,22 @@ export function ClusterPicker({
     const selectedCluster = clusters.find(
       (cluster) => cluster.context.name === (value ?? selected).replace(RECENT_VALUE, ''),
     )
+    const typed = (event.target as HTMLInputElement).value ?? ''
+    // The last set's row: `.` opens its menu.
+    if ((value ?? selected) === LAST_SET_VALUE) {
+      if (event.key === '.' && typed === '') {
+        event.preventDefault()
+        setMenuFor(LAST_SET_VALUE)
+      }
+      return
+    }
     if (!selectedCluster || !actions) return
-    const search = (event.target as HTMLInputElement).value ?? ''
     const mod = event.metaKey || event.ctrlKey
     // `.` opens its actions, unless it's searched for (as in a server's address).
-    if (event.key === '.' && !mod && search === '') {
+    if (event.key === '.' && !mod && typed === '') {
       event.preventDefault()
       setMenuFor(value ?? selected)
-    } else if (mod && event.key === 'Backspace' && search === '' && selectedCluster.own) {
+    } else if (mod && event.key === 'Backspace' && typed === '' && selectedCluster.own) {
       event.preventDefault()
       actions.remove(selectedCluster)
     }
@@ -276,6 +405,19 @@ export function ClusterPicker({
         />
         <MatchCount total={clusters.length} />
         <span className="h-5 w-px shrink-0 bg-line" />
+        {!phone && (
+          <Button
+            variant="ghost"
+            aria-pressed={ticking}
+            className={cn(
+              'h-7 shrink-0 px-2.5 text-xs [&_svg]:size-3.5',
+              ticking && 'bg-surface-3 text-ink-1',
+            )}
+            onClick={() => (ticking ? leave() : setTicking(true))}
+          >
+            <ListChecks /> Several clusters
+          </Button>
+        )}
         <GroupBy clusters={clusters} />
         {files?.locked ? (
           <ManagedBadge reason={files.locked} />
@@ -292,36 +434,79 @@ export function ClusterPicker({
         )}
       </div>
       {files && <FileNotices files={files} />}
-      <Command.List className="min-h-0 flex-1 overflow-y-auto p-1.5 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase">
-        <Command.Empty className="px-4 py-10 text-center text-ink-3">
-          {clusters.length === 0 && hidden > 0
-            ? 'Every cluster is hidden. Show them from the footer.'
-            : 'No clusters match.'}
-        </Command.Empty>
-        <Recent
-          clusters={recent}
-          current={current}
-          actions={actions}
-          menuFor={menuFor}
-          onMenu={setMenuFor}
-        />
-        {groups.map((group) => (
-          <Command.Group key={group.key} heading={<GroupHeading group={group} />}>
-            {group.clusters.map((cluster) => (
-              <ClusterRow
-                // Found by what it's called and labelled now (cmdk reads them as it's made).
-                key={keywordsOf(cluster).join('\u0000')}
-                cluster={cluster}
-                isCurrent={cluster.context.name === current}
-                added={cluster.context.name === justAdded}
-                actions={actions}
-                menuOpen={menuFor === cluster.context.name}
-                onMenu={(open) => setMenuFor(open ? cluster.context.name : undefined)}
+      <TickingContext.Provider value={ticking ? { ticked, toggle } : null}>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <Command.List
+            ref={listBox}
+            tabIndex={-1}
+            className="min-h-0 flex-1 overflow-y-auto p-1.5 outline-none [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-ink-3 [&_[cmdk-group-heading]]:uppercase"
+          >
+            <Command.Empty className="px-4 py-10 text-center text-ink-3">
+              {clusters.length === 0 && hidden > 0
+                ? 'Every cluster is hidden. Show them from the footer.'
+                : 'No clusters match.'}
+            </Command.Empty>
+            {showLast && (
+              <LastSet
+                clusters={lastClusters}
+                onOpen={openLast}
+                onForget={() => forgetSet([])}
+                menuOpen={menuFor === LAST_SET_VALUE}
+                onMenu={(open) => setMenuFor(open ? LAST_SET_VALUE : undefined)}
               />
+            )}
+            {!ticking && (
+              <Recent
+                clusters={recent}
+                current={current}
+                actions={actions}
+                menuFor={menuFor}
+                onMenu={setMenuFor}
+              />
+            )}
+            {groups.map((group) => (
+              <Command.Group
+                key={group.key}
+                heading={
+                  <GroupHeading
+                    group={group}
+                    onOpenTogether={
+                      // (A group the person made: not the rest, nor all of them.)
+                      phone || !TOGETHER.test(group.key) || group.clusters.length < 2
+                        ? undefined
+                        : () => openTogether(group.clusters.map((cluster) => cluster.context))
+                    }
+                  />
+                }
+              >
+                {group.clusters.map((cluster) => (
+                  <ClusterRow
+                    // Found by what it's called and labelled now (cmdk reads them as it's made).
+                    key={keywordsOf(cluster).join('\u0000')}
+                    cluster={cluster}
+                    isCurrent={cluster.context.name === current}
+                    added={cluster.context.name === justAdded}
+                    actions={actions}
+                    menuOpen={menuFor === cluster.context.name}
+                    onMenu={(open) => setMenuFor(open ? cluster.context.name : undefined)}
+                  />
+                ))}
+              </Command.Group>
             ))}
-          </Command.Group>
-        ))}
-      </Command.List>
+          </Command.List>
+          {ticking && tickedClusters.length > 0 && (
+            <TickedBar
+              count={tickedClusters.length}
+              signIn={
+                tickedClusters.filter((c) => c.context.signsInWith && !c.context.signedIn).length
+              }
+              className="absolute bottom-3"
+              onOpen={() => openTogether(tickedClusters.map((cluster) => cluster.context))}
+              onLeave={leave}
+            />
+          )}
+        </div>
+      </TickingContext.Provider>
       <div className="flex shrink-0 items-center gap-4 border-t border-line px-4 py-2 text-xs text-ink-3">
         <span className="flex items-center gap-1.5">
           <Kbd>↑</Kbd>
@@ -331,8 +516,9 @@ export function ClusterPicker({
           <Kbd>
             <CornerDownLeft className="size-3" />
           </Kbd>
-          to open
+          {ticking ? 'to open together' : 'to open'}
         </span>
+        {ticking && <TickHint />}
         {actions ? (
           <span className="flex items-center gap-1.5">
             <Kbd>.</Kbd> for actions
@@ -391,8 +577,96 @@ function Recent({
   )
 }
 
+/**
+ * The set opened together last time: its colours and names, opened together again (Enter), or
+ * forgotten from its ⋯. Not while searching, as Recent isn't.
+ */
+function LastSet({
+  clusters,
+  onOpen,
+  onForget,
+  menuOpen,
+  onMenu,
+}: {
+  clusters: Cluster[]
+  onOpen: () => void
+  onForget: () => void
+  menuOpen: boolean
+  onMenu: (open: boolean) => void
+}) {
+  const searching = useCommandState((state) => state.search.length > 0)
+  if (searching) return null
+  const kept = (event: { stopPropagation: () => void }) => event.stopPropagation()
+  return (
+    <Command.Group>
+      <Command.Item
+        value={LAST_SET_VALUE}
+        onSelect={onOpen}
+        className="group flex cursor-default items-center gap-3.5 rounded-xl px-3 py-2.5 text-left transition-colors data-[selected=true]:bg-surface-3"
+      >
+        <span className="flex w-8 shrink-0 flex-wrap justify-center gap-0.5">
+          {clusters.slice(0, 4).map((cluster) => (
+            <ClusterDot key={cluster.context.name} context={cluster.context.name} />
+          ))}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-medium text-ink-1">Last opened together</span>
+          <span className="mt-0.5 block truncate text-xs text-ink-3">
+            {clusters.map((cluster) => cluster.name).join(', ')}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs font-medium text-accent-strong">Open together</span>
+        <DropdownMenu.Root open={menuOpen} onOpenChange={onMenu}>
+          <DropdownMenu.Trigger asChild onClick={kept} onPointerDown={kept}>
+            <IconButton
+              label="Actions for the last set"
+              className="size-7 shrink-0 opacity-0 group-data-[selected=true]:opacity-100 data-[state=open]:opacity-100"
+            >
+              <Ellipsis />
+            </IconButton>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={6}
+              className={cn(menuContent, 'w-48')}
+              onClick={kept}
+              onPointerDown={kept}
+              onKeyDown={kept}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                document.querySelector<HTMLElement>('[data-hotkey-target="filter"]')?.focus()
+              }}
+            >
+              <DropdownMenu.Item className={menuItem} onSelect={onForget}>
+                <EyeOff className="size-4 text-ink-3" />
+                Forget it
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </Command.Item>
+    </Command.Group>
+  )
+}
+
+/** While ticking: how to tick the row under the cursor (with words searched for, from the list). */
+function TickHint() {
+  const searching = useCommandState((state) => state.search.length > 0)
+  return (
+    <span className="flex items-center gap-1.5">
+      {searching && (
+        <>
+          <Kbd>Tab</Kbd>, then{' '}
+        </>
+      )}
+      <Kbd>Space</Kbd> to tick
+    </span>
+  )
+}
+
 /** A group's heading, with how many it has (that the search found, while searching). */
-function GroupHeading({ group }: { group: Group }) {
+function GroupHeading({ group, onOpenTogether }: { group: Group; onOpenTogether?: () => void }) {
   const search = useCommandState((state) => state.search)
   const found = search
     ? group.clusters.filter((cluster) => filter(cluster.context.name, search, keywordsOf(cluster)))
@@ -404,6 +678,15 @@ function GroupHeading({ group }: { group: Group }) {
         {group.heading}
       </span>
       <span className="ml-1.5 font-normal tracking-normal tabular-nums opacity-75">{found}</span>
+      {onOpenTogether && (
+        <button
+          type="button"
+          onClick={onOpenTogether}
+          className="float-right text-xs font-medium tracking-normal text-accent-strong normal-case hover:underline"
+        >
+          Open together
+        </button>
+      )}
     </>
   )
 }
@@ -534,6 +817,10 @@ function ClusterRow({
 }) {
   const go = useGo()
   const { context } = cluster
+  // Several clusters: Recent's rows aren't ticked, the groups' are.
+  const tickingAll = useContext(TickingContext)
+  const ticking = recent ? null : tickingAll
+  const ticked = ticking?.ticked.includes(context.name) ?? false
   // (One that signs in through a program isn't asked: that would start it, a browser or a
   // prompt, for a cluster nobody picked. Lumovi checks it as it's opened. A folder's that asks
   // first has none yet: it isn't allowed to run, so it's asked, and says so.)
@@ -554,9 +841,14 @@ function ClusterRow({
     <Command.Item
       value={`${recent ? RECENT_VALUE : ''}${context.name}`}
       keywords={keywordsOf(cluster)}
+      aria-checked={ticking ? ticked : undefined}
       // A folder's that asks first: what it'd do, to be allowed, before it's opened.
       onSelect={() =>
-        code === 'consent' && actions ? actions.allow(cluster) : go(clusterPath(context.name))
+        ticking
+          ? ticking.toggle(context.name)
+          : code === 'consent' && actions
+            ? actions.allow(cluster)
+            : go(clusterPath(context.name))
       }
       onContextMenu={(event) => {
         if (!actions) return
@@ -568,8 +860,20 @@ function ClusterRow({
         recent ? 'gap-3 py-2' : 'gap-3.5 py-2.5',
         cluster.hidden && 'opacity-55',
         added && 'animate-added',
+        ticked && 'bg-accent-soft/60 data-[selected=true]:bg-accent-soft',
       )}
     >
+      {ticking && (
+        // (The row says it's ticked, as an option in a list of several does: its box is a look.)
+        <input
+          type="checkbox"
+          aria-hidden
+          tabIndex={-1}
+          checked={ticked}
+          onChange={() => undefined}
+          className="pointer-events-none size-4 shrink-0 accent-[var(--accent)]"
+        />
+      )}
       <ClusterTile
         letters={initials(context.name, cluster.named ? cluster.name : undefined)}
         color={cluster.color}

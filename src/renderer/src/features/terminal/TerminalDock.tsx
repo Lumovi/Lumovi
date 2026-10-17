@@ -10,7 +10,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react'
-import { ContextMenu } from 'radix-ui'
+import { ContextMenu, DropdownMenu } from 'radix-ui'
 import {
   useEffect,
   useRef,
@@ -18,6 +18,7 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from 'react'
 import { Button, IconButton } from '@renderer/components/Button'
 import { Kbd } from '@renderer/components/Kbd'
@@ -47,20 +48,55 @@ const inTerminal = (event: FocusEvent) =>
  * cluster (⌃` shows one, or opens one); a kept object's is the object, as the detail panel shows
  * it, kept open while the pages above go elsewhere.
  */
-export function TerminalDock() {
+export function TerminalDock({
+  clusters,
+}: {
+  /**
+   * On a page of several clusters: + asks which one a new terminal points at, these its menu's
+   * items, each picking one with `pick`. Lumovi never chooses for the person.
+   */
+  clusters?: (pick: (context: string) => void) => ReactNode
+} = {}) {
   const { tabs, kept, order, active, open, maximized, focus } = useDock()
   const dock = useDock.getState()
   const { context, namespace } = useCluster()
   const stored = usePrefs((prefs) => prefs.terminalHeight)
   const setStored = usePrefs((prefs) => prefs.setTerminalHeight)
   const section = useRef<HTMLElement>(null)
+  const [asking, setAsking] = useState(false)
+  const pick = (picked: string) => {
+    setAsking(false)
+    dock.add(picked, namespace ?? undefined)
+  }
   // For the cluster (and namespace) that's open: from here, and from ⌃`, the menu and the palette.
-  const add = () => dock.add(context, namespace ?? undefined)
-  const toggle = () => dock.toggle(context, namespace ?? undefined)
+  // (With several, asked; the last terminal is shown again, as ever, without asking.)
+  const add = () => (clusters ? setAsking(true) : dock.add(context, namespace ?? undefined))
+  const toggle = () =>
+    clusters && dock.tabs.length === 0
+      ? setAsking(true)
+      : dock.toggle(context, namespace ?? undefined)
+  // The first, picked: + then Enter takes it (once the menu has taken focus itself).
+  const menu = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (!asking) return
+    const frame = requestAnimationFrame(() =>
+      menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus(),
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [asking])
+  const asks = useRef<(fresh: boolean) => void>(undefined)
+  useEffect(() => {
+    asks.current = (fresh) => (fresh ? add() : toggle())
+  })
+  const several = Boolean(clusters)
+  useEffect(() => {
+    if (several) {
+      useDock.setState({ here: undefined, ask: (fresh) => asks.current?.(fresh) })
+      return () => useDock.setState({ ask: undefined })
+    }
     useDock.setState({ here: { context, namespace: namespace ?? undefined } })
     return () => useDock.setState({ here: undefined })
-  }, [context, namespace])
+  }, [context, namespace, several])
 
   // What's asked to be focused (a new tab, a pasted command…), once it's shown: after a dialog
   // or the palette that asked has given focus back to what opened it.
@@ -198,13 +234,40 @@ export function TerminalDock() {
             return object && <KeptTabButton key={id} kept={object} selected={selected} />
           })}
         </div>
-        <IconButton
-          label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
-          className="size-7 shrink-0"
-          onClick={add}
-        >
-          <Plus />
-        </IconButton>
+        {clusters ? (
+          <DropdownMenu.Root open={asking} onOpenChange={setAsking}>
+            <DropdownMenu.Trigger asChild>
+              <IconButton
+                label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
+                className="size-7 shrink-0"
+              >
+                <Plus />
+              </IconButton>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                side="top"
+                align="start"
+                sideOffset={6}
+                className={cn(menuContent, 'w-72')}
+                ref={menu}
+              >
+                <DropdownMenu.Label className="px-2 pt-1.5 pb-1 text-2xs font-medium tracking-wider text-ink-3 uppercase">
+                  Open a terminal on
+                </DropdownMenu.Label>
+                {clusters(pick)}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        ) : (
+          <IconButton
+            label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
+            className="size-7 shrink-0"
+            onClick={add}
+          >
+            <Plus />
+          </IconButton>
+        )}
         <span className="flex-1" />
         {open ? (
           <IconButton

@@ -79,6 +79,11 @@ interface Dock {
    * namespace (the one picked, else its context's). None on the start screen.
    */
   here?: { context: string; namespace?: string }
+  /**
+   * On a page of several clusters, where there's no one cluster `here`: asks which one a terminal
+   * points at (never chosen for the person). `fresh`, a new one; else the last one, or a new one.
+   */
+  ask?: (fresh: boolean) => void
   /** A new terminal for `context`, shown at once. */
   add(context: string, namespace?: string): TerminalTab
   /** Keeps an object open below, on `tab`, and shows it: once a window, so again shows it. */

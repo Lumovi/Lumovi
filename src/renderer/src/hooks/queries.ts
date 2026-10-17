@@ -1,7 +1,7 @@
 import { keepPreviousData, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import type { KubeList, KubeObject } from '@shared/api'
 import type { ResourceDefinition, ResourceKind } from '@shared/resources'
-import { api, unwrap } from '@renderer/lib/api'
+import { api, KubeApiError, unwrap } from '@renderer/lib/api'
 import { AT_ONCE, settledAtMost, whyUnread, type PickedList } from '@renderer/lib/namespaces'
 import { useCluster } from '@renderer/state/cluster'
 import { watched, WATCHED_POLL_MS } from '@renderer/lib/watches'
@@ -121,6 +121,57 @@ function listQuery<T>(
     placeholderData: keepPreviousData,
     enabled,
   }
+}
+
+/**
+ * One kind's whole list in each of `contexts`, each read on its own with that cluster's access,
+ * so one slow, refused or unreachable cluster never holds the others. `namespaces` as a cluster's
+ * picker has them. Each is keyed as that cluster's own list is, so it's watched as that list is.
+ * `reads(context)`: whether a cluster is read at all (one that signs in, unopened, isn't).
+ */
+export function useListsAcross(
+  contexts: readonly string[],
+  namespaces: readonly string[] | null,
+  kind: ResourceKind,
+  options: ListOptions = {},
+  reads: (context: string) => boolean = () => true,
+  /** How long a cluster has to answer a read before it's given up on: then it's late. */
+  answerWithinMs?: number,
+) {
+  return useQueries({
+    queries: contexts.map((context) => {
+      const query = listQuery(
+        context,
+        namespaces,
+        kind,
+        { ...options, enabled: (options.enabled ?? true) && reads(context) },
+        (list: PickedList) => list,
+      )
+      return answerWithinMs === undefined
+        ? query
+        : { ...query, queryFn: () => within(answerWithinMs, query.queryFn), retry: false }
+    }),
+  })
+}
+
+/** `read`, or a timeout once `ms` have gone by without its answer. */
+function within<T>(ms: number, read: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new KubeApiError({ code: 'timeout', message: 'It didn’t answer in time.' })),
+      ms,
+    )
+    read().then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error as Error)
+      },
+    )
+  })
 }
 
 function useListQuery<T>(

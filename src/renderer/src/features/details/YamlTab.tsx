@@ -11,7 +11,8 @@ import { useResource } from '@renderer/hooks/resources'
 import { formatRef } from '@renderer/lib/routes'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { toYaml } from '@renderer/lib/yaml'
-import { useActionsUi } from '@renderer/state/actions'
+import { editsHere, useActionsUi } from '@renderer/state/actions'
+import { useCluster } from '@renderer/state/cluster'
 import { useAccessHere } from '../access/use-access'
 import { kindOf } from '../actions/common'
 import { useObjectActions } from '../actions/use-actions'
@@ -41,10 +42,11 @@ export function YamlTab({ object }: { object: KubeObject }) {
     name: object.metadata.name,
     namespace: object.metadata.namespace,
   })
-  const editing = useActionsUi((state) => state.editing === ref)
+  const { context } = useCluster()
+  const editing = useActionsUi((state) => editsHere(state, ref, context))
   const edit = useActionsUi((state) => state.edit)
   if (editing) return <YamlEditor object={object} onDone={() => edit(null)} />
-  return <YamlView object={object} onEdit={() => edit(ref)} />
+  return <YamlView object={object} onEdit={() => edit(ref, context)} />
 }
 
 function EditButton({ object, onEdit }: { object: KubeObject; onEdit: () => void }) {

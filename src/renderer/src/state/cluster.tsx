@@ -16,6 +16,11 @@ export interface ClusterState {
   setNamespaces: (namespaces: readonly string[] | null) => void
   /** Picks one namespace, or `null` for all of them. */
   setNamespace: (namespace: string | null) => void
+  /**
+   * One of several clusters on the page (a page of several clusters'): what's shown of it, and
+   * done on it, names it.
+   */
+  oneOfSeveral?: boolean
 }
 
 export const ClusterContext = createContext<ClusterState | null>(null)

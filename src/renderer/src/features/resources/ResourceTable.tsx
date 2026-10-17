@@ -19,6 +19,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
   type Ref,
 } from 'react'
 import type { KubeObject } from '@shared/api'
@@ -137,10 +138,17 @@ export interface ResourceTableProps {
    * header's menu and its edges do.
    */
   layout?: TableLayout
+  /** Which columns the list's width doesn't hold, where there's no `layout` to tell. */
+  onUnfit?: (ids: string[]) => void
   /** Copies the picked rows: ⌘C, while rows are picked. */
   onCopy?: () => void
   /** Whether its objects can be pinned: a pin in each row's last cell, and in its menu. */
   pins?: boolean
+  /**
+   * A row's right-click menu, as its page draws it round Lumovi's (a page of several clusters:
+   * under the row's own cluster, and headed by it).
+   */
+  menuFor?: (object: KubeObject, menu: ReactNode) => ReactNode
 }
 
 /**
@@ -173,8 +181,10 @@ function ResourceGrid({
   onPick,
   rowKey = objectKey,
   layout,
+  onUnfit,
   onCopy,
   pins = false,
+  menuFor,
 }: ResourceTableProps) {
   const id = useId()
   const pinning = usePinning()
@@ -236,7 +246,7 @@ function ResourceGrid({
   const fitted = pinShown ? withPin : fit(width - frame)
   const visible = fitted.visible
   const unfit = fitted.unfit.join('\n')
-  const report = layout?.unfit
+  const report = layout?.unfit ?? onUnfit
   useEffect(() => report?.(unfit ? unfit.split('\n') : []), [unfit, report])
   // The heading whose menu is open.
   const [heading, setHeading] = useState<Column>()
@@ -631,7 +641,12 @@ function ResourceGrid({
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content className={menuContent} onCloseAutoFocus={keepFocusInActionDialog}>
-            <RowMenu object={menuRow!} onOpen={onOpen} pinning={pins ? pinning : undefined} />
+            {(() => {
+              const menu = (
+                <RowMenu object={menuRow!} onOpen={onOpen} pinning={pins ? pinning : undefined} />
+              )
+              return menuFor ? menuFor(menuRow!, menu) : menu
+            })()}
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>

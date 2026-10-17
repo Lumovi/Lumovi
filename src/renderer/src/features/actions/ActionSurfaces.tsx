@@ -1,4 +1,4 @@
-import { Ellipsis, Link, LoaderCircle, Lock, LockOpen } from 'lucide-react'
+import { Ellipsis, Link, LoaderCircle, Lock, LockOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { ContextMenu, DropdownMenu, Popover } from 'radix-ui'
 import { useEffect, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
@@ -6,7 +6,8 @@ import { BusyButton, formatElapsed, spokenElapsed, useTicking } from '@renderer/
 import { Button } from '@renderer/components/Button'
 import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
 import { Tooltip } from '@renderer/components/Tooltip'
-import { ADMINS_ONLY, useReadOnly } from '@renderer/hooks/settings'
+import { useGo } from '@renderer/hooks/go'
+import { ADMINS_ONLY, useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
@@ -17,7 +18,7 @@ import { actionById } from './catalog'
 import { useObjectActions, useRunAction, type AvailableAction } from './use-actions'
 import { copyLink, useLinksOffered } from '../links/copy'
 import { kindOf } from '@shared/resources'
-import { formatRef } from '@renderer/lib/routes'
+import { formatRef, kindPath } from '@renderer/lib/routes'
 
 /** Renders the dialog of the action in progress, wherever it was started from. */
 
@@ -31,7 +32,12 @@ const focusKeyOf = (action: string, object: KubeObject) =>
 export function ActionHost() {
   const active = useActionsUi((state) => state.active)
   const close = useActionsUi((state) => state.close)
-  if (!active) return null
+  const { context, oneOfSeveral } = useCluster()
+  // (An action started on another cluster is that cluster's host's to open: never here. With
+  // several clusters' hosts on the page, one that names none is no host's: SeveralLayout
+  // refuses it.)
+  if (!active || (active.context === undefined ? oneOfSeveral : active.context !== context))
+    return null
   const Dialog = actionById(active.id, active.object).dialog!
   return <Dialog key={active.object.metadata.uid} object={active.object} onClose={close} />
 }
@@ -51,7 +57,9 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
   // (Compare reads, as Copy link does: in their group, above what changes the object.)
   const compare = available.find(({ action }) => action.id === 'compare')
   const changing = available.filter(({ action }) => action.id !== 'compare')
-  const { context } = useCluster()
+  const { context, oneOfSeveral } = useCluster()
+  const clusterName = useClusterName()(context)
+  const go = useGo()
   const kind = kindOf(object)
   const ref = formatRef({ kind, name: object.metadata.name, namespace: object.metadata.namespace })
   const run = useRunAction()
@@ -157,8 +165,20 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
                 Actions <Kbd>.</Kbd>
               </DropdownMenu.Label>
               {/* First, in a group of its own above what changes the object: no key. */}
-              {(linksOffered || compare) && (
+              {(linksOffered || compare || oneOfSeveral) && (
                 <>
+                  {/* With several clusters on the page: this one's own page, the object open. */}
+                  {oneOfSeveral && (
+                    <DropdownMenu.Item
+                      onSelect={() =>
+                        go(`${kindPath(context, kind)}?${new URLSearchParams({ open: ref })}`)
+                      }
+                      className={menuItem}
+                    >
+                      <SquareArrowOutUpRight className="size-4 text-ink-3" />
+                      <span className="flex-1 truncate">Open in {clusterName}</span>
+                    </DropdownMenu.Item>
+                  )}
                   {linksOffered && (
                     <DropdownMenu.Item
                       onSelect={() => void copyLink({ ref, kind, context })}

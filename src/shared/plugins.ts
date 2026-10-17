@@ -1692,6 +1692,7 @@ export const LUMOVIS_COMMANDS = [
   'All plugins',
   'All namespaces',
   'All clusters',
+  'Open the last several clusters',
   'Create…',
   'New terminal',
   'New window',

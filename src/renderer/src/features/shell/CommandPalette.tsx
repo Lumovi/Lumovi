@@ -96,6 +96,7 @@ import { useObjectActions, useRunAction } from '../actions/use-actions'
 import { copyLink, useLinksOffered } from '../links/copy'
 import { openView } from '../resources/views'
 import { PIN_KEY } from '../details/PinButton'
+import { severalPath } from '../several/set'
 import { useDock } from '../terminal/dock'
 import { TERMINAL_KEYS } from '../terminal/keys'
 import { kindName, pinKey, pinNumber, pinPath, PINS_NUMBERED } from './PinnedObjects'
@@ -182,6 +183,9 @@ function Palette({ onDone }: { onDone: () => void }) {
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
   const switching = useSwitching()
+  const lastSet = usePrefs((prefs) => prefs.severalSet).filter((name) =>
+    contexts.some((c) => c.name === name),
+  )
   const needle = search.trim().toLowerCase()
   const matches =
     needle.length < MIN_OBJECT_QUERY
@@ -635,6 +639,16 @@ function Palette({ onDone }: { onDone: () => void }) {
                 {clusterName(name)}
               </Item>
             ))}
+            {/* The set opened together last time (those that sign in wait for their Open there). */}
+            {lastSet.length > 1 && !phone && (
+              <Item
+                icon={<Boxes />}
+                value="Open the last several clusters together"
+                onSelect={run(() => go(severalPath('pods', lastSet)))}
+              >
+                Open the last several clusters
+              </Item>
+            )}
             <Item icon={<LogOut />} value="All clusters" onSelect={run(() => go('/'))}>
               All clusters
             </Item>
