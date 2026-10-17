@@ -119,7 +119,8 @@ export function useRunAction() {
   const { start, edit, showTab } = useActionsUi()
   return (action: Action, object: KubeObject) => {
     if (action.dialog) {
-      start(action.id, object)
+      // (On this cluster: the one its object is on, as the page or the row says.)
+      start(action.id, object, { context })
     } else if (action.instant) {
       const pressed = Date.now()
       const failed = (description: string) =>
@@ -153,7 +154,7 @@ export function useRunAction() {
       const ref = formatRef({ kind: kindOf(object), name, namespace })
       openObject(kindOf(object), name, namespace)
       if (action.tab) showTab(ref, action.tab, undefined, undefined, action.how)
-      else edit(ref)
+      else edit(ref, context)
     }
   }
 }

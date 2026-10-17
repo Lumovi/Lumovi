@@ -171,6 +171,7 @@ export function SelectionBar({
   noun,
   onClear,
   onCopy,
+  refused,
 }: {
   objects: KubeObject[]
   /** What they're called together when their kinds differ ("workloads"). */
@@ -178,6 +179,11 @@ export function SelectionBar({
   onClear: () => void
   /** Copies them as the list shows them: first, as it changes nothing. */
   onCopy?: () => void
+  /**
+   * Why none of its actions may run on these (rows on several clusters): each is shown, off,
+   * beside it, and none runs.
+   */
+  refused?: string
 }) {
   const { readOnly, why: readOnlyWhy } = useReadOnly()
   const here = useAccessHere()
@@ -185,17 +191,19 @@ export function SelectionBar({
   const [running, setRunning] = useState<{ action: BulkAction; objects: KubeObject[] } | null>(null)
   if (objects.length === 0) return null
   // All of them, or none: one the person's access doesn't let them change says so.
-  const disabled = readOnly
-    ? readOnlyWhy
-    : objects
-        .map((o) =>
-          here.whyNot(
-            'changes',
-            'write',
-            o.kind === 'Namespace' ? o.metadata.name : o.metadata.namespace,
-          ),
-        )
-        .find(Boolean)
+  const disabled = refused
+    ? refused
+    : readOnly
+      ? readOnlyWhy
+      : objects
+          .map((o) =>
+            here.whyNot(
+              'changes',
+              'write',
+              o.kind === 'Namespace' ? o.metadata.name : o.metadata.namespace,
+            ),
+          )
+          .find(Boolean)
   const actions = BULK.filter((action) => objects.some(action.applies))
   return (
     <>
@@ -207,6 +215,7 @@ export function SelectionBar({
         <span className="mr-2 text-[13px] font-medium whitespace-nowrap text-ink-1 tabular-nums">
           {objects.length} selected
         </span>
+        {refused && <span className="mr-2 max-w-72 text-xs text-ink-3">{refused}</span>}
         {onCopy && (
           <Button variant="ghost" onClick={onCopy} className="h-7 px-2.5 text-xs">
             <Copy className="!size-3.5" />
@@ -219,7 +228,9 @@ export function SelectionBar({
               key={action.id}
               variant="ghost"
               disabled={disabled !== undefined}
-              onClick={() => setRunning({ action, objects })}
+              onClick={() => {
+                if (!refused) setRunning({ action, objects })
+              }}
               className={cn(
                 'h-7 px-2.5 text-xs',
                 action.danger && 'text-critical-text hover:bg-critical/10',
@@ -247,7 +258,7 @@ export function SelectionBar({
           <X className="size-4" />
         </button>
       </div>
-      {running && (
+      {running && !refused && (
         <BulkDialog
           noun={noun}
           action={running.action}

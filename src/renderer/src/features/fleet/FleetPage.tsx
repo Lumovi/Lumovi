@@ -12,6 +12,7 @@ import {
   Ellipsis,
   KeyRound,
   Layers,
+  ListChecks,
   Lock,
   PackageSearch,
   Plus,
@@ -37,6 +38,7 @@ import { Meter } from '@renderer/components/Meter'
 import { SearchInput } from '@renderer/components/SearchInput'
 import { EmptyState, ErrorIcon, ErrorState, Loading } from '@renderer/components/States'
 import { HEALTH_STYLE, StatusDot } from '@renderer/components/Status'
+import { useGo } from '@renderer/hooks/go'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
@@ -63,6 +65,8 @@ import { Commands } from '../shell/Commands'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { ShortcutsDialog } from '../shell/ShortcutsDialog'
 import { ServerAssistantsButton } from '../assistants/ServerConnect'
+import { severalPath } from '../several/set'
+import { TickedBar } from '../several/TickedBar'
 import { ThemeMenu } from '../shell/ThemeMenu'
 import { ClusterSettingsDialog, RemoveDialog } from './ClusterSettingsDialog'
 import { AddClusterDialog, type AddKind } from './AddClusterDialog'
@@ -169,6 +173,35 @@ export function FleetPage() {
   const visible = matching.filter((i) => shows(show, i.summary))
   const labels = fleetLabels(all)
   const keys = [...new Set(labels.map((l) => l.key))]
+  // Several of them in one list: a group's, from its heading, or those ticked (not on a phone:
+  // that needs a larger screen). Nothing opens more than the person picked.
+  const go = useGo()
+  const openTogether = (names: readonly string[]) => go(severalPath('pods', names))
+  const [ticking, setTicking] = useState(false)
+  const [ticked, setTicked] = useState<readonly string[]>([])
+  const leave = () => {
+    setTicking(false)
+    setTicked([])
+  }
+  const tick: Ticking = {
+    ticked,
+    toggle: (name) =>
+      setTicked((now) => (now.includes(name) ? now.filter((n) => n !== name) : [...now, name])),
+    open: () => {
+      if (ticked.length > 0) openTogether(ticked)
+    },
+  }
+  // Esc leaves, where no dialog or menu has it.
+  useEffect(() => {
+    if (!ticking) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[role="dialog"], [role="menu"]')) return
+      setTicking(false)
+      setTicked([])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ticking])
 
   return (
     <div className="vt-page flex h-full flex-col overflow-hidden">
@@ -270,6 +303,19 @@ export function FleetPage() {
                   })}
                 </div>
                 <div className="ml-auto flex items-center gap-1">
+                  {!phone && all.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      aria-pressed={ticking}
+                      className={cn(
+                        'h-8 px-2.5 text-xs [&_svg]:size-3.5',
+                        ticking && 'bg-surface-3 text-ink-1',
+                      )}
+                      onClick={() => (ticking ? leave() : setTicking(true))}
+                    >
+                      <ListChecks /> Several clusters
+                    </Button>
+                  )}
                   {keys.length > 0 && (
                     <GroupMenu keys={keys} group={group} onChange={(key) => set('group', key)} />
                   )}
@@ -335,18 +381,48 @@ export function FleetPage() {
                       <span className="text-xs font-normal text-ink-3 tabular-nums">
                         {grouped.length}
                       </span>
+                      {value !== undefined && !phone && grouped.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => openTogether(grouped.map((i) => i.context.name))}
+                          className="ml-auto text-xs font-medium text-accent-strong hover:underline"
+                        >
+                          Open together
+                        </button>
+                      )}
                     </h2>
-                    <Cards items={grouped} fresh={fresh} removable={removable} added={added} />
+                    <Cards
+                      items={grouped}
+                      fresh={fresh}
+                      removable={removable}
+                      added={added}
+                      tick={ticking ? tick : undefined}
+                    />
                   </section>
                 ))
               ) : (
-                <Cards items={visible} fresh={fresh} removable={removable} added={added} />
+                <Cards
+                  items={visible}
+                  fresh={fresh}
+                  removable={removable}
+                  added={added}
+                  tick={ticking ? tick : undefined}
+                />
               )}
               <WaitingCards waiting={waiting} onShow={(showing) => setConnecting({ showing })} />
             </>
           )}
         </div>
       </main>
+      {ticking && ticked.length > 0 && (
+        <TickedBar
+          count={ticked.length}
+          signIn={all.filter((c) => ticked.includes(c.name) && c.signsInWith && !c.signedIn).length}
+          onOpen={tick.open}
+          onLeave={leave}
+          className="fixed bottom-6"
+        />
+      )}
       {adding && (
         <AddClusterDialog
           kind={adding}
@@ -573,17 +649,28 @@ function useFresh(joins: FleetJoin[]): Set<string> {
   return new Set(joins.flatMap((j) => (j.used && j.used > since ? [j.name] : [])))
 }
 
+/** Clusters picked to open together: on while the bar's Several clusters is. */
+interface Ticking {
+  ticked: readonly string[]
+  toggle: (name: string) => void
+  /** Opens the ticked ones together. */
+  open: () => void
+}
+
 function Cards({
   items,
   fresh,
   removable,
   added,
+  tick,
 }: {
   items: Item[]
   fresh?: Set<string>
   removable?: Set<string>
   /** Of those, the ones added by kubeconfig or token. */
   added?: Set<string>
+  /** Several clusters: a card ticks (a click or Space), and Enter opens the ticked ones. */
+  tick?: Ticking
 }) {
   // Admins change a cluster's settings from its card, and remove one connected from here.
   const wide = useLayout() !== 'phone'
@@ -597,6 +684,7 @@ function Cards({
           key={item.context.name}
           {...item}
           fresh={fresh?.has(item.context.name)}
+          tick={tick}
           onSettings={admin ? () => setSettings(item.context.name) : undefined}
           onRemove={
             admin && removable?.has(item.context.name)
@@ -643,11 +731,18 @@ function ClusterCard({
   summary,
   status,
   fresh,
+  tick,
   onSettings,
   onRemove,
-}: Item & { fresh?: boolean; onSettings?: () => void; onRemove?: () => void }) {
+}: Item & {
+  fresh?: boolean
+  tick?: Ticking
+  onSettings?: () => void
+  onRemove?: () => void
+}) {
   const version = summary?.version
   const { name, title } = context
+  const ticked = tick?.ticked.includes(name) ?? false
   return (
     <div className="group relative flex min-w-0">
       <Link
@@ -655,13 +750,42 @@ function ClusterCard({
         data-fresh={fresh || undefined}
         to={clusterPath(name)}
         aria-label={`${title ? `${title} (${name})` : name}, ${status.label}`}
+        // Several clusters: the card is a box to tick, not a way in.
+        {...(tick && {
+          role: 'checkbox',
+          'aria-checked': ticked,
+          onClick: (event: React.MouseEvent) => {
+            event.preventDefault()
+            tick.toggle(name)
+          },
+          onKeyDown: (event: React.KeyboardEvent) => {
+            if (event.key === ' ') {
+              event.preventDefault()
+              tick.toggle(name)
+            } else if (event.key === 'Enter') {
+              event.preventDefault()
+              tick.open()
+            }
+          },
+        })}
         className={cn(
           '@container flex min-w-0 flex-1 flex-col gap-3 rounded-xl border border-line bg-surface-2 p-4 shadow-panel transition-colors hover:border-line-strong hover:bg-surface',
           // Just connected: it lands tinted, fading to its own.
           fresh ? 'animate-landed' : 'animate-rise',
+          ticked && 'border-accent bg-accent-soft/40 hover:border-accent',
         )}
       >
         <div className="flex min-w-0 items-start gap-2.5">
+          {tick && (
+            <input
+              type="checkbox"
+              aria-hidden
+              tabIndex={-1}
+              checked={ticked}
+              onChange={() => undefined}
+              className="pointer-events-none mt-1 size-4 shrink-0 accent-[var(--accent)]"
+            />
+          )}
           <StatusDot health={status.health} className="mt-[7px]" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-semibold text-ink-1">

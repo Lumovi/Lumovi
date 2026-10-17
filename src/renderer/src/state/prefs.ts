@@ -48,6 +48,12 @@ interface Prefs {
   compareNoise: boolean
   setCompareNoise: (compareNoise: boolean) => void
   /**
+   * The set of clusters last listed together, by context: the sidebar's Several clusters opens it
+   * again. (One that signs in, remembered, is still read only once it's opened on the page.)
+   */
+  severalSet: string[]
+  setSeveralSet: (contexts: string[]) => void
+  /**
    * What was chosen for each list's columns, by `<context>/<list>` (a kind, or a page's own list:
    * "workloads", "helm", a plugin's).
    */
@@ -128,6 +134,8 @@ export const usePrefs = create<Prefs>()(
       setShowHidden: (showHidden) => set({ showHidden }),
       compareNoise: false,
       setCompareNoise: (compareNoise) => set({ compareNoise }),
+      severalSet: [],
+      setSeveralSet: (severalSet) => set({ severalSet }),
       createSide: 'form',
       setCreateSide: (createSide) => set({ createSide }),
       eventsTabAs: 'list',
