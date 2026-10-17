@@ -61,6 +61,9 @@ export function OverviewPage() {
   const statefulSets = useList('StatefulSet')
   const daemonSets = useList('DaemonSet')
   const events = useList('Event')
+  // Quotas nearly full or full: what a rollout that stalls often comes down to. (Not read, not
+  // said: a person whose access doesn't list them has the rest of the page.)
+  const quotas = useList('ResourceQuota')
   const podMetrics = useMetrics('pods', namespaces)
   const usage = useNodeUsage()
   const version = useVersion(context)
@@ -145,7 +148,20 @@ export function OverviewPage() {
 
       <div className="grid animate-rise gap-4 [animation-delay:180ms] @4xl:grid-cols-12">
         <Card title="Needs attention" className="@4xl:col-span-7">
-          <Body query={pods}>{(data) => <Attention pods={data} workloads={workloads} />}</Body>
+          <Body query={pods}>
+            {(data) => (
+              <Attention
+                pods={data}
+                workloads={[
+                  ...workloads,
+                  ...(quotas.data ?? []).map((object) => ({
+                    kind: 'ResourceQuota' as ResourceKind,
+                    object,
+                  })),
+                ]}
+              />
+            )}
+          </Body>
         </Card>
         <Card title="Recent warnings" className="@4xl:col-span-5">
           <Body query={events}>{(data) => <Warnings events={data} />}</Body>

@@ -18,7 +18,7 @@ spec:
   version: 1.0.0
   needs: { lumovi: 1.0.0 }
   groups: [example.com, toys.example.org]
-  shows: [{ kind: LimitRange }]
+  shows: [{ kind: PodTemplate }]
   views:
     - kinds: [{ group: example.com, kind: Widget }]
       actions:
@@ -33,7 +33,7 @@ spec:
         - name: Make an item
           create: { apiVersion: example.com/v1, kind: Item, metadata: { generateName: i- } }
     - kinds: [{ group: toys.example.org, kind: '*' }]
-    - kinds: [{ kind: LimitRange }]
+    - kinds: [{ kind: PodTemplate }]
   reads:
     - group: ''
       kind: Node
@@ -83,7 +83,7 @@ test('a plugin’s entry says what it may change and create, what it reads and s
   await expect(changes).toContainText('Creates: Widget and Item, each one of its own kinds.')
 
   // A kind of Kubernetes' own it only shows, named as the cluster names it.
-  await expect(reads).toContainText('LimitRanges, which it shows and can’t change.')
+  await expect(reads).toContainText('PodTemplates, which it shows and can’t change.')
   // What its code is handed: with their status, warning events and usage where the file says
   // so, and only the fields where it doesn't.
   await expect(reads).toContainText(

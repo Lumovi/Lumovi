@@ -19,6 +19,7 @@ import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { managedBy, type Managers } from '@renderer/lib/managers'
 import { ManagerCell, ManagerFact, managerText } from '@renderer/features/details/ManagedBy'
+import { fullestSort, fullestText, limitTypes, QuotaFullest } from '../quotas/parts'
 
 export interface CellContext {
   /** Live usage keyed by `metricsKey`, when the metrics API is available. */
@@ -494,7 +495,27 @@ const bindingColumns: Column[] = [
   },
 ]
 
+/** A quota's fullest resource: its key, its % and its meter. */
+const fullestColumn: Column = {
+  id: 'fullest',
+  header: 'Fullest',
+  width: 'minmax(180px, 2fr)',
+  cell: (o) => <QuotaFullest quota={o} />,
+  text: (o) => fullestText(o),
+  sort: (o) => fullestSort(o),
+}
+
 const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
+  ResourceQuota: [fullestColumn],
+  LimitRange: [
+    {
+      id: 'types',
+      header: 'Types',
+      width: 'minmax(160px, 1fr)',
+      cell: (o) => plain(limitTypes(o)),
+      text: (o) => limitTypes(o),
+    },
+  ],
   Pod: podColumns,
   Node: nodeColumns,
   Deployment: [readyColumn, imagesColumn],

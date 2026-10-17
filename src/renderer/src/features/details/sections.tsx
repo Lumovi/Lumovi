@@ -15,10 +15,22 @@ import type { Health } from '@renderer/lib/health'
 import { allocatable } from '@renderer/lib/usage'
 import { MASK } from './YamlTab'
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string
+  /** Said at the right of its heading, in its own case ("requests.memory is 93% used"). */
+  aside?: ReactNode
+  children: ReactNode
+}) {
   return (
     <section className="px-5 py-4 phone:px-4">
-      <h3 className="mb-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase">{title}</h3>
+      <div className="mb-2.5 flex items-baseline justify-between gap-4">
+        <h3 className="text-2xs font-medium tracking-wider text-ink-3 uppercase">{title}</h3>
+        {aside && <span className="min-w-0 truncate text-xs text-ink-3">{aside}</span>}
+      </div>
       {children}
     </section>
   )

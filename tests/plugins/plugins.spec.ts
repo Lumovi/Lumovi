@@ -1916,11 +1916,24 @@ test('what a plugin adds is written as the format has it, and held to its number
       ),
       'rollouts.yaml: spec.tabs[1].kinds[0]: Rollout.example.com already has a tab of this plugin’s, spec.tabs[0]',
     ],
-    // Nor one it only shows: a plugin with views of Endpoints and LimitRanges (Kubernetes' own,
+    // Kinds with pages of their own are no plugin's to show: quotas and limit ranges among them.
+    [
+      adding(
+        `${PAGES}  shows: [{ kind: ResourceQuota }, { kind: LimitRange }]\n  views:\n    - kinds: [{ kind: ResourceQuota }]\n    - kinds: [{ kind: LimitRange }]\n`,
+      ),
+      'rollouts.yaml: spec.shows[0]: ResourceQuota has a page of its own, so it can’t be in a plugin',
+    ],
+    [
+      adding(
+        `${PAGES}  shows: [{ kind: ResourceQuota }, { kind: LimitRange }]\n  views:\n    - kinds: [{ kind: ResourceQuota }]\n    - kinds: [{ kind: LimitRange }]\n`,
+      ),
+      'rollouts.yaml: spec.shows[1]: LimitRange has a page of its own, so it can’t be in a plugin',
+    ],
+    // Nor one it only shows: a plugin with views of Endpoints and PodTemplates (Kubernetes' own,
     // which it may show) can't put a tab on them, whatever the door would let its code read.
     [
       adding(
-        `${PAGES}  shows: [{ kind: Endpoints }, { kind: LimitRange }]\n  tabs:\n    - { id: ends, title: Steps, kinds: [{ kind: Endpoints }] }\n  views:\n    - kinds: [{ kind: Endpoints }]\n    - kinds: [{ kind: LimitRange }]\n`,
+        `${PAGES}  shows: [{ kind: Endpoints }, { kind: PodTemplate }]\n  tabs:\n    - { id: ends, title: Steps, kinds: [{ kind: Endpoints }] }\n  views:\n    - kinds: [{ kind: Endpoints }]\n    - kinds: [{ kind: PodTemplate }]\n`,
       ),
       'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is only on the plugin’s own kinds, and Endpoints is Kubernetes’',
     ],

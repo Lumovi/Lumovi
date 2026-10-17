@@ -83,14 +83,13 @@ const MORE_KINDS: Served[] = [
     verbs: ALL_VERBS,
   },
   {
-    kind: 'LimitRange',
-    apiKind: 'LimitRange',
-    plural: 'limitranges',
+    kind: 'PodTemplate',
+    apiKind: 'PodTemplate',
+    plural: 'podtemplates',
     group: '',
     version: 'v1',
     namespaced: true,
-    label: 'LimitRanges',
-    shortNames: ['limits'],
+    label: 'PodTemplates',
     verbs: ALL_VERBS,
   },
   {
@@ -663,7 +662,7 @@ const SHARED_SCHEMAS: Record<string, Json> = {
 /** Schemas of the kinds that aren't custom, by group/version (only those the tests open). */
 const BUILTIN_SCHEMAS: Record<string, Record<string, Json>> = {
   'api/v1': {
-    // Endpoints, but no LimitRange: a document that doesn't describe every kind in its group.
+    // Endpoints, but no PodTemplate: a document that doesn't describe every kind in its group.
     'io.k8s.api.core.v1.Endpoints': {
       type: 'object',
       description: 'Endpoints is a collection of endpoints that implement the actual service.',

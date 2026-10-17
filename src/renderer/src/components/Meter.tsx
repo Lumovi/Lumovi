@@ -21,6 +21,16 @@ export function severity(ratio: number): Severity {
   return ratio >= 0.75 ? 'warn' : 'normal'
 }
 
+/**
+ * A quota's: nothing to say until it's nearly full (90%), and critical once full. By its % floored,
+ * as it's written: 99.6% is 99%, still nearly full.
+ */
+function quotaLevel(ratio: number): Severity {
+  const floored = Math.floor(ratio * 100 + 1e-9)
+  if (floored >= 100) return 'critical'
+  return floored >= 90 ? 'warn' : 'normal'
+}
+
 /** For progress toward a goal, like ready replicas: full is good. */
 function readiness(ratio: number): Severity {
   if (ratio >= 1) return 'good'
@@ -43,18 +53,27 @@ export function Meter({
   label: string
   marker?: { value: number; label: string }
   className?: string
-  /** `usage` warns as it fills up; `readiness` is good when full. */
-  variant?: 'usage' | 'readiness'
+  /**
+   * `usage` warns as it fills up; `readiness` is good when full; `quota` says nothing until it's
+   * nearly full, its % floored (spoken as it's written, the real one past 100).
+   */
+  variant?: 'usage' | 'readiness' | 'quota'
 }) {
-  const level = variant === 'usage' ? severity(value) : readiness(value)
+  const level =
+    variant === 'usage'
+      ? severity(value)
+      : variant === 'quota'
+        ? quotaLevel(value)
+        : readiness(value)
+  const floored = Math.floor(value * 100 + 1e-9)
   return (
     <div
       role="meter"
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(value * 100)}
-      aria-valuetext={percent(value)}
+      aria-valuenow={variant === 'quota' ? Math.min(100, floored) : Math.round(value * 100)}
+      aria-valuetext={variant === 'quota' ? `${floored}%` : percent(value)}
       data-severity={level}
       className={cn('relative h-1.5 w-full rounded-full', TRACK[level], className)}
     >

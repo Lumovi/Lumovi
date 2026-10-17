@@ -61,6 +61,12 @@ const NAMES: Partial<Record<BuiltinKind, Partial<Record<Health, string>>>> = {
     neutral: 'Scaled to zero',
   },
   Namespace: { healthy: 'Active', warning: 'Terminating' },
+  ResourceQuota: {
+    healthy: 'Within quota',
+    warning: 'Nearly full',
+    critical: 'Full',
+    neutral: 'Not counted yet',
+  },
   // (By its certificate: see lib/certificates.)
   Secret: { critical: 'Not valid', warning: 'Expires soon' },
 }

@@ -13,6 +13,13 @@ import { ManagedNotice } from './ManagedBy'
 import { ObjectLink } from './ObjectLink'
 import { LAST_APPLIED } from './YamlTab'
 import {
+  LimitRangeLimits,
+  NamespaceLimits,
+  QuotaAppliesTo,
+  QuotaRefusalNotice,
+  QuotaUsage,
+} from '../quotas/parts'
+import {
   Conditions,
   Containers,
   DataEntries,
@@ -143,10 +150,22 @@ function CustomSections({ object }: { object: KubeObject }) {
 const EXTRA_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }) => ReactNode>> = {
   Pod: PodSections,
   Node: NodeSections,
-  Deployment: TemplateSection,
+  // (One a quota stops says so first.)
+  Deployment: ({ object }) => (
+    <>
+      <QuotaRefusalNotice object={object} />
+      <TemplateSection object={object} />
+    </>
+  ),
   StatefulSet: TemplateSection,
   DaemonSet: TemplateSection,
-  ReplicaSet: TemplateSection,
+  ReplicaSet: ({ object }) => (
+    <>
+      <QuotaRefusalNotice object={object} />
+      <TemplateSection object={object} />
+    </>
+  ),
+  Namespace: ({ object }) => <NamespaceLimits namespace={object} />,
   Job: TemplateSection,
   CronJob: TemplateSection,
   Service: ({ object }) => (
@@ -174,15 +193,28 @@ const EXTRA_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }
   ServiceAccount: AccountBindings,
 }
 
+/** What comes first on a kind's Overview, before its details: what it's for. */
+const FIRST_SECTIONS: Partial<Record<BuiltinKind, (props: { object: KubeObject }) => ReactNode>> = {
+  ResourceQuota: ({ object }) => (
+    <>
+      <QuotaUsage quota={object} />
+      <QuotaAppliesTo quota={object} />
+    </>
+  ),
+  LimitRange: ({ object }) => <LimitRangeLimits range={object} />,
+}
+
 export function OverviewTab({ object }: { object: KubeObject }) {
   const kind = kindOf(object)
   const Extra = isBuiltinKind(kind) ? EXTRA_SECTIONS[kind] : CustomSections
+  const First = isBuiltinKind(kind) ? FIRST_SECTIONS[kind] : undefined
   const conditions = object.status?.conditions ?? []
   const labels = object.metadata.labels ?? {}
   const annotations = Object.entries(object.metadata.annotations ?? {})
   return (
     <div className="divide-y divide-line pb-6">
       <ManagedNotice object={object} />
+      {First && <First object={object} />}
       <Section title="Details">
         <KeyValueGrid entries={factsFor(object)} />
       </Section>

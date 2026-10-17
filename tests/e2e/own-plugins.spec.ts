@@ -397,24 +397,24 @@ const KUBERNETES: Record<string, string> = {
   'limits.yaml': plugin(
     'limits',
     'LimitsUnused',
-    '  shows: [{ kind: LimitRange }]\n',
-    `    - kinds: [{ kind: LimitRange }]
-      columns: [{ name: Limits, path: '.spec.limits[*].type' }]
+    '  shows: [{ kind: PodTemplate }]\n',
+    `    - kinds: [{ kind: PodTemplate }]
+      columns: [{ name: Containers, path: '.template.spec.containers[*].name' }]
       status: [{ health: critical, label: Too tight }]
 `,
   ),
   'acts.yaml': plugin(
     'acts',
     'ActsUnused',
-    '  shows: [{ kind: LimitRange }]\n',
-    `    - kinds: [{ kind: LimitRange }]
+    '  shows: [{ kind: PodTemplate }]\n',
+    `    - kinds: [{ kind: PodTemplate }]
       actions:
         - name: Loosen
           confirm: Sure?
-          patch: { spec: { limits: [] } }
+          patch: { template: { metadata: { labels: { loosened: 'yes' } } } }
 `,
   ),
-  'unsaid.yaml': plugin('unsaid', 'UnsaidUnused', '', '    - kinds: [{ kind: LimitRange }]\n'),
+  'unsaid.yaml': plugin('unsaid', 'UnsaidUnused', '', '    - kinds: [{ kind: PodTemplate }]\n'),
   'paged.yaml': plugin(
     'paged',
     'PagedUnused',
@@ -424,7 +424,7 @@ const KUBERNETES: Record<string, string> = {
   'shows-wrong.yaml': plugin(
     'shows-wrong',
     'ShowsUnused',
-    '  shows: [{ kind: Pod }, { group: example.com, kind: Widget }, { group: apiextensions.k8s.io, kind: CustomResourceDefinition }, { kind: LimitRange }]\n  label: Shows\n  kinds: [{ kind: LimitRange }]\n',
+    '  shows: [{ kind: Pod }, { group: example.com, kind: Widget }, { group: apiextensions.k8s.io, kind: CustomResourceDefinition }, { kind: PodTemplate }]\n  label: Shows\n  kinds: [{ kind: PodTemplate }]\n',
   ),
   // A replacement that can't be used itself: Lumovi's stays, and what would have lost to the
   // replacement is judged without it.
@@ -731,14 +731,14 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
     // Kubernetes' own kinds: shown only, by a plugin that says so, and never one with a page or
     // one Lumovi itself shows.
     'acts.yaml: spec.views[1].actions: a view of Kubernetes’ own kind only shows it, so it can’t have actions',
-    'unsaid.yaml: spec.views[1].kinds[0]: LimitRange is Kubernetes’ own: to show it, name it under spec.shows',
+    'unsaid.yaml: spec.views[1].kinds[0]: PodTemplate is Kubernetes’ own: to show it, name it under spec.shows',
     'paged.yaml: spec.views[1].kinds[0]: Pod has a page of its own, so it can’t be in a plugin',
     'paged.yaml: spec.views[1].kinds[1]: CustomResourceDefinition.apiextensions.k8s.io is shown by Lumovi itself, so it can’t be in a plugin',
     'shows-wrong.yaml: spec.shows[0]: Pod has a page of its own, so it can’t be in a plugin',
     'shows-wrong.yaml: spec.shows[1]: Widget.example.com isn’t Kubernetes’ own: a view names it once example.com is in spec.groups',
     'shows-wrong.yaml: spec.shows[2]: CustomResourceDefinition.apiextensions.k8s.io is shown by Lumovi itself, so it can’t be in a plugin',
-    'shows-wrong.yaml: spec.shows[3]: LimitRange isn’t shown by any of its views',
-    'shows-wrong.yaml: spec.kinds[0]: LimitRange is Kubernetes’ own, so it can’t be under a plugin’s place in the sidebar',
+    'shows-wrong.yaml: spec.shows[3]: PodTemplate isn’t shown by any of its views',
+    'shows-wrong.yaml: spec.kinds[0]: PodTemplate is Kubernetes’ own, so it can’t be under a plugin’s place in the sidebar',
     'needy.yaml: spec.shows: should be a list, not a string',
     'slashed.yaml: spec.groups[1]: "apps/x" should be an API group’s name, like cert-manager.io',
     'slashed.yaml: spec.groups[2]: "APPS" should be an API group’s name',
@@ -861,13 +861,13 @@ test('plugins of your own: their views are used before Lumovi’s, and what’s 
   // A kind of Kubernetes' own, shown by the plugin that says it shows it: its columns and its
   // status in its own list, and no number of Lumovi's own moved by what it calls them.
   const kubernetes = page.getByRole('region', { name: 'Kubernetes' })
-  await expect(kubernetes.getByRole('row').filter({ hasText: 'LimitRanges' })).toContainText(
+  await expect(kubernetes.getByRole('row').filter({ hasText: 'PodTemplates' })).toContainText(
     'limits.yaml',
   )
-  await kubernetes.getByRole('button', { name: /^LimitRanges\b/ }).click()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('LimitRanges')
-  await expect(page.getByRole('columnheader', { name: 'Limits' })).toBeVisible()
-  await expect(page.getByRole('grid', { name: 'LimitRanges' })).toContainText('Too tight')
+  await kubernetes.getByRole('button', { name: /^PodTemplates\b/ }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('PodTemplates')
+  await expect(page.getByRole('columnheader', { name: 'Containers' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: 'PodTemplates' })).toContainText('Too tight')
   await sidebar(page).getByRole('link', { name: 'Overview' }).click()
   await expect(page.getByRole('region', { name: 'Nodes ready' })).toContainText('3/4')
   await expect(page.getByRole('region', { name: 'Workloads healthy' })).toContainText('8/12')
@@ -1460,11 +1460,12 @@ spec:
   await expect(page.getByText('In use in place of Lumovi’s', { exact: false })).toHaveCount(2)
   await expect(nav.getByRole('link', { name: 'GitOps', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Flux', exact: true })).toHaveCount(0)
-  // One that says where it goes sits there, with the custom resources' icon if it has none.
+  // One that says where it goes sits there, last in its group (Configuration's last of Lumovi's
+  // own is Limit Ranges), with the custom resources' icon if it has none.
   const links = await nav.getByRole('link').allTextContents()
   expect(links.findIndex((text) => text.trim() === 'Toys')).toBe(
-    // (Kubernetes' own kinds' links end with their shortcut.)
-    links.findIndex((text) => text.trim().startsWith('Secrets')) + 1,
+    // (Kubernetes' own kinds' links end with their shortcut, where they have one.)
+    links.findIndex((text) => text.trim().startsWith('Limit Ranges')) + 1,
   )
   await nav.getByRole('link', { name: 'Toys', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Toys')
