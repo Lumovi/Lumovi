@@ -4,6 +4,7 @@
  */
 import type { KubeObject } from './api'
 import type { BuiltinKind } from './resources'
+import { fullest, fullestLine, quotaRefusal, quotaUses, useLevel } from './quota'
 
 /**
  * Health is the one status vocabulary used everywhere in the UI. Each level
@@ -157,6 +158,7 @@ export const STATUS_BY_KIND: Partial<Record<BuiltinKind, (object: KubeObject) =>
       ? { health: 'healthy', label: o.status.phase }
       : { health: 'warning', label: o.status?.phase },
   HorizontalPodAutoscaler: autoscalerStatus,
+  ResourceQuota: quotaStatus,
   Event: (o) =>
     o.type === 'Warning'
       ? { health: 'warning', label: 'Warning' }
@@ -176,7 +178,36 @@ function autoscalerStatus(hpa: KubeObject): Status {
 
 function replicaStatusOf(object: KubeObject): Status {
   const { ready, desired } = replicaCounts(object)
+  // Short of its replicas because a quota won't let it make pods: said, with the quota.
+  const refused = ready < desired ? quotaRefusal(object) : undefined
+  if (refused) {
+    const which = refused.resources.length ? ` (${refused.resources.join(', ')})` : ''
+    return {
+      health: 'critical',
+      label: 'Quota exceeded',
+      detail: `${ready} of ${desired} ready: exceeded quota${refused.quota ? ` ${refused.quota}` : ''}${which}`,
+    }
+  }
   return replicaStatus(ready, desired)
+}
+
+/**
+ * A quota by its fullest resource: nearly full from 90%, full at its limit. One the controller
+ * hasn't counted yet says so; one that only forbids things is within quota.
+ */
+function quotaStatus(quota: KubeObject): Status {
+  const uses = quotaUses(quota)
+  if (uses.length > 0 && uses.every((use) => !use.counted)) {
+    return { health: 'neutral', label: 'Not counted yet' }
+  }
+  const top = fullest(uses)
+  const level = top ? useLevel(top) : 'within'
+  if (level === 'within') return { health: 'healthy', label: 'Within quota' }
+  return {
+    health: level === 'full' ? 'critical' : 'warning',
+    label: level === 'full' ? 'Full' : 'Nearly full',
+    detail: fullestLine(top!),
+  }
 }
 
 /** Conditions that say an object is fine, in the order they're looked for. */

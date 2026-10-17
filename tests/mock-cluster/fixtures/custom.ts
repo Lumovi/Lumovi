@@ -842,6 +842,21 @@ export function demoCustomResources(b: Builder, now: number): void {
   b.simple('v1', 'Endpoints', 'storefront', 'shop', 88 * DAY, {
     subsets: [{ addresses: [{ ip: '10.244.1.17' }], ports: [{ port: 8080, protocol: 'TCP' }] }],
   })
+  b.simple('v1', 'PodTemplate', 'batch-runner', 'shop', 88 * DAY, {
+    template: {
+      metadata: { labels: { app: 'batch-runner' } },
+      spec: { containers: [{ name: 'runner', image: 'ghcr.io/acme/batch-runner:2.1.0' }] },
+    },
+  })
+  // Kubernetes' own, with pages of their own: a quota well within its limits (nothing needs
+  // attention), and what a container gets unless it says.
+  b.simple('v1', 'ResourceQuota', 'data-limits', 'data', 88 * DAY, {
+    spec: { hard: { 'requests.cpu': '8', 'requests.memory': '16Gi', pods: '30' } },
+    status: {
+      hard: { 'requests.cpu': '8', 'requests.memory': '16Gi', pods: '30' },
+      used: { 'requests.cpu': '2', 'requests.memory': '5Gi', pods: '6' },
+    },
+  })
   b.simple('v1', 'LimitRange', 'defaults', 'shop', 88 * DAY, {
     spec: { limits: [{ type: 'Container', defaultRequest: { cpu: '100m', memory: '64Mi' } }] },
   })

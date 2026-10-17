@@ -244,7 +244,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
   await expect(custom).toContainText('cert, certs')
   // Two kinds named Gateway, in two groups.
   await expect(custom.getByRole('row').filter({ hasText: 'Gateways' })).toHaveCount(2)
-  await expect(kubernetes).toContainText('LimitRanges')
+  await expect(kubernetes).toContainText('PodTemplates')
   await expect(kubernetes).toContainText('rbac.authorization.k8s.io/v1')
   await expect(kubernetes).toContainText('Pods')
   await expect(page.getByText('32 plugins from Lumovi')).toBeVisible()
@@ -290,7 +290,7 @@ test('every kind the cluster serves, pinned to the sidebar when wanted', async (
 
   // Kinds whose group the OpenAPI documents don't describe, or don't describe in full.
   for (const [label, name, kind] of <[string, string, string][]>[
-    ['LimitRanges', 'defaults', 'LimitRange'],
+    ['PodTemplates', 'batch-runner', 'PodTemplate'],
     ['ControllerRevisions', 'postgres', 'ControllerRevision'],
   ]) {
     await sidebar(page).getByRole('link', { name: 'API resources' }).click()

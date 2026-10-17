@@ -220,6 +220,9 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   ],
   ConfigMap: () => [],
   Secret: (o) => [fact('Type', o.type as string)],
+  // (Their Usage, Applies to and Limits say the rest.)
+  ResourceQuota: () => [],
+  LimitRange: () => [],
   PersistentVolumeClaim: (o) => [
     fact('Capacity', o.status.capacity?.storage),
     fact('Requested', o.spec.resources.requests.storage),

@@ -935,11 +935,11 @@ test('what a plugin adds is written as the format has it, and held to its number
       ),
       'rollouts.yaml: spec.tabs[1].kinds[0]: Rollout.example.com already has a tab of this plugin’s, spec.tabs[0]',
     ],
-    // Nor one it only shows: a plugin with views of Endpoints and LimitRanges (Kubernetes' own,
+    // Nor one it only shows: a plugin with views of Endpoints and PodTemplates (Kubernetes' own,
     // which it may show) can't put a tab on them, whatever the door would let its code read.
     [
       adding(
-        `${PAGES}  shows: [{ kind: Endpoints }, { kind: LimitRange }]\n  tabs:\n    - { id: ends, title: Steps, kinds: [{ kind: Endpoints }] }\n  views:\n    - kinds: [{ kind: Endpoints }]\n    - kinds: [{ kind: LimitRange }]\n`,
+        `${PAGES}  shows: [{ kind: Endpoints }, { kind: PodTemplate }]\n  tabs:\n    - { id: ends, title: Steps, kinds: [{ kind: Endpoints }] }\n  views:\n    - kinds: [{ kind: Endpoints }]\n    - kinds: [{ kind: PodTemplate }]\n`,
       ),
       'rollouts.yaml: spec.tabs[0].kinds[0]: a tab is only on the plugin’s own kinds, and Endpoints is Kubernetes’',
     ],

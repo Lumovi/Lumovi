@@ -310,7 +310,7 @@ function KeepBelow({ target, tab }: { target: ObjectRef; tab: string }) {
 }
 
 /** Kinds that relate to everything in their scope, or to nothing: no map. */
-const MAPLESS = new Set(['Event', 'Namespace'])
+const MAPLESS = new Set(['Event', 'Namespace', 'ResourceQuota', 'LimitRange'])
 const NOT_ON_A_PHONE = new Set(['shell', 'map'])
 
 /** An object's tabs, and what each shows: the panel's, and a kept object's below. */
