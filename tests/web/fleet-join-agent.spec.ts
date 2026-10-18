@@ -207,7 +207,7 @@ test('a private cluster joins with one command, and its agent keeps a token of i
     }),
   ])
   expect(await call(page, 'remove', EDGE)).toEqual({
-    error: `No cluster called ${EDGE} was connected from this page.`,
+    error: `No cluster called “${EDGE}” is here to remove: it was never added, or it’s gone already.`,
   })
 })
 

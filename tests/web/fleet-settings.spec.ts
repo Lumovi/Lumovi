@@ -208,7 +208,7 @@ test('only admins see and change a cluster’s settings, where Lumovi has some',
   expect(await refused({ title: 'Prod\u0000' })).toBe('Its name: No control characters.')
   expect(await refused({ title: 'x'.repeat(101) })).toBe('Its name: Up to 100 characters.')
   expect(await refused({ title: 7 })).toBe('Its name must be text.')
-  expect(await refused({ groups: [''] })).toBe('Its group “”: Enter a group.')
+  expect(await refused({ groups: [''] })).toBe('Its group is empty: name one, or leave it out.')
   // Its name as shown is its own: not another's name, nor what another is shown by.
   expect(await refused({ title: 'PROD-EU' })).toBe(
     'Its name: another cluster is called PROD-EU. Give it a name of its own.',
