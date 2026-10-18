@@ -11,7 +11,8 @@ export interface NodeUsage {
 }
 
 export function allocatable(node: KubeObject): { cpu: number; memory: number; pods: number } {
-  const alloc = node.status.allocatable
+  // (A node that hasn't said yet, as one joining, has nothing to give.)
+  const alloc = node.status?.allocatable ?? {}
   return {
     cpu: parseQuantity(alloc.cpu),
     memory: parseQuantity(alloc.memory),
@@ -47,7 +48,7 @@ export function podReservations(pods: KubeObject[]): { cpu: Reservations; memory
   const result = { cpu: { requests: 0, limits: 0 }, memory: { requests: 0, limits: 0 } }
   for (const pod of pods) {
     if (pod.status?.phase === 'Succeeded' || pod.status?.phase === 'Failed') continue
-    for (const container of pod.spec.containers as {
+    for (const container of (pod.spec?.containers ?? []) as {
       resources?: { requests?: Record<string, string>; limits?: Record<string, string> }
     }[]) {
       // (The API server gives every container its resources, if only {}: a pod read some other

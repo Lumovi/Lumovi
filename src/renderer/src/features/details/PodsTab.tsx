@@ -37,13 +37,13 @@ export function podQuery(object: KubeObject): PodQuery | undefined {
     case 'Node':
       return { fieldSelector: `spec.nodeName=${object.metadata.name}` }
     case 'Service':
-      return labelQuery(object.spec.selector)
+      return labelQuery(object.spec?.selector)
     case 'Deployment':
     case 'StatefulSet':
     case 'DaemonSet':
     case 'ReplicaSet':
     case 'Job':
-      return labelQuery(object.spec.selector.matchLabels)
+      return labelQuery(object.spec?.selector?.matchLabels)
     default:
       // Custom workloads (Argo Rollouts, say) scale pods they select, like Deployments do.
       return resourceFor(kind)?.subresources?.includes('scale')

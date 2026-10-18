@@ -120,7 +120,7 @@ function useBatches(workloads: KubeObject[] | undefined, pods: KubeObject[] | un
     for (const pod of pods) {
       const count = containers.get(pod.metadata.namespace!)
       if (count !== undefined) {
-        containers.set(pod.metadata.namespace!, count + pod.spec.containers.length)
+        containers.set(pod.metadata.namespace!, count + (pod.spec?.containers?.length ?? 0))
       }
     }
     setPlan({ key, batches: batchNamespaces(containers) })

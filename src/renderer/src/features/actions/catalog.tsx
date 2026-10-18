@@ -250,7 +250,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Cordon',
     icon: Ban,
     kinds: ['Node'],
-    when: (node) => !node.spec.unschedulable,
+    when: (node) => !node.spec?.unschedulable,
     access: can('patch'),
     primary: true,
     instant: (node, context) =>
@@ -268,7 +268,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Uncordon',
     icon: CirclePlay,
     kinds: ['Node'],
-    when: (node) => Boolean(node.spec.unschedulable),
+    when: (node) => Boolean(node.spec?.unschedulable),
     access: can('patch'),
     primary: true,
     instant: (node, context) =>
@@ -327,7 +327,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Pause rollout',
     icon: CirclePause,
     kinds: ['Deployment'],
-    when: (d) => !d.spec.paused,
+    when: (d) => !d.spec?.paused,
     access: can('patch'),
     instant: (d, context) =>
       toggle(
@@ -351,7 +351,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Resume rollout',
     icon: CirclePlay,
     kinds: ['Deployment'],
-    when: (d) => Boolean(d.spec.paused),
+    when: (d) => Boolean(d.spec?.paused),
     access: can('patch'),
     primary: true,
     instant: (d, context) =>
@@ -376,7 +376,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Suspend',
     icon: CirclePause,
     kinds: ['CronJob', 'Job'],
-    when: (o) => !o.spec.suspend && !(o.kind === 'Job' && o.status?.completionTime),
+    when: (o) => !o.spec?.suspend && !(o.kind === 'Job' && o.status?.completionTime),
     access: can('patch'),
     instant: (o, context) =>
       toggle(
@@ -393,7 +393,7 @@ export const ACTIONS: readonly Action[] = [
     label: 'Resume',
     icon: CirclePlay,
     kinds: ['CronJob', 'Job'],
-    when: (o) => Boolean(o.spec.suspend),
+    when: (o) => Boolean(o.spec?.suspend),
     access: can('patch'),
     primary: true,
     instant: (o, context) =>
@@ -444,7 +444,7 @@ export const ACTIONS: readonly Action[] = [
           label: 'Forward a port…',
           icon: Cable,
           kinds: ['Pod', 'Service'],
-          when: (o: KubeObject) => (o.kind === 'Pod' ? running(o) : Boolean(o.spec.selector)),
+          when: (o: KubeObject) => (o.kind === 'Pod' ? running(o) : Boolean(o.spec?.selector)),
           access: can('create', 'portforward', 'Pod'),
           safe: true,
           dialog: PortForwardDialog,

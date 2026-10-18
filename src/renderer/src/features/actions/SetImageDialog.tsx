@@ -18,9 +18,11 @@ interface Container {
 
 /** The pod template: CronJobs keep theirs one level deeper, in the job template. */
 function podSpec(object: KubeObject) {
-  return object.kind === 'CronJob'
-    ? object.spec.jobTemplate.spec.template.spec
-    : object.spec.template.spec
+  return (
+    (object.kind === 'CronJob'
+      ? object.spec?.jobTemplate?.spec?.template?.spec
+      : object.spec?.template?.spec) ?? {}
+  )
 }
 
 /** Wraps a pod spec patch in the path to the object's pod template. */
@@ -40,7 +42,7 @@ function usePastImages(object: KubeObject): string[] {
   const images = new Set<string>()
   for (const rs of replicaSets ?? []) {
     if (!rs.metadata.ownerReferences?.some((ref) => ref.uid === object.metadata.uid)) continue
-    for (const c of rs.spec.template.spec.containers) images.add(c.image)
+    for (const c of rs.spec?.template?.spec?.containers ?? []) images.add(c.image)
   }
   return [...images]
 }
@@ -54,7 +56,7 @@ export function SetImageDialog({ object, onClose }: ActionProps) {
   const spec = podSpec(object)
   // The app's own containers first: they're what usually changes.
   const containers: Container[] = [
-    ...spec.containers.map((c: Container) => ({ ...c, init: false })),
+    ...(spec.containers ?? []).map((c: Container) => ({ ...c, init: false })),
     ...(spec.initContainers ?? []).map((c: Container) => ({ ...c, init: true })),
   ]
   // When the dialog first focuses the first image, its tag is selected, ready to be

@@ -108,17 +108,19 @@ export function workloadUsage(
 /** The autoscaler that scales each workload, by workload key. */
 export function autoscalers(hpas: KubeObject[]): Map<string, KubeObject> {
   return new Map(
-    hpas.map((hpa) => {
-      const target = hpa.spec.scaleTargetRef as { kind: string; name: string }
-      return [workloadKey(target.kind, hpa.metadata.namespace, target.name), hpa]
+    hpas.flatMap((hpa) => {
+      const target = hpa.spec?.scaleTargetRef as { kind?: string; name?: string } | undefined
+      return target?.kind && target.name
+        ? [[workloadKey(target.kind, hpa.metadata.namespace, target.name), hpa] as const]
+        : []
     }),
   )
 }
 
 /** The containers a workload runs (from its pod template). */
 export function containersOf(object: KubeObject): { name: string; image: string }[] {
-  if (object.kind === 'Pod') return object.spec.containers
+  if (object.kind === 'Pod') return object.spec?.containers ?? []
   const template =
-    object.kind === 'CronJob' ? object.spec.jobTemplate.spec.template : object.spec.template
-  return template.spec.containers
+    object.kind === 'CronJob' ? object.spec?.jobTemplate?.spec?.template : object.spec?.template
+  return template?.spec?.containers ?? []
 }

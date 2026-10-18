@@ -298,7 +298,11 @@ function searchText(object: KubeObject, cluster: string): string {
   const labels = Object.entries(object.metadata.labels ?? {}).map(([k, v]) => `${k}=${v}`)
   const event =
     object.kind === 'Event'
-      ? [object.reason, object.message, (object.involvedObject as { name?: string }).name]
+      ? [
+          object.reason,
+          object.message,
+          (object.involvedObject as { name?: string } | undefined)?.name,
+        ]
       : []
   return [object.metadata.name, object.metadata.namespace, cluster, ...labels, ...event]
     .join(' ')

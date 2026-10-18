@@ -708,7 +708,12 @@ function Warnings({ events }: { events: KubeObject[] }) {
   return (
     <ul aria-label="Recent warnings" className="-mx-2 space-y-0.5 phone:space-y-0">
       {warnings.map((event) => {
-        const target = event.involvedObject as {
+        // (A warning about no object in particular opens itself.)
+        const target = (event.involvedObject ?? {
+          kind: 'Event',
+          name: event.metadata.name,
+          namespace: event.metadata.namespace,
+        }) as {
           kind: ResourceKind
           name: string
           namespace?: string

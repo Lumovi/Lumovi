@@ -160,7 +160,7 @@ export function ApplyDialog({
     .filter(Boolean)
     .join(', and ')
   const rollout =
-    workload.spec.updateStrategy?.type === 'OnDelete'
+    workload.spec?.updateStrategy?.type === 'OnDelete'
       ? 'Its update strategy is OnDelete: pods keep their resources until they’re deleted.'
       : 'Its pods are replaced with the new resources, following its rollout strategy.'
 

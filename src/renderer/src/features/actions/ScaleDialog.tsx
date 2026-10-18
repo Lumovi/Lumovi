@@ -34,7 +34,7 @@ export function ScaleDialog({ object, onClose }: ActionProps) {
     gcTime: 0,
   })
   // The API server defaults built-in workloads' replicas, so they're always set.
-  const current: number | undefined = builtin ? object.spec.replicas : scale.data?.spec.replicas
+  const current: number | undefined = builtin ? object.spec?.replicas : scale.data?.spec.replicas
   const scaleTo = (to: number): ClusterChange => ({
     ...target(object),
     change: {
@@ -76,7 +76,7 @@ function ScaleForm({
   const { pending, error, submit } = useSubmit(onClose)
   const autoscaler = useList('HorizontalPodAutoscaler', { namespace }).data?.find(
     (hpa) =>
-      hpa.spec.scaleTargetRef?.kind === object.kind && hpa.spec.scaleTargetRef?.name === name,
+      hpa.spec?.scaleTargetRef?.kind === object.kind && hpa.spec?.scaleTargetRef?.name === name,
   )
 
   const command = (to?: number) =>
@@ -154,7 +154,7 @@ function ScaleForm({
           <span>
             The autoscaler{' '}
             <span className="font-medium text-ink-1">{autoscaler.metadata.name}</span> keeps {name}{' '}
-            between {autoscaler.spec.minReplicas} and {autoscaler.spec.maxReplicas} replicas, and
+            between {autoscaler.spec?.minReplicas} and {autoscaler.spec?.maxReplicas} replicas, and
             may change this again.
           </span>
         </p>

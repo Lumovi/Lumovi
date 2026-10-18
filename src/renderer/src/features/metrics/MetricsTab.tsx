@@ -55,9 +55,11 @@ function reservations(containers: Container[], resource: 'cpu' | 'memory'): Char
 }
 
 function templateOf(object: KubeObject): Container[] {
-  return object.kind === 'CronJob'
-    ? object.spec.jobTemplate.spec.template.spec.containers
-    : object.spec.template.spec.containers
+  return (
+    (object.kind === 'CronJob'
+      ? object.spec?.jobTemplate?.spec?.template?.spec?.containers
+      : object.spec?.template?.spec?.containers) ?? []
+  )
 }
 
 const CPU_EMPTY =
@@ -173,7 +175,7 @@ function PodCharts({ object, selection, zoom }: ChartsProps) {
   const key = ['pod', namespace, name]
   const usage = useUsage(key, matchers, ['container'], selection)
   const restarts = useRestarts(key, matchers, 'container', selection)
-  const containers: Container[] = object.spec.containers
+  const containers: Container[] = object.spec?.containers ?? []
   const container = (labels: Record<string, string>) => labels.container
   return (
     <>
@@ -336,7 +338,7 @@ function NodeCharts({ object, selection, zoom }: ChartsProps) {
     selection,
   )
   const allocatable = (resource: 'cpu' | 'memory') => [
-    { label: 'Allocatable', value: parseQuantity(object.status.allocatable[resource]) },
+    { label: 'Allocatable', value: parseQuantity(object.status?.allocatable?.[resource]) },
   ]
   const namespace = (labels: Record<string, string>) => labels.namespace
   return (

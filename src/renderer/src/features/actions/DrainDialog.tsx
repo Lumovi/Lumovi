@@ -72,7 +72,7 @@ function planFor(pod: KubeObject, leaveDaemonSets: boolean): Plan {
     return { kind: 'skip', reason: 'Static pod, managed by the kubelet' }
   if (!owner)
     return { kind: 'needs', option: 'unmanaged', reason: 'No controller: it won’t come back' }
-  if (pod.spec.volumes?.some((v: { emptyDir?: unknown }) => v.emptyDir)) {
+  if (pod.spec?.volumes?.some((v: { emptyDir?: unknown }) => v.emptyDir)) {
     return { kind: 'needs', option: 'localData', reason: 'Its emptyDir data is lost' }
   }
   return { kind: 'evict' }
@@ -281,7 +281,7 @@ export function DrainDialog({ object, onClose }: ActionProps) {
     setStartedAt(Date.now())
     setNow(Date.now())
     setError(undefined)
-    if (!object.spec.unschedulable) {
+    if (!object.spec?.unschedulable) {
       setCordoning(true)
       const cordoned = await change(
         {

@@ -127,8 +127,12 @@ const WORKLOADS = new Set<ResourceKind>([
 ])
 
 /** A workload's pod template. */
-function templateOf(object: KubeObject): { metadata?: KubeObject['metadata']; spec: PodSpec } {
-  return object.kind === 'CronJob' ? object.spec.jobTemplate.spec.template : object.spec.template
+function templateOf(
+  object: KubeObject,
+): { metadata?: KubeObject['metadata']; spec?: PodSpec } | undefined {
+  return object.kind === 'CronJob'
+    ? object.spec?.jobTemplate?.spec?.template
+    : object.spec?.template
 }
 
 interface PodSpec {
@@ -147,9 +151,10 @@ interface Container {
 
 /** The ConfigMaps, Secrets, claims and service account a pod spec refers to. */
 export function specRefs(
-  spec: PodSpec,
+  spec: PodSpec | undefined,
 ): { kind: ResourceKind; name: string; relation: Relation }[] {
   const refs: { kind: ResourceKind; name: string; relation: Relation }[] = []
+  if (!spec) return refs
   for (const volume of spec.volumes ?? []) {
     // Kubernetes gives every pod its service account's token and the cluster's CA this way.
     if (volume.name?.startsWith('kube-api-access-')) continue
@@ -170,7 +175,7 @@ export function specRefs(
       if (source.secret) refs.push({ kind: 'Secret', name: source.secret.name, relation: 'mounts' })
     }
   }
-  for (const c of [...(spec.initContainers ?? []), ...spec.containers]) {
+  for (const c of [...(spec.initContainers ?? []), ...(spec.containers ?? [])]) {
     for (const { valueFrom } of c.env ?? []) {
       if (valueFrom?.configMapKeyRef) {
         refs.push({ kind: 'ConfigMap', name: valueFrom.configMapKeyRef.name, relation: 'uses' })
@@ -324,7 +329,7 @@ export function buildMap({
       if (
         w.metadata.namespace === namespace &&
         !ownerOf(w) &&
-        selects(selector, templateOf(w).metadata?.labels)
+        selects(selector, templateOf(w)?.metadata?.labels)
       ) {
         found.add(of(w))
       }
@@ -339,20 +344,20 @@ export function buildMap({
     const owner = ownerOf(object)
     if (owner) edge(node(kindFor(owner.apiVersion, owner.kind), owner.name, ns), self, 'owns')
     if (kind === 'Pod') {
-      if (object.spec.nodeName) edge(self, node('Node', object.spec.nodeName), 'runs')
+      if (object.spec?.nodeName) edge(self, node('Node', object.spec?.nodeName), 'runs')
       for (const ref of specRefs(object.spec)) {
         edge(self, node(ref.kind, ref.name, ns), ref.relation)
       }
     }
     if (WORKLOADS.has(kind)) {
-      for (const ref of specRefs(templateOf(object).spec)) {
+      for (const ref of specRefs(templateOf(object)?.spec)) {
         edge(self, node(ref.kind, ref.name, ns), ref.relation)
       }
     }
     switch (kind) {
       case 'StatefulSet': {
         // Its pods' claims, made from its claim templates: <template>-<name>-<ordinal>.
-        const prefixes: string[] = (object.spec.volumeClaimTemplates ?? []).map(
+        const prefixes: string[] = (object.spec?.volumeClaimTemplates ?? []).map(
           (t: KubeObject) => `${t.metadata.name}-${object.metadata.name}-`,
         )
         for (const claim of objects) {
@@ -369,39 +374,39 @@ export function buildMap({
       }
       case 'Service': {
         // Without a selector, its endpoints are managed by hand (or it's an ExternalName).
-        if (Object.keys(object.spec.selector ?? {}).length === 0) break
+        if (Object.keys(object.spec?.selector ?? {}).length === 0) break
         self.selected = pods.filter(
           (p) =>
             p.metadata.namespace === ns &&
-            selects({ matchLabels: object.spec.selector }, p.metadata.labels),
+            selects({ matchLabels: object.spec?.selector }, p.metadata.labels),
         )
-        for (const target of picks({ matchLabels: object.spec.selector }, ns)) {
+        for (const target of picks({ matchLabels: object.spec?.selector }, ns)) {
           edge(self, target, 'selects')
         }
         break
       }
       case 'Ingress': {
         const backends = [
-          object.spec.defaultBackend,
-          ...((object.spec.rules ?? []) as IngressRule[]).flatMap((r) =>
+          object.spec?.defaultBackend,
+          ...((object.spec?.rules ?? []) as IngressRule[]).flatMap((r) =>
             (r.http?.paths ?? []).map((p) => p.backend),
           ),
         ]
         for (const backend of backends) {
           if (backend?.service) edge(self, node('Service', backend.service.name, ns), 'routes')
         }
-        for (const tls of object.spec.tls ?? []) {
+        for (const tls of object.spec?.tls ?? []) {
           if (tls.secretName) edge(self, node('Secret', tls.secretName, ns), 'uses')
         }
         break
       }
       case HTTP_ROUTE: {
-        for (const parent of object.spec.parentRefs ?? []) {
+        for (const parent of object.spec?.parentRefs ?? []) {
           if ((parent.kind ?? 'Gateway') === 'Gateway') {
             edge(node(GATEWAY, parent.name, parent.namespace ?? ns), self, 'routes')
           }
         }
-        for (const rule of object.spec.rules ?? []) {
+        for (const rule of object.spec?.rules ?? []) {
           for (const ref of rule.backendRefs ?? []) {
             if ((ref.kind ?? 'Service') === 'Service') {
               edge(self, node('Service', ref.name, ref.namespace ?? ns), 'routes')
@@ -411,27 +416,29 @@ export function buildMap({
         break
       }
       case 'HorizontalPodAutoscaler': {
-        const target = object.spec.scaleTargetRef
-        edge(self, node(kindFor(target.apiVersion, target.kind), target.name, ns), 'scales')
+        const target = object.spec?.scaleTargetRef
+        if (target?.kind && target.name)
+          edge(self, node(kindFor(target.apiVersion, target.kind), target.name, ns), 'scales')
         break
       }
       case PDB:
-        for (const target of picks(object.spec.selector ?? {}, ns)) edge(self, target, 'guards')
+        for (const target of picks(object.spec?.selector ?? {}, ns)) edge(self, target, 'guards')
         break
       case 'NetworkPolicy':
         // An empty selector is every pod in the namespace.
-        for (const target of picks(object.spec.podSelector, ns)) edge(self, target, 'applies')
+        for (const target of picks(object.spec?.podSelector ?? {}, ns))
+          edge(self, target, 'applies')
         break
       case 'PersistentVolumeClaim':
-        if (object.spec.volumeName) {
-          edge(self, node('PersistentVolume', object.spec.volumeName), 'binds')
-        } else if (object.spec.storageClassName) {
-          edge(self, node('StorageClass', object.spec.storageClassName), 'class')
+        if (object.spec?.volumeName) {
+          edge(self, node('PersistentVolume', object.spec?.volumeName), 'binds')
+        } else if (object.spec?.storageClassName) {
+          edge(self, node('StorageClass', object.spec?.storageClassName), 'class')
         }
         break
       case 'PersistentVolume':
-        if (object.spec.storageClassName) {
-          edge(self, node('StorageClass', object.spec.storageClassName), 'class')
+        if (object.spec?.storageClassName) {
+          edge(self, node('StorageClass', object.spec?.storageClassName), 'class')
         }
         break
     }
@@ -582,13 +589,13 @@ export function nodeMeta(node: MapNode): string | undefined {
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
   switch (node.kind) {
     case 'Service':
-      return [o.spec.type, (o.spec.ports ?? []).map((p: { port: number }) => p.port).join(', ')]
+      return [o.spec?.type, (o.spec?.ports ?? []).map((p: { port: number }) => p.port).join(', ')]
         .filter(Boolean)
         .join(' · ')
     case 'Ingress':
-      return o.spec.rules?.[0]?.host
+      return o.spec?.rules?.[0]?.host
     case HTTP_ROUTE:
-      return o.spec.hostnames?.[0]
+      return o.spec?.hostnames?.[0]
     case 'ConfigMap':
       return count(Object.keys({ ...entries(o.data), ...entries(o.binaryData) }).length, 'key')
     case 'Secret':
@@ -598,19 +605,19 @@ export function nodeMeta(node: MapNode): string | undefined {
           ? 'Registry'
           : count(Object.keys(entries(o.data)).length, 'key')
     case 'PersistentVolumeClaim':
-      return o.status?.capacity?.storage ?? o.spec.resources?.requests?.storage
+      return o.status?.capacity?.storage ?? o.spec?.resources?.requests?.storage
     case 'PersistentVolume':
-      return o.spec.capacity?.storage
+      return o.spec?.capacity?.storage
     case 'HorizontalPodAutoscaler':
-      return `${o.spec.minReplicas ?? 1}–${o.spec.maxReplicas} replicas`
+      return `${o.spec?.minReplicas ?? 1}–${o.spec?.maxReplicas} replicas`
     case 'CronJob':
-      return o.spec.schedule
+      return o.spec?.schedule
     case 'Node':
       return o.metadata.labels?.['node.kubernetes.io/instance-type']
     case 'StorageClass':
       return o.provisioner as string
     case 'NetworkPolicy':
-      return (o.spec.policyTypes ?? ['Ingress']).join(', ')
+      return (o.spec?.policyTypes ?? ['Ingress']).join(', ')
     default:
       return undefined
   }

@@ -400,7 +400,7 @@ function Explorer({
   const allocatable =
     metric === 'cpu' || metric === 'memory'
       ? (nodes ?? []).reduce(
-          (sum, node) => sum + parseQuantity(node.status.allocatable?.[metric]),
+          (sum, node) => sum + parseQuantity(node.status?.allocatable?.[metric]),
           0,
         )
       : 0

@@ -70,9 +70,9 @@ function consequence(object: ActionProps['object']): string | undefined {
     case 'PersistentVolumeClaim':
       return 'Its volume, and the data on it, may be deleted too, depending on the reclaim policy.'
     case 'PersistentVolume':
-      return `Its reclaim policy is ${object.spec.persistentVolumeReclaimPolicy}; the data on it may be lost.`
+      return `Its reclaim policy is ${object.spec?.persistentVolumeReclaimPolicy ?? 'Retain'}; the data on it may be lost.`
     case 'CustomResourceDefinition.apiextensions.k8s.io':
-      return `Every ${object.spec.names.kind} in the cluster is deleted with it, and the cluster stops serving ${object.spec.names.plural}.`
+      return `Every ${object.spec?.names?.kind ?? 'object of its kind'} in the cluster is deleted with it, and the cluster stops serving ${object.spec?.names?.plural ?? 'them'}.`
     default:
       return undefined
   }
