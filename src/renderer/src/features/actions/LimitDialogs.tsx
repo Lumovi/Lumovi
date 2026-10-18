@@ -14,7 +14,10 @@ export function AutoscalerDialog({ object, onClose }: ActionProps) {
   const { context } = useCluster()
   const change = useChange()
   const { name, namespace } = object.metadata
-  const before = { min: object.spec.minReplicas as number, max: object.spec.maxReplicas as number }
+  const before = {
+    min: (object.spec?.minReplicas ?? 1) as number,
+    max: (object.spec?.maxReplicas ?? 1) as number,
+  }
   const [min, setMin] = useState(before.min)
   const [max, setMax] = useState(before.max)
   const { pending, error, submit } = useSubmit(onClose)
@@ -34,7 +37,7 @@ export function AutoscalerDialog({ object, onClose }: ActionProps) {
     )
   const range = valid ? { min, max } : before
   const unchanged = min === before.min && max === before.max
-  const running: number = object.status.currentReplicas
+  const running: number = object.status?.currentReplicas ?? 0
 
   return (
     <ActionDialog
@@ -106,13 +109,13 @@ export function ExpandVolumeDialog({ object, onClose }: ActionProps) {
   const { context } = useCluster()
   const change = useChange()
   const { name, namespace } = object.metadata
-  const requested: string = object.spec.resources.requests.storage
+  const requested: string = object.spec?.resources?.requests?.storage ?? '0'
   const bytes = parseQuantity(requested)
   const [amount, setAmount] = useState(() => Math.ceil(bytes / UNITS.Gi) * 2)
   const [unit, setUnit] = useState<Unit>('Gi')
   const { pending, error, submit } = useSubmit(onClose)
   const storageClass = useList('StorageClass', { namespace: null }).data?.find(
-    (c) => c.metadata.name === object.spec.storageClassName,
+    (c) => c.metadata.name === object.spec?.storageClassName,
   )
   // Unknown classes are left to the API server to judge.
   const fixed = storageClass?.allowVolumeExpansion === false
@@ -175,7 +178,7 @@ export function ExpandVolumeDialog({ object, onClose }: ActionProps) {
       </div>
       {fixed ? (
         <p className="text-xs text-critical-text">
-          Its storage class, {object.spec.storageClassName}, doesn’t allow volumes to grow.
+          Its storage class, {object.spec?.storageClassName}, doesn’t allow volumes to grow.
         </p>
       ) : (
         !bigger &&

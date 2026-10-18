@@ -15,7 +15,7 @@ function rolloutNote(object: ActionProps['object']): string {
     return 'Pods are replaced one at a time, from the highest ordinal down, each once the one before it is ready.'
   }
   if (object.kind === 'DaemonSet') return 'Pods are replaced node by node.'
-  if (object.spec.strategy?.type === 'Recreate') {
+  if (object.spec?.strategy?.type === 'Recreate') {
     return 'This Deployment uses the Recreate strategy: every pod stops before new ones start, so expect downtime.'
   }
   return 'Pods are replaced a few at a time, following the rollout strategy, so a healthy app stays available.'
@@ -156,7 +156,7 @@ export function RunNowDialog({ object, onClose }: ActionProps) {
   )
   const { pending, error, submit } = useSubmit(onClose)
   const command = kubectl(context, namespace, 'create', 'job', job, `--from=cronjob/${name}`)
-  const template = object.spec.jobTemplate
+  const template = object.spec?.jobTemplate
   return (
     <ActionDialog
       icon={Play}
@@ -182,9 +182,9 @@ export function RunNowDialog({ object, onClose }: ActionProps) {
                   metadata: {
                     name: job,
                     namespace,
-                    labels: template.metadata?.labels,
+                    labels: template?.metadata?.labels,
                     annotations: {
-                      ...template.metadata?.annotations,
+                      ...template?.metadata?.annotations,
                       'cronjob.kubernetes.io/instantiate': 'manual',
                     },
                     ownerReferences: [
@@ -197,7 +197,7 @@ export function RunNowDialog({ object, onClose }: ActionProps) {
                       },
                     ],
                   },
-                  spec: template.spec,
+                  spec: template?.spec,
                 },
               },
             },
@@ -219,7 +219,7 @@ export function RunNowDialog({ object, onClose }: ActionProps) {
       <p className="text-[13px] leading-relaxed text-ink-2">
         Starts job <span className="font-mono text-[12px] text-ink-1">{job}</span> from {name}’s
         template right away, outside its schedule
-        {object.spec.suspend ? ' (the schedule itself stays suspended)' : ''}.
+        {object.spec?.suspend ? ' (the schedule itself stays suspended)' : ''}.
       </p>
     </ActionDialog>
   )

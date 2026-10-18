@@ -214,12 +214,13 @@ test.describe('when things go wrong', () => {
   test('a page that fails to render shows a way out', async ({ lumovi, clusters }) => {
     const { page, app } = lumovi
     const opened = await mockOpenExternal(app)
-    const broken = demoCluster().objects.find((o) => o.kind === 'Deployment')!
-    clusters.demo.upsert({ ...broken, spec: { ...broken.spec, template: undefined } })
+    // A field of the wrong kind (an object for the text a list draws) breaks the page.
+    const broken = demoCluster().objects.find((o) => o.kind === 'Service')!
+    clusters.demo.upsert({ ...broken, spec: { ...broken.spec, type: { broken: true } } })
     await openCluster(page)
     await page
       .getByRole('navigation', { name: 'Resources' })
-      .getByRole('link', { name: 'Workloads', exact: true })
+      .getByRole('link', { name: 'Services', exact: true })
       .click()
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Something went wrong')
@@ -228,7 +229,7 @@ test.describe('when things go wrong', () => {
     await expect(page.getByRole('navigation', { name: 'Resources' })).toBeVisible()
 
     await alert.getByRole('button', { name: 'Copy details' }).click()
-    await expect.poll(() => clipboardText(page)).toContain('TypeError')
+    await expect.poll(() => clipboardText(page)).toContain('React error #31')
     await alert.getByRole('button', { name: 'Report issue' }).click()
     await expect.poll(opened).toEqual([expect.stringContaining('/issues/new?title=Crash')])
 
@@ -242,13 +243,23 @@ test.describe('when things go wrong', () => {
     page,
     clusters,
   }) => {
-    const hpa = demoCluster().objects.find((o) => o.kind === 'HorizontalPodAutoscaler')!
-    clusters.demo.upsert({ ...hpa, spec: { ...hpa.spec, metrics: undefined } })
+    // (A field of the wrong kind, which only its detail draws.)
+    const service = demoCluster().objects.find(
+      (o) => o.kind === 'Service' && o.metadata.name === DEMO.services.storefront,
+    )!
+    clusters.demo.upsert({
+      ...service,
+      spec: { ...service.spec, sessionAffinity: { broken: true } },
+    })
     await openCluster(page)
-    await goTo(page, 'Autoscalers')
-    await row(page, 'Autoscalers', hpa.metadata.name).first().getByRole('gridcell').nth(1).click()
+    await goTo(page, 'Services')
+    await row(page, 'Services', DEMO.services.storefront)
+      .first()
+      .getByRole('gridcell')
+      .nth(1)
+      .click()
     await expect(page.getByRole('alert')).toContainText('This object couldn’t be displayed')
-    await expect(page.getByRole('grid', { name: 'Autoscalers' })).toBeVisible()
+    await expect(page.getByRole('grid', { name: 'Services' })).toBeVisible()
   })
 
   test('unknown pages say so', async ({ page }) => {

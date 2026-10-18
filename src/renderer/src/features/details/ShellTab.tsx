@@ -34,8 +34,8 @@ export function ShellTab({ pod }: { pod: KubeObject }) {
   const { context } = useCluster()
   const { name, namespace } = pod.metadata
   const containers: string[] = [
-    ...pod.spec.containers.map((c: { name: string }) => c.name),
-    ...(pod.spec.ephemeralContainers ?? []).map((c: { name: string }) => c.name),
+    ...(pod.spec?.containers ?? []).map((c: { name: string }) => c.name),
+    ...(pod.spec?.ephemeralContainers ?? []).map((c: { name: string }) => c.name),
   ]
   // A debug container that was just added is opened first, also when the tab is
   // already open (debugging is offered when a container has no shell).

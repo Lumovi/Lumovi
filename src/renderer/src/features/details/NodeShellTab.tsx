@@ -92,7 +92,7 @@ export function NodeShellTab({ node }: { node: KubeObject }) {
     { verb: 'create', kind: 'Pod', namespace: setting.namespace, subresource: 'exec' },
     { verb: 'delete', kind: 'Pod', namespace: setting.namespace },
   ])
-  const windows = node.status!.nodeInfo.operatingSystem === 'windows'
+  const windows = node.status?.nodeInfo?.operatingSystem === 'windows'
   const notAllowed = useAccessHere().whyNot('nodeShells', 'on')
   const start = (as: Mode) => {
     setMode(as)

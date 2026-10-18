@@ -30,12 +30,14 @@ function podCounts(o: KubeObject): { done: number; wanted: number; text?: string
     return { done: active, wanted: active, text: active ? `${active} running` : undefined }
   }
   if (o.kind === 'Job') {
-    const done = o.status.succeeded ?? 0
-    const wanted = o.spec.completions ?? 1
+    const done = o.status?.succeeded ?? 0
+    const wanted = o.spec?.completions ?? 1
     return { done, wanted, text: `${done}/${wanted} done` }
   }
   if (o.kind === 'Pod') {
-    const ready = Number(o.status.phase === 'Running' && containerStatuses(o).every((c) => c.ready))
+    const ready = Number(
+      o.status?.phase === 'Running' && containerStatuses(o).every((c) => c.ready),
+    )
     return { done: ready, wanted: 1, text: `${ready}/1` }
   }
   const { ready, desired } = replicaCounts(o)
@@ -90,11 +92,11 @@ export function workloadColumns(options: {
             {podCounts(o).text ?? none}
             {hpa && (
               <span
-                title={`${hpa.metadata.name} scales it between ${hpa.spec.minReplicas ?? 1} and ${hpa.spec.maxReplicas} replicas`}
+                title={`${hpa.metadata.name} scales it between ${hpa.spec?.minReplicas ?? 1} and ${hpa.spec?.maxReplicas} replicas`}
                 className="flex items-center gap-1 text-xs text-ink-3"
               >
                 <KindIcon kind="HorizontalPodAutoscaler" className="size-3" />
-                {hpa.spec.minReplicas ?? 1}–{hpa.spec.maxReplicas}
+                {hpa.spec?.minReplicas ?? 1}–{hpa.spec?.maxReplicas}
               </span>
             )}
           </span>

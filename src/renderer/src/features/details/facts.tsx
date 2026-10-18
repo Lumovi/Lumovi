@@ -64,12 +64,16 @@ function hpaMetrics(hpa: KubeObject): string {
       current?: { averageUtilization?: number }
     }
   }
-  const current: Metric[] = hpa.status.currentMetrics ?? []
-  return (hpa.spec.metrics as Metric[])
-    .map((metric, i) => {
-      const name = metric.resource!.name
-      return `${name} ${current[i]?.resource?.current?.averageUtilization ?? '?'}% / ${metric.resource!.target!.averageUtilization}%`
-    })
+  const current: Metric[] = hpa.status?.currentMetrics ?? []
+  // (A metric of another type than a resource's is left to the YAML.)
+  return ((hpa.spec?.metrics ?? []) as Metric[])
+    .flatMap((metric, i) =>
+      metric.resource
+        ? [
+            `${metric.resource.name} ${current[i]?.resource?.current?.averageUtilization ?? '?'}% / ${metric.resource.target?.averageUtilization ?? '?'}%`,
+          ]
+        : [],
+    )
     .join(', ')
 }
 
@@ -79,7 +83,7 @@ const account = (pod: { serviceAccountName?: string } | undefined, namespace?: s
     <ObjectLink kind="ServiceAccount" name={pod.serviceAccountName} namespace={namespace} />
   )
 /** A workload's pods' account: its namespace's `default`, where its template names none. */
-const podsAccount = (o: KubeObject, pod = o.spec.template?.spec) =>
+const podsAccount = (o: KubeObject, pod = o.spec?.template?.spec) =>
   pod && account({ serviceAccountName: pod.serviceAccountName ?? 'default' }, o.metadata.namespace)
 
 /** A service account's own secrets, or those its pods pull images with, each a link. */
@@ -105,40 +109,42 @@ const binding = (o: KubeObject) => [
 
 const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   Pod: (o) => [
-    fact('Node', o.spec.nodeName && <ObjectLink kind="Node" name={o.spec.nodeName} />),
-    fact('Pod IP', o.status.podIP),
-    fact('Host IP', o.status.hostIP),
-    fact('QoS class', o.status.qosClass),
+    fact('Node', o.spec?.nodeName && <ObjectLink kind="Node" name={o.spec?.nodeName} />),
+    fact('Pod IP', o.status?.podIP),
+    fact('Host IP', o.status?.hostIP),
+    fact('QoS class', o.status?.qosClass),
     fact('Service account', account(o.spec, o.metadata.namespace)),
-    fact('Restart policy', o.spec.restartPolicy),
+    fact('Restart policy', o.spec?.restartPolicy),
   ],
   Node: (o) => [
     fact(
       'Internal IP',
-      o.status.addresses?.find((a: { type: string }) => a.type === 'InternalIP')?.address,
+      o.status?.addresses?.find((a: { type: string }) => a.type === 'InternalIP')?.address,
     ),
-    fact('OS image', o.status.nodeInfo.osImage),
-    fact('Kernel', o.status.nodeInfo.kernelVersion),
-    fact('Container runtime', o.status.nodeInfo.containerRuntimeVersion),
-    fact('Kubelet', o.status.nodeInfo.kubeletVersion),
-    fact('Architecture', o.status.nodeInfo.architecture),
-    fact('Pod CIDR', o.spec.podCIDR),
-    fact('Schedulable', o.spec.unschedulable ? 'No (cordoned)' : 'Yes'),
+    fact('OS image', o.status?.nodeInfo?.osImage),
+    fact('Kernel', o.status?.nodeInfo?.kernelVersion),
+    fact('Container runtime', o.status?.nodeInfo?.containerRuntimeVersion),
+    fact('Kubelet', o.status?.nodeInfo?.kubeletVersion),
+    fact('Architecture', o.status?.nodeInfo?.architecture),
+    fact('Pod CIDR', o.spec?.podCIDR),
+    fact('Schedulable', o.spec?.unschedulable ? 'No (cordoned)' : 'Yes'),
   ],
-  Namespace: (o) => [fact('Phase', o.status.phase)],
+  Namespace: (o) => [fact('Phase', o.status?.phase)],
   Event: (o) => [
     fact('Type', o.type as string),
     fact('Reason', o.reason as string),
     fact(
       'Object',
-      <ObjectLink
-        {...(o.involvedObject as {
-          apiVersion?: string
-          kind: string
-          name: string
-          namespace?: string
-        })}
-      />,
+      (o.involvedObject as { kind?: string; name?: string } | undefined)?.name && (
+        <ObjectLink
+          {...(o.involvedObject as {
+            apiVersion?: string
+            kind: string
+            name: string
+            namespace?: string
+          })}
+        />
+      ),
     ),
     fact('Message', o.message as string),
     fact('Source', (o.source as { component?: string } | undefined)?.component),
@@ -147,76 +153,82 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   ],
   Deployment: (o) => [
     fact('Replicas', replicas(o)),
-    fact('Updated', o.status.updatedReplicas),
-    fact('Available', o.status.availableReplicas),
-    fact('Strategy', o.spec.strategy?.type),
-    fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Updated', o.status?.updatedReplicas),
+    fact('Available', o.status?.availableReplicas),
+    fact('Strategy', o.spec?.strategy?.type),
+    fact('Selector', selector(o.spec?.selector?.matchLabels)),
     fact('Service account', podsAccount(o)),
   ],
   StatefulSet: (o) => [
     fact('Replicas', replicas(o)),
-    fact('Service', o.spec.serviceName),
-    fact('Update strategy', o.spec.updateStrategy?.type),
-    fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Service', o.spec?.serviceName),
+    fact('Update strategy', o.spec?.updateStrategy?.type),
+    fact('Selector', selector(o.spec?.selector?.matchLabels)),
     fact('Service account', podsAccount(o)),
   ],
   DaemonSet: (o) => [
     fact('Scheduled', replicas(o)),
-    fact('Update strategy', o.spec.updateStrategy?.type),
-    fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Update strategy', o.spec?.updateStrategy?.type),
+    fact('Selector', selector(o.spec?.selector?.matchLabels)),
     fact('Service account', podsAccount(o)),
   ],
   ReplicaSet: (o) => [
     fact('Replicas', replicas(o)),
-    fact('Selector', selector(o.spec.selector.matchLabels)),
+    fact('Selector', selector(o.spec?.selector?.matchLabels)),
   ],
   Job: (o) => [
-    fact('Completions', `${o.status.succeeded ?? 0} / ${o.spec.completions}`),
-    fact('Parallelism', o.spec.parallelism),
-    fact('Backoff limit', o.spec.backoffLimit),
-    fact('Started', when(o.status.startTime)),
-    fact('Completed', when(o.status.completionTime)),
+    fact('Completions', `${o.status?.succeeded ?? 0} / ${o.spec?.completions ?? 1}`),
+    fact('Parallelism', o.spec?.parallelism),
+    fact('Backoff limit', o.spec?.backoffLimit),
+    fact('Started', when(o.status?.startTime)),
+    fact('Completed', when(o.status?.completionTime)),
     fact('Service account', podsAccount(o)),
   ],
   CronJob: (o) => [
-    fact('Schedule', o.spec.schedule),
-    fact('Suspended', o.spec.suspend ? 'Yes' : 'No'),
-    fact('Concurrency', o.spec.concurrencyPolicy),
-    fact('Last scheduled', when(o.status.lastScheduleTime)),
-    fact('Last successful', when(o.status.lastSuccessfulTime)),
-    fact('Service account', podsAccount(o, o.spec.jobTemplate?.spec?.template?.spec)),
+    fact('Schedule', o.spec?.schedule),
+    fact('Suspended', o.spec?.suspend ? 'Yes' : 'No'),
+    fact('Concurrency', o.spec?.concurrencyPolicy),
+    fact('Last scheduled', when(o.status?.lastScheduleTime)),
+    fact('Last successful', when(o.status?.lastSuccessfulTime)),
+    fact('Service account', podsAccount(o, o.spec?.jobTemplate?.spec?.template?.spec)),
   ],
   HorizontalPodAutoscaler: (o) => [
     fact(
       'Target',
-      <ObjectLink
-        apiVersion={o.spec.scaleTargetRef.apiVersion}
-        kind={o.spec.scaleTargetRef.kind}
-        name={o.spec.scaleTargetRef.name}
-        namespace={o.metadata.namespace}
-      />,
+      o.spec?.scaleTargetRef?.name && (
+        <ObjectLink
+          apiVersion={o.spec.scaleTargetRef.apiVersion}
+          kind={o.spec.scaleTargetRef.kind}
+          name={o.spec.scaleTargetRef.name}
+          namespace={o.metadata.namespace}
+        />
+      ),
     ),
-    fact('Replicas', `${o.status.currentReplicas} current · ${o.status.desiredReplicas} desired`),
-    fact('Range', `${o.spec.minReplicas}–${o.spec.maxReplicas}`),
+    fact(
+      'Replicas',
+      `${o.status?.currentReplicas ?? 0} current · ${o.status?.desiredReplicas ?? 0} desired`,
+    ),
+    // (Its least is 1 where it says none, as the API's default is.)
+    fact('Range', o.spec?.maxReplicas && `${o.spec.minReplicas ?? 1}–${o.spec.maxReplicas}`),
     fact('Metrics', hpaMetrics(o)),
   ],
   Service: (o) => [
-    fact('Type', o.spec.type),
-    fact('Cluster IP', o.spec.clusterIP),
+    fact('Type', o.spec?.type),
+    fact('Cluster IP', o.spec?.clusterIP),
     fact('External', externalAddress(o)),
-    fact('Session affinity', o.spec.sessionAffinity),
-    fact('Selector', selector(o.spec.selector)),
+    fact('Session affinity', o.spec?.sessionAffinity),
+    fact('Selector', selector(o.spec?.selector)),
   ],
   Ingress: (o) => [
-    fact('Class', o.spec.ingressClassName),
+    fact('Class', o.spec?.ingressClassName),
     fact('Address', loadBalancerAddress(o)),
-    fact('TLS hosts', join(o.spec.tls?.flatMap((t: { hosts: string[] }) => t.hosts))),
+    fact('TLS hosts', join(o.spec?.tls?.flatMap((t: { hosts: string[] }) => t.hosts))),
   ],
   NetworkPolicy: (o) => [
-    fact('Pod selector', labels(o.spec.podSelector.matchLabels) || 'All pods in namespace'),
-    fact('Policy types', join(o.spec.policyTypes)),
-    fact('Ingress rules', o.spec.ingress?.length),
-    fact('Egress rules', o.spec.egress?.length),
+    fact('Pod selector', labels(o.spec?.podSelector?.matchLabels) || 'All pods in namespace'),
+    fact('Policy types', join(o.spec?.policyTypes)),
+    fact('Ingress rules', o.spec?.ingress?.length),
+    fact('Egress rules', o.spec?.egress?.length),
   ],
   ConfigMap: () => [],
   Secret: (o) => [fact('Type', o.type as string)],
@@ -224,34 +236,38 @@ const FACTS: Record<BuiltinKind, (o: KubeObject) => (Fact | null)[]> = {
   ResourceQuota: () => [],
   LimitRange: () => [],
   PersistentVolumeClaim: (o) => [
-    fact('Capacity', o.status.capacity?.storage),
-    fact('Requested', o.spec.resources.requests.storage),
-    fact('Access modes', join(o.spec.accessModes)),
+    fact('Capacity', o.status?.capacity?.storage),
+    fact('Requested', o.spec?.resources?.requests?.storage),
+    fact('Access modes', join(o.spec?.accessModes)),
     fact(
       'Storage class',
-      o.spec.storageClassName && <ObjectLink kind="StorageClass" name={o.spec.storageClassName} />,
+      o.spec?.storageClassName && (
+        <ObjectLink kind="StorageClass" name={o.spec?.storageClassName} />
+      ),
     ),
     fact(
       'Volume',
-      o.spec.volumeName && <ObjectLink kind="PersistentVolume" name={o.spec.volumeName} />,
+      o.spec?.volumeName && <ObjectLink kind="PersistentVolume" name={o.spec?.volumeName} />,
     ),
-    fact('Volume mode', o.spec.volumeMode),
+    fact('Volume mode', o.spec?.volumeMode),
   ],
   PersistentVolume: (o) => [
-    fact('Capacity', o.spec.capacity.storage),
-    fact('Access modes', join(o.spec.accessModes)),
-    fact('Reclaim policy', o.spec.persistentVolumeReclaimPolicy),
+    fact('Capacity', o.spec?.capacity?.storage),
+    fact('Access modes', join(o.spec?.accessModes)),
+    fact('Reclaim policy', o.spec?.persistentVolumeReclaimPolicy),
     fact(
       'Storage class',
-      o.spec.storageClassName && <ObjectLink kind="StorageClass" name={o.spec.storageClassName} />,
+      o.spec?.storageClassName && (
+        <ObjectLink kind="StorageClass" name={o.spec?.storageClassName} />
+      ),
     ),
     fact(
       'Claim',
-      o.spec.claimRef && (
+      o.spec?.claimRef && (
         <ObjectLink
           kind="PersistentVolumeClaim"
-          name={o.spec.claimRef.name}
-          namespace={o.spec.claimRef.namespace}
+          name={o.spec?.claimRef.name}
+          namespace={o.spec?.claimRef.namespace}
         />
       ),
     ),

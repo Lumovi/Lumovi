@@ -107,12 +107,12 @@ function resourceText(values: Record<string, string> | undefined, key: 'cpu' | '
 
 export function Containers({ pod, usage }: { pod: KubeObject; usage?: ContainerUsage[] }) {
   const statuses: ContainerState[] = [
-    ...(pod.status.initContainerStatuses ?? []),
-    ...(pod.status.containerStatuses ?? []),
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
   ]
   const specs: (ContainerSpec & { init: boolean })[] = [
-    ...(pod.spec.initContainers ?? []).map((c: ContainerSpec) => ({ ...c, init: true })),
-    ...pod.spec.containers.map((c: ContainerSpec) => ({ ...c, init: false })),
+    ...(pod.spec?.initContainers ?? []).map((c: ContainerSpec) => ({ ...c, init: true })),
+    ...(pod.spec?.containers ?? []).map((c: ContainerSpec) => ({ ...c, init: false })),
   ]
   return (
     <div className="space-y-2">
@@ -247,7 +247,7 @@ export function ServicePorts({ service }: { service: KubeObject }) {
     targetPort: number | string
     nodePort?: number
     protocol: string
-  }[] = service.spec.ports ?? []
+  }[] = service.spec?.ports ?? []
   return (
     <SimpleTable
       headers={['Name', 'Port', 'Target', 'Node port', 'Protocol']}
@@ -269,11 +269,11 @@ export function IngressRules({ ingress }: { ingress: KubeObject }) {
       : `${resource!.kind} ${resource!.name}`
   // A rule can name a host and no paths; what no rule takes goes to the default backend.
   const rows = [
-    ...((ingress.spec.rules ?? []) as Rule[]).flatMap((rule) =>
+    ...((ingress.spec?.rules ?? []) as Rule[]).flatMap((rule) =>
       (rule.http?.paths ?? []).map((p) => [rule.host ?? '*', p.path ?? '/', backend(p.backend)]),
     ),
-    ...(ingress.spec.defaultBackend
-      ? [['*', 'Anything else', backend(ingress.spec.defaultBackend)]]
+    ...(ingress.spec?.defaultBackend
+      ? [['*', 'Anything else', backend(ingress.spec?.defaultBackend)]]
       : []),
   ]
   return <SimpleTable headers={['Host', 'Path', 'Backend']} rows={rows} />

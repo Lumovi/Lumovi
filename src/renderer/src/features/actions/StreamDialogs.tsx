@@ -27,7 +27,7 @@ export function DebugDialog({ object, onClose }: ActionProps) {
   const openObject = useOpenObject()
   const showTab = useActionsUi((state) => state.showTab)
   const { name, namespace } = object.metadata
-  const containers: string[] = object.spec.containers.map((c: { name: string }) => c.name)
+  const containers: string[] = (object.spec?.containers ?? []).map((c: { name: string }) => c.name)
   const [image, setImage] = useState(IMAGES[0]!.image)
   const [custom, setCustom] = useState('')
   const [share, setShare] = useState(containers[0]!)
@@ -142,12 +142,14 @@ interface Port {
 function portsOf(object: ActionProps['object']): Port[] {
   const label = (...parts: unknown[]) => parts.filter(Boolean).join(' · ')
   if (object.kind === 'Service') {
-    return object.spec.ports.map((p: { name?: string; port: number; targetPort: unknown }) => ({
-      label: label(p.name, `${p.port} → ${String(p.targetPort)}`),
-      port: p.port,
-    }))
+    return (object.spec?.ports ?? []).map(
+      (p: { name?: string; port: number; targetPort: unknown }) => ({
+        label: label(p.name, `${p.port} → ${String(p.targetPort)}`),
+        port: p.port,
+      }),
+    )
   }
-  return object.spec.containers.flatMap(
+  return (object.spec?.containers ?? []).flatMap(
     (c: { name: string; ports?: { name?: string; containerPort: number }[] }) =>
       (c.ports ?? []).map((p) => ({
         label: label(c.name, p.name, p.containerPort),

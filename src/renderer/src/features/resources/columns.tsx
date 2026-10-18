@@ -217,7 +217,9 @@ const imagesColumn: Column = {
   header: 'Images',
   width: 'minmax(180px, 2fr)',
   cell: (o) => {
-    const images: string[] = o.spec.template.spec.containers.map((c: { image: string }) => c.image)
+    const images: string[] = (o.spec?.template?.spec?.containers ?? []).map(
+      (c: { image: string }) => c.image,
+    )
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         {/* Its tag is what tells images apart: the start is what's cut. */}
@@ -258,11 +260,11 @@ const podColumns: Column[] = [
     cell: (o) => {
       const statuses = containerStatuses(o)
       return (
-        <span className="tabular-nums">{`${statuses.filter((c) => c.ready).length}/${o.spec.containers.length}`}</span>
+        <span className="tabular-nums">{`${statuses.filter((c) => c.ready).length}/${o.spec?.containers?.length ?? 0}`}</span>
       )
     },
     fact: (o) =>
-      `${containerStatuses(o).filter((c) => c.ready).length}/${o.spec.containers.length} ready`,
+      `${containerStatuses(o).filter((c) => c.ready).length}/${o.spec?.containers?.length ?? 0} ready`,
   },
   {
     id: 'restarts',
@@ -320,7 +322,7 @@ const podColumns: Column[] = [
     id: 'node',
     header: 'Node',
     width: 'minmax(120px, 1fr)',
-    cell: (o) => (o.spec.nodeName ? mono(o.spec.nodeName) : none),
+    cell: (o) => (o.spec?.nodeName ? mono(o.spec?.nodeName) : none),
   },
 ]
 
@@ -384,7 +386,7 @@ const nodeColumns: Column[] = [
     id: 'version',
     header: 'Version',
     width: '96px',
-    cell: (o) => mono(o.status.nodeInfo.kubeletVersion),
+    cell: (o) => mono(o.status?.nodeInfo?.kubeletVersion),
   },
 ]
 
@@ -406,7 +408,7 @@ export function nodeRoles(node: KubeObject): string[] {
 }
 
 function servicePorts(service: KubeObject): string {
-  return (service.spec.ports ?? [])
+  return (service.spec?.ports ?? [])
     .map(
       (p: { port: number; targetPort?: number | string; nodePort?: number; protocol: string }) => {
         const target =
@@ -427,8 +429,8 @@ export function loadBalancerAddress(object: KubeObject): string | undefined {
 export function externalAddress(service: KubeObject): string | undefined {
   return (
     loadBalancerAddress(service) ??
-    service.spec.externalName ??
-    (service.spec.type === 'LoadBalancer' ? 'Pending' : undefined)
+    service.spec?.externalName ??
+    (service.spec?.type === 'LoadBalancer' ? 'Pending' : undefined)
   )
 }
 
@@ -528,9 +530,9 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       header: 'Completions',
       width: '104px',
       cell: (o) => (
-        <span className="tabular-nums">{`${o.status.succeeded ?? 0}/${o.spec.completions}`}</span>
+        <span className="tabular-nums">{`${o.status?.succeeded ?? 0}/${o.spec?.completions ?? 1}`}</span>
       ),
-      fact: (o) => `${o.status.succeeded ?? 0}/${o.spec.completions} completed`,
+      fact: (o) => `${o.status?.succeeded ?? 0}/${o.spec?.completions ?? 1} completed`,
     },
     {
       id: 'duration',
@@ -538,11 +540,11 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '88px',
       cell: (o, ctx) =>
         // Suspended or just created jobs haven't started.
-        o.status.startTime
+        o.status?.startTime
           ? muted(
               age(
-                o.status.startTime,
-                o.status.completionTime ? Date.parse(o.status.completionTime) : ctx.now,
+                o.status?.startTime,
+                o.status?.completionTime ? Date.parse(o.status?.completionTime) : ctx.now,
               ),
             )
           : muted('—'),
@@ -554,8 +556,8 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       header: 'Schedule',
       width: 'minmax(170px, 1.2fr)',
       cell: (o) => (
-        <span className="truncate text-ink-2" title={o.spec.schedule}>
-          {describeSchedule(o.spec.schedule)}
+        <span className="truncate text-ink-2" title={o.spec?.schedule}>
+          {describeSchedule(o.spec?.schedule)}
         </span>
       ),
     },
@@ -564,15 +566,15 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       header: 'Next run',
       width: '96px',
       cell: (o, ctx) => {
-        const next = nextRun(o.spec.schedule, o.spec.timeZone)
-        return o.spec.suspend || !next
+        const next = nextRun(o.spec?.schedule, o.spec?.timeZone)
+        return o.spec?.suspend || !next
           ? none
           : muted(`in ${age(new Date(ctx.now).toISOString(), next.getTime())}`)
       },
       csv: {
         value: (o) => {
-          const next = nextRun(o.spec.schedule, o.spec.timeZone)
-          return o.spec.suspend || !next ? undefined : utc(next)
+          const next = nextRun(o.spec?.schedule, o.spec?.timeZone)
+          return o.spec?.suspend || !next ? undefined : utc(next)
         },
       },
     },
@@ -581,16 +583,18 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       header: 'Last run',
       width: '88px',
       cell: (o, ctx) =>
-        o.status.lastScheduleTime ? muted(`${age(o.status.lastScheduleTime, ctx.now)} ago`) : none,
-      csv: { value: (o) => o.status.lastScheduleTime && utc(o.status.lastScheduleTime) },
+        o.status?.lastScheduleTime
+          ? muted(`${age(o.status?.lastScheduleTime, ctx.now)} ago`)
+          : none,
+      csv: { value: (o) => o.status?.lastScheduleTime && utc(o.status?.lastScheduleTime) },
     },
     {
       id: 'active',
       header: 'Active',
       width: '64px',
       align: 'right',
-      cell: (o) => <span className="tabular-nums">{o.status.active?.length ?? 0}</span>,
-      fact: (o) => `${o.status.active?.length ?? 0} active`,
+      cell: (o) => <span className="tabular-nums">{o.status?.active?.length ?? 0}</span>,
+      fact: (o) => `${o.status?.active?.length ?? 0} active`,
     },
   ],
   HorizontalPodAutoscaler: [
@@ -598,7 +602,10 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'target',
       header: 'Target',
       width: 'minmax(140px, 1.2fr)',
-      cell: (o) => mono(`${o.spec.scaleTargetRef.kind}/${o.spec.scaleTargetRef.name}`),
+      cell: (o) =>
+        o.spec?.scaleTargetRef?.name
+          ? mono(`${o.spec?.scaleTargetRef.kind}/${o.spec?.scaleTargetRef.name}`)
+          : none,
     },
     {
       id: 'replicas',
@@ -606,7 +613,10 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '110px',
       cell: (o) => (
         <span className="tabular-nums">
-          {o.status.currentReplicas} {muted(`(${o.spec.minReplicas}–${o.spec.maxReplicas})`)}
+          {o.status?.currentReplicas ?? 0}{' '}
+          {o.spec?.maxReplicas
+            ? muted(`(${o.spec?.minReplicas ?? 1}–${o.spec?.maxReplicas})`)
+            : null}
         </span>
       ),
     },
@@ -616,13 +626,13 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'type',
       header: 'Type',
       width: '112px',
-      cell: (o) => plain(o.spec.type),
+      cell: (o) => plain(o.spec?.type),
     },
     {
       id: 'clusterIP',
       header: 'Cluster IP',
       width: '120px',
-      cell: (o) => (o.spec.clusterIP ? mono(o.spec.clusterIP) : none),
+      cell: (o) => (o.spec?.clusterIP ? mono(o.spec?.clusterIP) : none),
     },
     {
       id: 'external',
@@ -648,7 +658,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'class',
       header: 'Class',
       width: '96px',
-      cell: (o) => plain(o.spec.ingressClassName),
+      cell: (o) => plain(o.spec?.ingressClassName),
     },
     {
       id: 'hosts',
@@ -656,7 +666,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: 'minmax(160px, 1.6fr)',
       // Without rules, its default backend takes every host.
       cell: (o) =>
-        mono((o.spec.rules ?? [{}]).map((r: { host?: string }) => r.host ?? '*').join(', ')),
+        mono((o.spec?.rules ?? [{}]).map((r: { host?: string }) => r.host ?? '*').join(', ')),
     },
     {
       id: 'address',
@@ -673,13 +683,13 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'selector',
       header: 'Pod selector',
       width: 'minmax(160px, 1.5fr)',
-      cell: (o) => mono(selectorText(o.spec.podSelector)),
+      cell: (o) => mono(selectorText(o.spec?.podSelector)),
     },
     {
       id: 'types',
       header: 'Policy types',
       width: '140px',
-      cell: (o) => plain(o.spec.policyTypes.join(', ')),
+      cell: (o) => plain((o.spec?.policyTypes ?? []).join(', ')),
     },
   ],
   ConfigMap: [
@@ -758,7 +768,7 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       width: '96px',
       cell: (o) => (
         <span className="tabular-nums">
-          {o.status.capacity?.storage ?? o.spec.resources.requests.storage}
+          {o.status?.capacity?.storage ?? o.spec?.resources?.requests?.storage}
         </span>
       ),
     },
@@ -766,13 +776,13 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'class',
       header: 'Storage class',
       width: '136px',
-      cell: (o) => plain(o.spec.storageClassName),
+      cell: (o) => plain(o.spec?.storageClassName),
     },
     {
       id: 'volume',
       header: 'Volume',
       width: 'minmax(140px, 1.2fr)',
-      cell: (o) => (o.spec.volumeName ? mono(o.spec.volumeName) : none),
+      cell: (o) => (o.spec?.volumeName ? mono(o.spec?.volumeName) : none),
     },
   ],
   PersistentVolume: [
@@ -780,26 +790,26 @@ const EXTRA_COLUMNS: Partial<Record<BuiltinKind, Column[]>> = {
       id: 'capacity',
       header: 'Capacity',
       width: '96px',
-      cell: (o) => <span className="tabular-nums">{o.spec.capacity.storage}</span>,
+      cell: (o) => <span className="tabular-nums">{o.spec?.capacity?.storage}</span>,
     },
     {
       id: 'claim',
       header: 'Claim',
       width: 'minmax(160px, 1.4fr)',
       cell: (o) =>
-        o.spec.claimRef ? mono(`${o.spec.claimRef.namespace}/${o.spec.claimRef.name}`) : none,
+        o.spec?.claimRef ? mono(`${o.spec?.claimRef.namespace}/${o.spec?.claimRef.name}`) : none,
     },
     {
       id: 'class',
       header: 'Storage class',
       width: '136px',
-      cell: (o) => plain(o.spec.storageClassName),
+      cell: (o) => plain(o.spec?.storageClassName),
     },
     {
       id: 'reclaim',
       header: 'Reclaim',
       width: '90px',
-      cell: (o) => plain(o.spec.persistentVolumeReclaimPolicy),
+      cell: (o) => plain(o.spec?.persistentVolumeReclaimPolicy),
     },
   ],
   StorageClass: [
@@ -862,7 +872,10 @@ const eventColumns: Column[] = [
     header: 'Object',
     width: 'minmax(180px, 1.4fr)',
     cell: (o, ctx) => {
-      const target = o.involvedObject as { kind: ResourceKind; name: string; namespace?: string }
+      const target = o.involvedObject as
+        { kind?: ResourceKind; name?: string; namespace?: string } | undefined
+      if (!target?.kind || !target.name) return none
+      const { kind, name } = target
       return (
         <button
           type="button"
@@ -870,17 +883,17 @@ const eventColumns: Column[] = [
           onClick={(event) => {
             event.stopPropagation()
             // Every page that lists events passes it.
-            ctx.open!(target.kind, target.name, target.namespace)
+            ctx.open!(kind, name, target.namespace)
           }}
         >
-          {target.kind}/{target.name}
+          {kind}/{name}
         </button>
       )
     },
     // (The row is the thing to tap: nothing in it is one of its own.)
     fact: (o) => {
-      const target = o.involvedObject as { kind: string; name: string }
-      return `${target.kind}/${target.name}`
+      const target = o.involvedObject as { kind?: string; name?: string } | undefined
+      return target?.kind && target.name ? `${target.kind}/${target.name}` : ''
     },
   },
   {

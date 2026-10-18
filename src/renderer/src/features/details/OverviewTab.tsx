@@ -45,7 +45,7 @@ function PodSections({ object }: { object: KubeObject }) {
 function NodeSections({ object }: { object: KubeObject }) {
   const metrics = useMetrics('nodes')
   const usage = metrics.data?.items.find((s) => s.name === object.metadata.name)
-  const taints = object.spec.taints ?? []
+  const taints = object.spec?.taints ?? []
   return (
     <>
       <Section title="Capacity">
@@ -62,8 +62,8 @@ function NodeSections({ object }: { object: KubeObject }) {
 
 function TemplateSection({ object }: { object: KubeObject }) {
   const template =
-    object.kind === 'CronJob' ? object.spec.jobTemplate.spec.template : object.spec.template
-  const containers: { name: string; image: string }[] = template.spec.containers
+    object.kind === 'CronJob' ? object.spec?.jobTemplate?.spec?.template : object.spec?.template
+  const containers: { name: string; image: string }[] = template?.spec?.containers ?? []
   return (
     <Section title="Pod template">
       <KeyValueGrid

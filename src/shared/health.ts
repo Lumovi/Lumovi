@@ -58,7 +58,7 @@ export function condition(object: KubeObject, type: string): Condition | undefin
 }
 
 export function podStatus(pod: KubeObject): Status {
-  const phase: string = pod.status.phase
+  const phase: string = pod.status?.phase
   if (pod.metadata.deletionTimestamp) return { health: 'warning', label: 'Terminating' }
   if (phase === 'Succeeded') return { health: 'neutral', label: 'Completed' }
 
@@ -69,8 +69,8 @@ export function podStatus(pod: KubeObject): Status {
     // kubectl's order: the pod's own reason (e.g. Evicted), then the container's (e.g. OOMKilled).
     return {
       health: 'critical',
-      label: pod.status.reason ?? terminated?.reason ?? 'Failed',
-      detail: pod.status.message,
+      label: pod.status?.reason ?? terminated?.reason ?? 'Failed',
+      detail: pod.status?.message,
     }
   }
   if (waiting) {
@@ -104,10 +104,14 @@ export function replicaStatus(ready: number, desired: number): Status {
 /** Ready vs desired replicas for the replicated workload kinds. */
 export function replicaCounts(object: KubeObject): { ready: number; desired: number } {
   if (object.kind === 'DaemonSet') {
-    return { ready: object.status.numberReady, desired: object.status.desiredNumberScheduled }
+    return {
+      ready: object.status?.numberReady ?? 0,
+      desired: object.status?.desiredNumberScheduled ?? 0,
+    }
   }
   // The API server omits readyReplicas while it is zero.
-  return { ready: object.status.readyReplicas ?? 0, desired: object.spec.replicas }
+  // (Without replicas, the API server's default is 1.)
+  return { ready: object.status?.readyReplicas ?? 0, desired: object.spec?.replicas ?? 1 }
 }
 
 export function nodeStatus(node: KubeObject): Status {
@@ -115,7 +119,7 @@ export function nodeStatus(node: KubeObject): Status {
   if (ready?.status !== 'True') {
     return { health: 'critical', label: 'NotReady', detail: ready?.message }
   }
-  const pressure = (node.status.conditions as Condition[]).find(
+  const pressure = ((node.status?.conditions ?? []) as Condition[]).find(
     (c) => c.type !== 'Ready' && c.status === 'True',
   )
   if (pressure) return { health: 'warning', label: pressure.type, detail: pressure.message }
@@ -155,7 +159,7 @@ export const STATUS_BY_KIND: Partial<Record<BuiltinKind, (object: KubeObject) =>
       : { health: 'warning', label: o.status?.phase },
   PersistentVolume: (o) =>
     ['Bound', 'Available'].includes(o.status?.phase)
-      ? { health: 'healthy', label: o.status.phase }
+      ? { health: 'healthy', label: o.status?.phase }
       : { health: 'warning', label: o.status?.phase },
   HorizontalPodAutoscaler: autoscalerStatus,
   ResourceQuota: quotaStatus,

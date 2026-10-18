@@ -31,9 +31,10 @@ function containersOf(pod: KubeObject): string[] {
     ...(pod.status?.containerStatuses ?? []),
     ...(pod.status?.ephemeralContainerStatuses ?? []),
   ]
-  const names: string[] = [...pod.spec.containers, ...(pod.spec.ephemeralContainers ?? [])].map(
-    (container: Named) => container.name,
-  )
+  const names: string[] = [
+    ...(pod.spec?.containers ?? []),
+    ...(pod.spec?.ephemeralContainers ?? []),
+  ].map((container: Named) => container.name)
   const running = names.filter((name) =>
     statuses.some((status) => status.name === name && status.state?.running),
   )
@@ -42,7 +43,7 @@ function containersOf(pod: KubeObject): string[] {
 
 /** Whether a pod's containers are Windows': they have no tar to copy files with. */
 const onWindows = (pod: KubeObject) =>
-  pod.spec.os?.name === 'windows' || pod.spec.nodeSelector?.['kubernetes.io/os'] === 'windows'
+  pod.spec?.os?.name === 'windows' || pod.spec?.nodeSelector?.['kubernetes.io/os'] === 'windows'
 
 const FIELD =
   'h-9 w-full rounded-lg border border-line-strong bg-surface px-3 font-mono text-[12.5px] text-ink-1 outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft'

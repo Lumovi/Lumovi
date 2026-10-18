@@ -135,7 +135,7 @@ function disruption(
 /** "Spot, on-demand · m6i, c6i": what a node pool's nodes can be. */
 function poolKinds(pool: KubeObject): string {
   // Every node pool has requirements (its CRD says so).
-  const requirements = pool.spec.template.spec.requirements as {
+  const requirements = (pool.spec?.template?.spec?.requirements ?? []) as {
     key: string
     operator: string
     values?: string[]

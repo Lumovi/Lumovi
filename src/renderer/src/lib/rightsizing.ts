@@ -367,16 +367,16 @@ export function measure(
 export function scaledOn(hpas: KubeObject[], workload: KubeObject) {
   const scaled: { resource: Resource; container?: string; hpa: string }[] = []
   for (const hpa of hpas) {
-    const ref = hpa.spec.scaleTargetRef
+    const ref = hpa.spec?.scaleTargetRef
     if (
       hpa.metadata.namespace !== workload.metadata.namespace ||
-      ref.kind !== workload.kind ||
+      ref?.kind !== workload.kind ||
       ref.name !== workload.metadata.name
     ) {
       continue
     }
     // Without metrics of its own, an autoscaler keeps CPU at 80% of what's requested.
-    const metrics = hpa.spec.metrics ?? [
+    const metrics = hpa.spec?.metrics ?? [
       { type: 'Resource', resource: { name: 'cpu', target: { type: 'Utilization' } } },
     ]
     for (const metric of metrics) {
@@ -396,8 +396,8 @@ export function managedBy(vpas: KubeObject[], workload: KubeObject): KubeObject 
     (vpa) =>
       vpa.metadata.namespace === workload.metadata.namespace &&
       vpa.spec?.targetRef?.kind === workload.kind &&
-      vpa.spec.targetRef.name === workload.metadata.name &&
-      (vpa.spec.updatePolicy?.updateMode ?? 'Auto') !== 'Off',
+      vpa.spec?.targetRef.name === workload.metadata.name &&
+      (vpa.spec?.updatePolicy?.updateMode ?? 'Auto') !== 'Off',
   )
 }
 
@@ -611,14 +611,14 @@ export interface WorkloadAdvice {
 
 /** The containers of a workload's pod template. */
 export function containersOf(workload: KubeObject): { name: string; resources?: Resources }[] {
-  return workload.spec.template.spec.containers
+  return workload.spec?.template?.spec?.containers ?? []
 }
 
 /** How many pods a workload runs: the replicas it wants, or for a DaemonSet, the nodes it's on. */
 export function replicasOf(workload: KubeObject): number {
   return workload.kind === 'DaemonSet'
     ? (workload.status?.desiredNumberScheduled ?? 0)
-    : (workload.spec.replicas ?? 1)
+    : (workload.spec?.replicas ?? 1)
 }
 
 const DAYS = new Intl.NumberFormat('en', { style: 'unit', unit: 'day', unitDisplay: 'long' })

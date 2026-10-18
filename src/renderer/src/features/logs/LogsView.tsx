@@ -309,7 +309,7 @@ function Chip({
 
 /** The containers a pod runs, init containers first, as `kubectl logs` names them. */
 function containerNames(pod: KubeObject): string[] {
-  return [...(pod.spec.initContainers ?? []), ...pod.spec.containers].map(
+  return [...(pod.spec?.initContainers ?? []), ...(pod.spec?.containers ?? [])].map(
     (c: { name: string }) => c.name,
   )
 }
@@ -364,7 +364,9 @@ function Logs({
   const sorted = [...pods].sort((a, b) => a.metadata.name.localeCompare(b.metadata.name))
   const names = [...new Set(sorted.flatMap(containerNames))]
   const [container, setContainer] = useState<string>(
-    asked !== undefined && names.includes(asked) ? asked : sorted[0]!.spec.containers[0].name,
+    asked !== undefined && names.includes(asked)
+      ? asked
+      : (sorted[0]?.spec?.containers?.[0]?.name ?? names[0] ?? ''),
   )
   const [picked, setPickedState] = useState<Picked>({ range: '500' })
   /** When it was picked: where a span's start is counted from, to say it. */
