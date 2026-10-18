@@ -28,6 +28,8 @@ export async function authorize(kc: KubeConfig, request: https.RequestOptions): 
   try {
     await kc.applyToHTTPSOptions(request)
   } catch (error) {
+    // Said already: an oidc user's renewal, which says why it couldn't sign in.
+    if (error instanceof KubeRequestError) throw error
     const { message } = error as Error
     const plugin = /spawn (\S+) ENOENT/.exec(message)?.[1]
     throw new KubeRequestError(

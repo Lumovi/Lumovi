@@ -19,3 +19,17 @@ export function StartupProblems({ problems }: { problems: () => Promise<string[]
   }, [problems])
   return null
 }
+
+/** A note from Lumovi as it goes (the desktop app's), said once: a token it couldn't save, say. */
+export type OnNote = (
+  listener: (note: { title: string; description: string }) => void,
+) => () => void
+
+/** Says what Lumovi has to say as it goes, each once, as it's said. */
+export function Notes({ onNote }: { onNote: OnNote }) {
+  useEffect(
+    () => onNote(({ title, description }) => toast({ tone: 'error', title, description })),
+    [onNote],
+  )
+  return null
+}

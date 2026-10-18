@@ -7,6 +7,7 @@ import { plain } from '@shared/plugins'
 import { withProxy } from '../network'
 import { KubeRequestError } from './errors'
 import { kubeconfigText, readFolder, type FolderRead } from './folders'
+import type { OidcRenewal } from './oidc-refresh'
 
 /** Resolves kubeconfig locations the same way kubectl does. */
 export function kubeconfigPaths(env: NodeJS.ProcessEnv): string[] {
@@ -212,6 +213,7 @@ export class KubeConfigStore implements ClusterConfigs {
     user?: Source
   }) => string | undefined
   private readonly loaded?: () => void
+  private readonly oidc?: OidcRenewal
 
   constructor(
     private readonly env: NodeJS.ProcessEnv = process.env,
@@ -221,10 +223,13 @@ export class KubeConfigStore implements ClusterConfigs {
       refuse?: KubeConfigStore['refuse']
       /** Told each time it's read again (what's read may be other files now). */
       loaded?: () => void
+      /** What renews `auth-provider: oidc` users' tokens, each from the file it came from. */
+      oidc?: OidcRenewal
     } = {},
   ) {
     this.refuse = options.refuse
     this.loaded = options.loaded
+    this.oidc = options.oidc
     this.load()
   }
 
@@ -455,6 +460,9 @@ export class KubeConfigStore implements ClusterConfigs {
       contexts: this.#base.contexts,
       currentContext: name,
     })
+    // (Where each user came from, as read now: what renews its tokens writes them back there.)
+    const whence = this.#whence
+    this.oidc?.install(kc, (user) => whence.users.get(user))
     this.#perContext.set(name, kc)
     return kc
   }

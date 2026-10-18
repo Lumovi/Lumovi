@@ -35,6 +35,7 @@ import { ChartRepositories, recordOf } from '@backend/helm/repositories'
 import { HelmService } from '@backend/helm/service'
 import { FileCopies, fileCopyLimits } from '@backend/kube/files'
 import { KubeConfigStore } from '@backend/kube/kubeconfig'
+import { OidcRenewal } from '@backend/kube/oidc-refresh'
 import { KubeconfigWatcher } from '@backend/kube/watch'
 import { LogStreams } from '@backend/kube/logs'
 import { ListWatches } from '@backend/kube/watches'
@@ -157,6 +158,14 @@ if (stdio) {
     // time they're read, what's watched is too (a file chosen, a folder added).
     const kubeconfigs = join(app.getPath('userData'), 'clusters')
     const watching: { watcher?: KubeconfigWatcher } = {}
+    // What Lumovi has to say as it goes, to every window, once they're there.
+    const notes: { send?: (title: string, description: string) => void } = {}
+    // `auth-provider: oidc` users' tokens, renewed as kubectl renews them, and written back where
+    // kubectl keeps them (said once where they can't be).
+    const oidc = new OidcRenewal({
+      writes: true,
+      note: (description) => notes.send?.('A renewed token wasn’t saved', description),
+    })
     const store = new KubeConfigStore(
       process.env,
       () => ({
@@ -166,6 +175,7 @@ if (stdio) {
       {
         refuse: (parts) => refusalOf(parts, settings.kubeconfigConsents(parts.context.file)),
         loaded: () => watching.watcher?.refresh(),
+        oidc,
       },
     )
     const kubeconfigFiles = new KubeconfigFiles({
@@ -288,6 +298,9 @@ if (stdio) {
     // them; each window's own events are listened to once all there is to tell them is (wire).
     // (A shell held for a window that closed before its page took it ends: see closeStreams.)
     const windows = new Windows((ids) => closeStreams(ids))
+    notes.send = (title, description) => {
+      for (const win of windows.all()) win.webContents.send(IPC.appNote, { title, description })
+    }
     /**
      * Pages raised for a link from another app, by the time of the last key they were given: their
      * keys are nothing until they stop for a while (the person may still be typing there).

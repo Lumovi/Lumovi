@@ -41,6 +41,7 @@ const api: LumoviApi = {
     info: () => invoke(IPC.appInfo),
     settings: () => invoke(IPC.settings),
     problems: () => invoke(IPC.appProblems),
+    onNote: (listener) => subscribe(IPC.appNote, listener),
     setTheme: (theme) => invoke(IPC.setTheme, theme),
     setPreferences: (patch) => invoke(IPC.setPreferences, patch),
     onSettingsChanged: (listener) => subscribe(IPC.settingsChanged, listener),

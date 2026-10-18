@@ -1595,6 +1595,11 @@ export interface LumoviApi {
      * a certificate authority's file, a proxy. Once the network is set up.
      */
     problems?(): Promise<string[]>
+    /**
+     * The desktop app's: what Lumovi has to say as it goes, once, that isn't any one page's (a
+     * kubeconfig it couldn't save a renewed token to, say).
+     */
+    onNote?(listener: (note: { title: string; description: string }) => void): () => void
     setTheme(theme: ThemePreference): Promise<Settings>
     /**
      * Changes the person's own settings (null puts one back to its default): at once, in every
@@ -2104,6 +2109,7 @@ export const IPC = {
   linkFor: 'link:for',
   appInfo: 'app:info',
   appProblems: 'app:problems',
+  appNote: 'app:note',
   settings: 'app:settings',
   /** A server's: someone changed its clusters' settings (everyone's pages read them again). */
   settingsChanged: 'app:settings-changed',
