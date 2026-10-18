@@ -443,9 +443,10 @@ export class Joins {
     await this.#read()
     const kept = this.state.get<Kept>('joins', name)
     if (!kept?.used) {
+      // (The same whichever way it came: added, or connected from this page.)
       throw new KubeRequestError(
         'not-found',
-        `No cluster called ${name} was connected from this page.`,
+        `No cluster called “${name}” is here to remove: it was never added, or it’s gone already.`,
       )
     }
     this.state.delete('joins', name)

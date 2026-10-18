@@ -188,7 +188,7 @@ test('only admins connect clusters, where the server keeps them, with names the 
   expect(await refused({ groups: 'sre' })).toBe(
     'Its groups must be a list of text, like [platform, sre].',
   )
-  expect(await refused({ groups: [' '] })).toBe('Its group “ ”: Enter a group.')
+  expect(await refused({ groups: [' '] })).toBe('Its group is empty: name one, or leave it out.')
   expect(await refused({ groups: ['sre​'] })).toBe('Its group “sre​”: No control characters.')
   expect(await refused({ groups: Array.from({ length: 51 }, (_, i) => `g${i}`) })).toBe(
     'Up to 50 groups may see it.',

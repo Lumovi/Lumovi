@@ -13,7 +13,7 @@
  * Admins only, and recorded. Removed from the page, the Secret Lumovi made is deleted (that one,
  * by its UID), never one it didn't make.
  */
-import { X509Certificate } from 'node:crypto'
+import { createPrivateKey, X509Certificate } from 'node:crypto'
 import { KubeConfig, type Cluster, type User } from '@kubernetes/client-node'
 import type { AuditActor } from '@shared/audit'
 import {
@@ -72,6 +72,82 @@ interface Read {
 /** A host, as a check says it: the server's address without its scheme. */
 const hostOf = (server: string) => URL.parse(server)?.host ?? server
 
+/** What a certificate authority that didn't sign the server's certificate is said as, by Node. */
+const UNSIGNED = new Set([
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'CERT_SIGNATURE_FAILURE',
+])
+
+/**
+ * What's wrong with the certificate a server presented, as a check: for another name, not signed
+ * by its certificate authority (or, with none given, by one trusted), run out or not yet valid.
+ * Nothing when it isn't the certificate. (Its dates aren't said: they'd take a connection that
+ * doesn't check it.)
+ */
+function certificateCheck(error: unknown, cluster: Cluster): FleetCheck | undefined {
+  const code = (error as { code?: unknown }).code
+  const host = URL.parse(cluster.server)?.hostname ?? cluster.server
+  if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') {
+    const names = namesIn((error as { cert?: { subjectaltname?: unknown } }).cert?.subjectaltname)
+    return {
+      result: 'bad',
+      title: 'Its server’s certificate is for another name',
+      hint:
+        names.length === 1
+          ? `${host}’s certificate names only ${names[0]}. Connect to it, or set its tls-server-name to it.`
+          : `${host}’s certificate names ${listed(names)}. Connect to one of those, or set its tls-server-name to one.`,
+    }
+  }
+  if (typeof code === 'string' && UNSIGNED.has(code)) {
+    return cluster.caData || cluster.caFile
+      ? {
+          result: 'bad',
+          title: 'Its server’s certificate isn’t signed by its CA',
+          hint: `The certificate authority given didn’t sign the certificate ${host} presents. Give the one that did.`,
+        }
+      : {
+          result: 'bad',
+          title: 'Its server’s certificate isn’t signed by a CA this server trusts',
+          hint: `No certificate authority was given, and none this server trusts signed the certificate ${host} presents. Give the one that did (certificate-authority-data).`,
+        }
+  }
+  if (code === 'CERT_HAS_EXPIRED') {
+    return {
+      result: 'bad',
+      title: 'Its server’s certificate has expired',
+      hint: `${host}’s certificate is past its end date. Whoever runs that cluster renews it.`,
+    }
+  }
+  if (code === 'CERT_NOT_YET_VALID') {
+    return {
+      result: 'bad',
+      title: 'Its server’s certificate isn’t valid yet',
+      hint: `By this server’s clock, ${host}’s certificate isn’t valid yet. Check the clock: if it’s right, whoever runs that cluster issues the certificate again.`,
+    }
+  }
+  return undefined
+}
+
+/** The names a certificate is for, as its subjectAltName lists them (DNS:…, IP Address:…). */
+function namesIn(subjectAltName: unknown): string[] {
+  if (typeof subjectAltName !== 'string') return []
+  return subjectAltName
+    .split(/,\s*/)
+    .map((entry) => entry.replace(/^(DNS|IP Address):/, '').replace(/[\p{Cc}\p{Cf}]/gu, ''))
+    .filter(Boolean)
+}
+
+/** Three names at most, then how many more: "a, b and c", "a, b, c and 2 more". */
+function listed(names: string[]): string {
+  if (names.length === 0) return 'no names'
+  if (names.length > 3) return `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+}
+
 /** Why a cluster to add can't be used from the hub, as checks: none, where it can. */
 function signInProblems({ cluster, user }: Read): FleetCheck[] {
   const problems: FleetCheck[] = []
@@ -93,6 +169,29 @@ function signInProblems({ cluster, user }: Read): FleetCheck[] {
       hint: plugin,
       plugin: true,
     })
+  }
+  // Pasted wrongly: what it signs in with, not the server, is what can't be read.
+  if (user.certData) {
+    try {
+      new X509Certificate(Buffer.from(user.certData, 'base64'))
+    } catch {
+      problems.push({
+        result: 'bad',
+        title: 'Its client certificate isn’t a certificate',
+        hint: 'The certificate it signs in with, as PEM (-----BEGIN CERTIFICATE-----).',
+      })
+    }
+  }
+  if (user.keyData) {
+    try {
+      createPrivateKey(Buffer.from(user.keyData, 'base64'))
+    } catch {
+      problems.push({
+        result: 'bad',
+        title: 'Its client key isn’t a key',
+        hint: 'The private key that goes with its client certificate, as PEM (-----BEGIN PRIVATE KEY-----, or RSA or EC PRIVATE KEY).',
+      })
+    }
   }
   const files = [
     ['certificate-authority', cluster.caFile],
@@ -384,7 +483,12 @@ export class AddedClusters {
   async remove(name: string, user: SessionUser, actor: AuditActor): Promise<void> {
     this.#allowed(user)
     const kept = this.state.get<Kept>('added', name)
-    if (!kept) throw new KubeRequestError('not-found', `No cluster called ${name} was added here.`)
+    if (!kept) {
+      throw new KubeRequestError(
+        'not-found',
+        `No cluster called “${name}” is here to remove: it was never added, or it’s gone already.`,
+      )
+    }
     const path = `/api/v1/namespaces/${encodeURIComponent(kept.namespace)}/secrets/${encodeURIComponent(kept.secret)}`
     try {
       await kubeRequest(hubKubeConfig(this.env), path, {
@@ -571,7 +675,15 @@ export class AddedClusters {
         })
         refused = failed.message
       } else {
-        checks.push({ result: 'bad', title: 'The server doesn’t answer', detail: failed.message })
+        // The server's certificate, said as what's wrong with it; else it didn't answer (said by
+        // where, never in the system's words).
+        checks.push(
+          certificateCheck(error, read.cluster) ?? {
+            result: 'bad',
+            title: 'The server doesn’t answer',
+            detail: hostOf(read.cluster.server),
+          },
+        )
         return done(read)
       }
     }

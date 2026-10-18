@@ -316,6 +316,14 @@ test('a cluster’s settings are held to what they are: a name that’s text, la
   const nowhere = { error: 'This server has no cluster called “nowhere”.' }
   expect(await call(page, 'settings', 'nowhere')).toEqual(nowhere)
   expect(await call(page, 'saveSettings', 'nowhere', { labels: {} })).toEqual(nowhere)
+  // A name that isn't text (a script's): said so, and what was given never said back.
+  const notText = { error: 'A cluster is named by text, like “prod-eu”.' }
+  expect(await call(page, 'settings', { name: 'nowhere' })).toEqual(notText)
+  expect(await call(page, 'saveSettings', 7, { labels: {} })).toEqual(notText)
+  // A group of no name.
+  expect(await call(page, 'saveSettings', FLEET.staging, { groups: [''] })).toEqual({
+    error: 'Its group is empty: name one, or leave it out.',
+  })
   // Nothing given changes nothing, and says what's set.
   const asItWas = await call(page, 'settings', FLEET.staging)
   expect(asItWas.value).toMatchObject({ name: FLEET.staging, labels: { value: {} } })

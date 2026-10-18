@@ -3,9 +3,12 @@
  * kept as Lumovi's own Secrets in its namespace, and removed with them.
  */
 import { chmodSync, mkdtempSync } from 'node:fs'
+import https from 'node:https'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { generate } from 'selfsigned'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import { audited, expect, freePort, inCluster, test } from './fixtures.ts'
@@ -50,6 +53,25 @@ function kubeconfig(
     contexts: contexts.map((name) => ({ name, context: { cluster: 'demo', user: 'hub' } })),
     'current-context': contexts[0],
   })
+}
+
+/** A server of its own over HTTPS, for 127.0.0.1, its certificate (its own authority) good between two dates. */
+async function servedWith(notBeforeDate: Date, notAfterDate: Date) {
+  const pems = await generate([{ name: 'commonName', value: '127.0.0.1' }], {
+    keyType: 'ec',
+    notBeforeDate,
+    notAfterDate,
+    extensions: [{ name: 'subjectAltName', altNames: [{ type: 7, ip: '127.0.0.1' }] }],
+  })
+  const server = https.createServer({ key: pems.private, cert: pems.cert }, (_, res) =>
+    res.end('{}'),
+  )
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  return {
+    url: `https://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    ca: Buffer.from(pems.cert).toString('base64'),
+    close: () => server.close(),
+  }
 }
 
 /** A hub in the demo cluster, with admins, keeping what it must, adding from its page or not. */
@@ -312,6 +334,116 @@ test('what the hub can’t use is refused, saying why; a token, a server and its
   expect((await failed({ kubeconfig: 'clusters: [' })).map((c) => c.title)).toEqual([
     'It doesn’t read as a kubeconfig',
   ])
+  // What it signs in with, pasted wrongly: that's what's said, not the server.
+  const text = (value: string) => Buffer.from(value).toString('base64')
+  expect(
+    (
+      await failed({
+        kubeconfig: kubeconfig(clusters, {
+          'client-certificate-data': text('not a certificate'),
+          'client-key-data': text('not a key'),
+        }),
+      })
+    ).map((c) => c.title),
+  ).toEqual(['Its client certificate isn’t a certificate', 'Its client key isn’t a key'])
+  // The server's certificate, said as what's wrong with it, in Lumovi's words only: for another
+  // name; not signed by the authority given.
+  const [named] = await failed({
+    kubeconfig: kubeconfig(clusters, undefined, { 'tls-server-name': 'elsewhere.example' }),
+  })
+  expect(named).toMatchObject({ title: 'Its server’s certificate is for another name' })
+  expect((named as { hint?: string }).hint).toMatch(
+    /^127\.0\.0\.1’s certificate names localhost, kubernetes\.default\.svc, \S+ and \d+ more\. Connect to one of those, or set its tls-server-name to one\.$/,
+  )
+  const other = await generate([{ name: 'commonName', value: 'another-authority' }], {
+    keyType: 'ec',
+    extensions: [{ name: 'basicConstraints', cA: true }],
+  })
+  expect(
+    await failed({
+      kubeconfig: kubeconfig(clusters, undefined, {
+        'certificate-authority-data': Buffer.from(other.cert).toString('base64'),
+      }),
+    }),
+  ).toEqual([
+    {
+      result: 'bad',
+      title: 'Its server’s certificate isn’t signed by its CA',
+      hint: 'The certificate authority given didn’t sign the certificate 127.0.0.1 presents. Give the one that did.',
+    },
+  ])
+  // Run out, or not started yet; and where no authority was given, and none this server trusts
+  // signed it: each said so.
+  const day = 86_400_000
+  const expired = await servedWith(
+    new Date('2020-01-01T00:00:00Z'),
+    new Date('2020-01-02T00:00:00Z'),
+  )
+  const early = await servedWith(new Date('2099-01-01T00:00:00Z'), new Date('2099-12-31T00:00:00Z'))
+  const unsigned = await servedWith(new Date(Date.now() - day), new Date(Date.now() + day))
+  try {
+    expect(
+      await failed({
+        kubeconfig: kubeconfig(clusters, undefined, {
+          server: expired.url,
+          'certificate-authority-data': expired.ca,
+        }),
+      }),
+    ).toEqual([
+      {
+        result: 'bad',
+        title: 'Its server’s certificate has expired',
+        hint: '127.0.0.1’s certificate is past its end date. Whoever runs that cluster renews it.',
+      },
+    ])
+    expect(
+      await failed({
+        kubeconfig: kubeconfig(clusters, undefined, {
+          server: early.url,
+          'certificate-authority-data': early.ca,
+        }),
+      }),
+    ).toEqual([
+      {
+        result: 'bad',
+        title: 'Its server’s certificate isn’t valid yet',
+        hint: 'By this server’s clock, 127.0.0.1’s certificate isn’t valid yet. Check the clock: if it’s right, whoever runs that cluster issues the certificate again.',
+      },
+    ])
+    expect(
+      await failed({
+        kubeconfig: kubeconfig(clusters, undefined, {
+          server: unsigned.url,
+          'certificate-authority-data': undefined,
+        }),
+      }),
+    ).toEqual([
+      {
+        result: 'bad',
+        title: 'Its server’s certificate isn’t signed by a CA this server trusts',
+        hint: 'No certificate authority was given, and none this server trusts signed the certificate 127.0.0.1 presents. Give the one that did (certificate-authority-data).',
+      },
+    ])
+  } finally {
+    expired.close()
+    early.close()
+    unsigned.close()
+  }
+  // One that doesn't answer is said by where, and nothing of the system's words.
+  expect(
+    await failed({ kubeconfig: kubeconfig(clusters, undefined, { server: clusters.offlineUrl }) }),
+  ).toEqual([
+    {
+      result: 'bad',
+      title: 'The server doesn’t answer',
+      detail: new URL(clusters.offlineUrl).host,
+    },
+  ])
+  // Removing one that isn't here.
+  expect(await call(page, 'remove', 'never-added')).toEqual({
+    error:
+      'No cluster called “never-added” is here to remove: it was never added, or it’s gone already.',
+  })
   // A proxy it's reached through is shown, among the checks, before it's added.
   expect(
     (

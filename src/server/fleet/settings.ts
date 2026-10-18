@@ -55,6 +55,7 @@ export function checkedGroups(groups: unknown): string[] {
   }
   if (groups.length > MAX_GROUPS) throw invalid(`Up to ${MAX_GROUPS} groups may see it.`)
   for (const group of groups as string[]) {
+    if (group.trim() === '') throw invalid('Its group is empty: name one, or leave it out.')
     const error = groupError(group)
     if (error) throw invalid(`Its group “${group}”: ${error}.`)
   }
@@ -240,12 +241,13 @@ export class FleetSettings {
 
   /** A cluster of the fleet, as its source describes it. */
   #cluster(name: unknown) {
-    const cluster = typeof name === 'string' ? this.hosted.sourced?.(name) : undefined
+    // (Never what was given said back: a script's object reads as "[object Object]".)
+    if (typeof name !== 'string') {
+      throw new KubeRequestError('invalid', 'A cluster is named by text, like “prod-eu”.')
+    }
+    const cluster = this.hosted.sourced?.(name)
     if (!cluster) {
-      throw new KubeRequestError(
-        'not-found',
-        `This server has no cluster called “${String(name)}”.`,
-      )
+      throw new KubeRequestError('not-found', `This server has no cluster called “${name}”.`)
     }
     return cluster
   }
