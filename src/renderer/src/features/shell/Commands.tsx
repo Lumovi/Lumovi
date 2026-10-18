@@ -12,21 +12,38 @@ import { useLinkCard } from '../links/LinkCard'
 import { searchPath } from '../search/saved'
 import { TEXT_SIZES } from '@shared/preferences'
 import { useSetPreferences } from '@renderer/hooks/settings'
+import { claimedMenu, claimedPress, pressed } from '@renderer/lib/shortcuts'
 import type { Settings } from '@shared/api'
 
 /** How long `g` waits for the second key of a "go to" shortcut. */
 const SEQUENCE_TIMEOUT = 1200
 
-const MOD_KEYS: Record<string, AppCommand> = {
-  k: 'palette',
-  r: 'refresh',
-  n: 'create',
-  '[': 'back',
-  ']': 'forward',
-  ...Object.fromEntries(QUICK_NAV.map((target, i) => [String(i + 1), `go:${target}`])),
-}
+/** The commands with keys of their own (shared/shortcuts.ts) these run, wherever the page is. */
+const KEYED: AppCommand[] = [
+  'palette',
+  'filter',
+  'refresh',
+  'create',
+  'back',
+  'forward',
+  'shortcuts',
+  'settings',
+  'clusters',
+  'new-window',
+  'search',
+  'terminal',
+  'new-terminal',
+]
+
+/** Built in: the Go menu's numbered places. */
+const MOD_KEYS: Record<string, AppCommand> = Object.fromEntries(
+  QUICK_NAV.map((target, i) => [String(i + 1), `go:${target}`]),
+)
 
 const ALT_KEYS: Record<string, AppCommand> = { ArrowLeft: 'back', ArrowRight: 'forward' }
+
+const inTerminal = (target: EventTarget | null) =>
+  target instanceof Element && target.closest('.xterm') !== null
 
 function isEditable(target: EventTarget | null): boolean {
   return (
@@ -60,6 +77,10 @@ export function Commands() {
   const context = useMatch('/cluster/:context/*')?.params.context
   const { setPalette, setShortcuts, setCreate } = useUi()
   const pendingGo = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearGo = () => {
+    if (pendingGo.current) clearTimeout(pendingGo.current)
+    pendingGo.current = null
+  }
 
   const setPreferences = useSetPreferences()
   const textSize = (step: -1 | 0 | 1) => {
@@ -101,6 +122,7 @@ export function Commands() {
         if (here) toggle(here.context, here.namespace)
         else ask?.(false)
       },
+      'new-window': () => void api.desktop!.newWindow(),
       'new-terminal': () => {
         const { here, add, ask } = useDock.getState()
         if (here) add(here.context, here.namespace)
@@ -137,27 +159,39 @@ export function Commands() {
     runRef.current = run
   })
 
-  useEffect(() => api.desktop?.onCommand((command) => runRef.current(command)), [])
+  // (Where a live narrower place holds the menu item's key, its command instead.)
+  useEffect(
+    () =>
+      api.desktop?.onCommand((command) => {
+        const instead = claimedMenu(command)
+        if (instead) instead()
+        else runRef.current(command)
+      }),
+    [],
+  )
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // ⌃` on every platform, as editors have it (by the key's place, whatever the layout);
-      // with ⇧, a new terminal.
-      if (event.ctrlKey && !event.metaKey && event.code === 'Backquote') {
+      // A command's keys, as Settings has them: with ⌘ or Ctrl, wherever the keyboard is;
+      // others not while typing, nor past an open dialog or menu.
+      const held = event.metaKey || event.ctrlKey
+      const free =
+        held ||
+        (!isEditable(event.target) && !document.querySelector('[role="dialog"], [role="menu"]'))
+      // (G's next key is the go-to's; a live narrower place's key is its own: it runs it.)
+      const keyed =
+        free && !(pendingGo.current && !held) && !claimedPress(event)
+          ? KEYED.find(
+              (id) =>
+                pressed(event, id) &&
+                // (Off a Mac, a terminal keeps Ctrl+Shift+F while it has the keyboard.)
+                !(id === 'search' && api.platform !== 'darwin' && inTerminal(event.target)),
+            )
+          : undefined
+      if (keyed) {
         event.preventDefault()
-        runRef.current(event.shiftKey ? 'new-terminal' : 'terminal')
-        return
-      }
-      // ⌘⇧F (Ctrl+Shift+F): Search. Off a Mac, a terminal keeps it while it has the keyboard.
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        !event.altKey &&
-        event.code === 'KeyF' &&
-        (api.platform === 'darwin' || !(event.target as Element | null)?.closest?.('.xterm'))
-      ) {
-        event.preventDefault()
-        runRef.current('search')
+        clearGo()
+        runRef.current(keyed)
         return
       }
       // (With Shift, a digit isn't the Go menu's: on some layouts, AZERTY's, Shift and the digit row
@@ -190,11 +224,6 @@ export function Commands() {
         pendingGo.current = setTimeout(() => {
           pendingGo.current = null
         }, SEQUENCE_TIMEOUT)
-      } else if (event.key === '/') {
-        event.preventDefault()
-        runRef.current('filter')
-      } else if (event.key === '?') {
-        runRef.current('shortcuts')
       }
     }
     window.addEventListener('keydown', onKeyDown)

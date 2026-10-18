@@ -29,7 +29,7 @@ import { usePrefs } from '@renderer/state/prefs'
 import { menuContent, menuItem } from '../shell/menu-styles'
 import { tabName, useDock, type TerminalTab } from './dock'
 import { KeptPanel, KeptTabButton } from './Kept'
-import { keysText, TERMINAL_KEYS } from './keys'
+import { pressed, useKeys } from '@renderer/lib/shortcuts'
 import { TerminalNotice, TerminalView, usePhase } from './TerminalView'
 
 /** How tall the dock is unless resized, and the least it can be. */
@@ -59,6 +59,7 @@ export function TerminalDock({
 } = {}) {
   const { tabs, kept, order, active, open, maximized, focus } = useDock()
   const dock = useDock.getState()
+  const keys = useKeys()
   const { context, namespace } = useCluster()
   const stored = usePrefs((prefs) => prefs.terminalHeight)
   const setStored = usePrefs((prefs) => prefs.setTerminalHeight)
@@ -142,33 +143,25 @@ export function TerminalDock({
     handle.addEventListener('pointermove', move)
     handle.addEventListener('pointerup', up)
   }
-  const keys = (event: KeyboardEvent<HTMLDivElement>) => {
+  const resizeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     const by = ({ ArrowUp: STEP, ArrowDown: -STEP } as Record<string, number>)[event.key]
     if (by === undefined) return
     event.preventDefault()
     // From the height as kept (the page may not show the last step yet), or as shown.
     resize((usePrefs.getState().terminalHeight ?? section.current!.offsetHeight) + by)
   }
-  // The dock's own keys, which its terminals leave to it (see TERMINAL_KEYS; macOS's ⌘T and
+  // The dock's own keys, which its terminals leave to it, as Settings has them (macOS's ⌘T and
   // ⌘W come from the main process, before the menu has them).
   const shortcuts = (event: KeyboardEvent<HTMLElement>) => {
     if (!open) return
-    const { code, shiftKey } = event
-    const ctrl = event.ctrlKey && !event.metaKey && !event.altKey
-    const cmd = event.metaKey && !event.ctrlKey && !event.altKey && shiftKey
-    const step =
-      (ctrl && code === 'PageDown') || (cmd && code === 'BracketRight')
-        ? 1
-        : (ctrl && code === 'PageUp') || (cmd && code === 'BracketLeft')
-          ? -1
-          : 0
+    const step = pressed(event, 'terminal.next') ? 1 : pressed(event, 'terminal.previous') ? -1 : 0
     if (step !== 0) {
       event.preventDefault()
       dock.step(step)
-    } else if (ctrl && shiftKey && code === 'KeyW') {
+    } else if (pressed(event, 'terminal.close')) {
       event.preventDefault()
       dock.close(active!)
-    } else if (ctrl && shiftKey && code === 'KeyT') {
+    } else if (pressed(event, 'terminal.new')) {
       event.preventDefault()
       add()
     }
@@ -197,7 +190,7 @@ export function TerminalDock({
           aria-label="Resize the tabs below"
           tabIndex={0}
           onPointerDown={drag}
-          onKeyDown={keys}
+          onKeyDown={resizeKeys}
           className="group absolute inset-x-0 -top-1.5 z-10 h-3 cursor-row-resize outline-none"
         >
           <span className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-transparent transition-colors group-hover:bg-accent/60 group-focus-visible:bg-accent" />
@@ -213,7 +206,7 @@ export function TerminalDock({
         {/* Always a terminal: the last one shown, or a new one, as ⌃` does. */}
         <button
           type="button"
-          aria-label={`${tabs.length ? 'Show the terminal' : 'Open a terminal'} (${keysText(TERMINAL_KEYS.toggle)})`}
+          aria-label={keys.label(tabs.length ? 'Show the terminal' : 'Open a terminal', 'terminal')}
           onClick={toggle}
           className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-2 outline-none hover:bg-surface-3 hover:text-ink-1 focus-visible:ring-2 focus-visible:ring-accent"
         >
@@ -238,7 +231,7 @@ export function TerminalDock({
           <DropdownMenu.Root open={asking} onOpenChange={setAsking}>
             <DropdownMenu.Trigger asChild>
               <IconButton
-                label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
+                label={keys.label('New terminal', 'new-terminal')}
                 className="size-7 shrink-0"
               >
                 <Plus />
@@ -261,7 +254,7 @@ export function TerminalDock({
           </DropdownMenu.Root>
         ) : (
           <IconButton
-            label={`New terminal (${keysText(TERMINAL_KEYS.add)})`}
+            label={keys.label('New terminal', 'new-terminal')}
             className="size-7 shrink-0"
             onClick={add}
           >
@@ -279,7 +272,7 @@ export function TerminalDock({
           </IconButton>
         ) : (
           <span aria-hidden className="mr-1 flex">
-            <Kbd>{keysText(TERMINAL_KEYS.toggle)}</Kbd>
+            {keys.caps('terminal') && <Kbd>{keys.caps('terminal')!.join('')}</Kbd>}
           </span>
         )}
         <IconButton
@@ -312,6 +305,7 @@ export function TerminalDock({
 function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
   const phase = usePhase(tab.session)
   const dock = useDock.getState()
+  const keys = useKeys()
   const [renaming, setRenaming] = useState(false)
   // (One whose shell ended as Lumovi quit says so: "ended", where a shell that exited says that.)
   const ended = phase.state === 'ended' || phase.state === 'failed'
@@ -406,7 +400,7 @@ function Tab({ tab, selected }: { tab: TerminalTab; selected: boolean }) {
           <ContextMenu.Item className={menuItem} onSelect={() => dock.close(id)}>
             <X className="size-4 text-ink-3" />
             <span className="flex-1">Close</span>
-            <Keys keys={TERMINAL_KEYS.close} />
+            {keys.caps('terminal.close') && <Keys keys={keys.caps('terminal.close')!} />}
           </ContextMenu.Item>
           <ContextMenu.Item className={menuItem} onSelect={() => dock.closeOthers(id)}>
             <span className="size-4" />

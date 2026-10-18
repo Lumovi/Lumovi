@@ -32,6 +32,7 @@ import { apiKindOf, kindOf } from '@shared/resources'
 import { usePinning } from '@renderer/hooks/marks'
 import { objectKey } from '@renderer/hooks/queries'
 import { cn } from '@renderer/lib/cn'
+import { pressed } from '@renderer/lib/shortcuts'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { keepFocusInActionDialog } from '@renderer/state/actions'
@@ -404,14 +405,15 @@ function ResourceGrid({
     // Keys on a column header (Enter or Space to sort) are its own.
     if ((event.target as Element).closest('[role="columnheader"]')) return
     if (selectable) {
-      // x picks the active row, ⌘A the whole page, Escape lets go of everything.
+      // x picks the active row, ⌘A the whole page (or their keys as Settings has them), Escape
+      // lets go of everything.
       // The grid only shows with rows, and focusing it makes one active.
-      if (event.key.toLowerCase() === 'x' && !event.metaKey && !event.ctrlKey) {
+      if (pressed(event, 'list.select')) {
         event.preventDefault()
         pick(active, event.shiftKey)
         return
       }
-      if (event.key === 'a' && (event.metaKey || event.ctrlKey)) {
+      if (pressed(event, 'list.select-all')) {
         event.preventDefault()
         pickPage(true)
         return

@@ -41,6 +41,7 @@ import type {
 import type { Marks } from './marks'
 import type { PreferenceKey, Preferences } from './preferences'
 import type { AppCommand } from './navigation'
+import type { KeyPress } from './shortcuts'
 import type { BoxCheckRole } from './box-check'
 import type { NotHanded, PluginCode } from './plugin-hand-over'
 import type { PluginChangeAnswer, PluginChangeRequest } from './plugin-changes'
@@ -1538,6 +1539,13 @@ export interface LumoviApi {
      */
     setTerminalFocus(focused: boolean | 'below'): void
     /**
+     * While Settings records a command's new keys: every key pressed in this window is sent to
+     * it (onKeyRecorded), not the menu's nor the page's (LMV-358).
+     */
+    recordKeys(on: boolean): void
+    /** A key pressed while keys are recorded; returns an unsubscribe function. */
+    onKeyRecorded(listener: (press: KeyPress) => void): () => void
+    /**
      * Opens the app's menu at a point of the page (its CSS pixels), for a window without a menu
      * bar (Windows', Linux's); done once it closes.
      */
@@ -2093,6 +2101,8 @@ export interface LumoviApi {
 export const IPC = {
   command: 'app:command',
   terminalFocus: 'terminal:focus',
+  recordKeys: 'keys:record',
+  keyRecorded: 'keys:recorded',
   openMenu: 'app:open-menu',
   newWindow: 'app:new-window',
   keepBelow: 'window:keep-below',

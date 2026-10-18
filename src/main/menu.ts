@@ -11,6 +11,7 @@ import type { Updates } from './updates'
 import { IPC } from '@shared/api'
 import { DOCS_URL, REPO_URL, SPONSOR_URL } from '@shared/app'
 import { navLabel, QUICK_NAV, type AppCommand } from '@shared/navigation'
+import { accelerator, effectiveKeys, SHORTCUT_IDS } from '@shared/shortcuts'
 
 /**
  * The native menu. Its commands are sent to the page of the window they're chosen in (or the one
@@ -35,14 +36,14 @@ export function buildMenu({
     : process.windowsStore
       ? 'Updates Come from the Microsoft Store'
       : undefined
-  const command = (
-    id: AppCommand,
-    label: string,
-    accelerator?: string,
-  ): MenuItemConstructorOptions => ({
+  // Each command's keys, as Settings has them: its first one the menu can hold.
+  const keys = effectiveKeys(settings.get().preferences?.shortcuts, process.platform === 'darwin')
+  const keyed = (id: string) =>
+    keys[id]!.map(accelerator).find((held): held is string => held !== undefined)
+  const command = (id: AppCommand, label: string, fixed?: string): MenuItemConstructorOptions => ({
     id,
     label,
-    accelerator,
+    accelerator: SHORTCUT_IDS.has(id) ? keyed(id) : fixed,
     click: (_item, chosenIn?: BaseWindow) => {
       const win = chosenIn instanceof BrowserWindow ? chosenIn : front()
       win?.webContents.send(IPC.command, id)
@@ -63,7 +64,7 @@ export function buildMenu({
             submenu: [
               { role: 'about' as const },
               { type: 'separator' as const },
-              command('settings', 'Settings…', 'CmdOrCtrl+,'),
+              command('settings', 'Settings…'),
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
@@ -82,14 +83,14 @@ export function buildMenu({
         {
           id: 'new-window',
           label: 'New Window',
-          accelerator: 'CmdOrCtrl+Shift+N',
+          accelerator: keyed('new-window'),
           click: newWindow,
         },
-        command('create', 'Create…', 'CmdOrCtrl+N'),
+        command('create', 'Create…'),
         { type: 'separator' },
         ...(process.platform === 'darwin'
           ? []
-          : [command('settings', 'Settings…', 'CmdOrCtrl+,'), { type: 'separator' as const }]),
+          : [command('settings', 'Settings…'), { type: 'separator' as const }]),
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
       ],
     },
@@ -97,11 +98,11 @@ export function buildMenu({
     {
       label: 'View',
       submenu: [
-        command('refresh', 'Refresh', 'CmdOrCtrl+R'),
-        command('palette', 'Command Palette…', 'CmdOrCtrl+K'),
+        command('refresh', 'Refresh'),
+        command('palette', 'Command Palette…'),
         command('filter', 'Filter List'),
-        command('terminal', 'Terminal', 'Ctrl+`'),
-        command('new-terminal', 'New Terminal', 'Ctrl+Shift+`'),
+        command('terminal', 'Terminal'),
+        command('new-terminal', 'New Terminal'),
         // For terminals opened from now on; off, and locked, where the organization's policy says.
         {
           id: 'matching-kubectl',
@@ -131,17 +132,17 @@ export function buildMenu({
     {
       label: 'Go',
       submenu: [
-        command('back', 'Back', 'CmdOrCtrl+['),
-        command('forward', 'Forward', 'CmdOrCtrl+]'),
+        command('back', 'Back'),
+        command('forward', 'Forward'),
         { type: 'separator' },
         ...QUICK_NAV.map((target, i) =>
           command(`go:${target}`, navLabel(target), `CmdOrCtrl+${i + 1}`),
         ),
         { type: 'separator' },
-        command('clusters', 'All Clusters', 'CmdOrCtrl+Shift+C'),
+        command('clusters', 'All Clusters'),
         // Off a Mac, a terminal keeps Ctrl+Shift+F while it has the keyboard: the page decides.
         {
-          ...command('search', 'Search the Cluster…', 'CmdOrCtrl+Shift+F'),
+          ...command('search', 'Search the Cluster…'),
           registerAccelerator: process.platform === 'darwin',
         },
       ],
@@ -150,7 +151,7 @@ export function buildMenu({
     {
       role: 'help',
       submenu: [
-        command('shortcuts', 'Keyboard Shortcuts', 'CmdOrCtrl+/'),
+        command('shortcuts', 'Keyboard Shortcuts'),
         { type: 'separator' },
         link('docs', 'Documentation', DOCS_URL),
         link('github', 'Lumovi on GitHub', REPO_URL),

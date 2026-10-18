@@ -26,6 +26,7 @@ import type { SchemaSource } from '@renderer/hooks/schema-source'
 import type { DocumentKind } from '@renderer/lib/yaml-schema'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { schemaEditor } from './schema-editor'
+import { pressed } from '@renderer/lib/shortcuts'
 
 /** The app's YAML colours (see YamlTab), so editing looks like reading. */
 const highlight = HighlightStyle.define([
@@ -218,7 +219,15 @@ export function CodeEditor({
           ]),
           EditorView.contentAttributes.of({ 'aria-label': label }),
           keymap.of([
-            { key: 'Mod-s', preventDefault: true, run: () => (latest.current.onSave(), true) },
+            // Review a YAML edit: its keys as Settings has them (⌘S by default).
+            {
+              any: (_view, event) => {
+                if (!pressed(event, 'object.review')) return false
+                event.preventDefault()
+                latest.current.onSave()
+                return true
+              },
+            },
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,

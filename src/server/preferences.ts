@@ -11,9 +11,11 @@ import {
   checkedPreferences,
   effectivePreferences,
   isDefault,
-  type PreferenceKey,
+  lockedNames,
+  refusedNames,
   type Preferences,
 } from '@shared/preferences'
+import { effectiveKeys, shortcutProblems } from '@shared/shortcuts'
 import { isTheme } from '@backend/settings'
 import { ConfigError } from './config'
 import type { ServerState } from './state'
@@ -43,8 +45,22 @@ export function lockedSettings(text: string | undefined): LockedSettings | undef
     problems.push('shell is the desktop app’s: a server starts no shells of its own.')
   if ('searches' in preferences) problems.push('searches isn’t a setting an organization sets.')
   if (Object.values(preferences).includes(null)) problems.push('A setting can’t be null.')
+  if (preferences.shortcuts && !problems.length)
+    problems.push(...keyProblems(preferences.shortcuts))
   if (problems.length) throw new ConfigError(`LUMOVI_SETTINGS: ${problems.join(' ')}`)
   return { ...(preferences as Partial<Preferences>), ...(isTheme(theme) ? { theme } : {}) }
+}
+
+/** A command's keys that can't be, on a Mac or another computer (whichever a person uses). */
+function keyProblems(shortcuts: unknown): string[] {
+  const problems: string[] = []
+  for (const mac of [true, false]) {
+    const keys = effectiveKeys(shortcuts as Record<string, string[]>, mac)
+    for (const problem of shortcutProblems(keys, mac, false)) {
+      if (!problems.includes(problem)) problems.push(problem)
+    }
+  }
+  return problems
 }
 
 /** Everyone's settings, each person's theirs alone. */
@@ -59,7 +75,7 @@ export class PeoplePreferences {
     const key = user.name
     const entry = () => this.state.get<Entry>('preferences', key) ?? { preferences: {} }
     const { theme: lockedTheme, ...lockedOwn } = this.locked
-    const lockedKeys = Object.keys(this.locked) as PreferenceKey[]
+    const lockedKeys = lockedNames(this.locked)
     return {
       /** What Settings says of them. */
       settings: (): Pick<Settings, 'preferences' | 'locked'> & { theme?: ThemePreference } => {
@@ -78,12 +94,11 @@ export class PeoplePreferences {
           problems.push('theme must be system, light or dark.')
         }
         if ('shell' in preferences) problems.push('shell is the desktop app’s.')
-        const refused = [
-          ...Object.keys(preferences),
-          ...(theme !== undefined ? ['theme'] : []),
-        ].filter((name) => Object.hasOwn(this.locked, name))
+        const refused = refusedNames(
+          { ...preferences, ...(theme !== undefined ? { theme } : {}) },
+          this.locked,
+        )
         if (refused.length) problems.push(`${refused.join(', ')}: set by whoever runs this server.`)
-        if (problems.length) throw new Error(problems.join(' '))
         const kept = entry()
         const own: Record<string, unknown> = { ...kept.preferences }
         // (One set to its default is kept as unset: it follows the default.)
@@ -91,6 +106,11 @@ export class PeoplePreferences {
           if (value === null || isDefault(name, value)) delete own[name]
           else own[name] = value
         }
+        // A command's keys, as a Mac or another computer has them: whichever this person uses.
+        if ('shortcuts' in preferences && !problems.length) {
+          problems.push(...keyProblems(effectivePreferences(own, lockedOwn).shortcuts))
+        }
+        if (problems.length) throw new Error(problems.join(' '))
         const next: Entry = {
           preferences: own as Partial<Preferences>,
           ...(theme === undefined

@@ -17,7 +17,7 @@ import {
 import { DropdownMenu } from 'radix-ui'
 import type { SyntheticEvent } from 'react'
 import { IconButton } from '@renderer/components/Button'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { CommandKeys, Kbd } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { cn } from '@renderer/lib/cn'
 import { clusterPath } from '@renderer/lib/routes'
@@ -103,10 +103,7 @@ export function ClusterActions({
             Settings2,
             'Settings…',
             () => actions.settings(cluster),
-            <>
-              <Kbd>{MOD_KEY}</Kbd>
-              <Kbd>I</Kbd>
-            </>,
+            <CommandKeys id="clusters.settings" />,
           )}
           {cluster.own && item(Terminal, 'Copy for kubectl', () => actions.copyForKubectl(cluster))}
           {cluster.context.file && item(FolderOpen, REVEAL, () => actions.show(cluster))}
@@ -119,10 +116,7 @@ export function ClusterActions({
               Trash2,
               'Remove from Lumovi',
               () => actions.remove(cluster),
-              <>
-                <Kbd>{MOD_KEY}</Kbd>
-                <Kbd>⌫</Kbd>
-              </>,
+              <CommandKeys id="clusters.remove" />,
               true,
             )}
         </DropdownMenu.Content>

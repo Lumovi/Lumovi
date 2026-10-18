@@ -30,7 +30,8 @@ import { IconButton } from '@renderer/components/Button'
 import { MiddleTruncate } from '@renderer/components/MiddleTruncate'
 import { barButton } from '@renderer/components/Sheet'
 import { pluginIcon, KindIcon } from '@renderer/components/KindIcon'
-import { Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { Kbd } from '@renderer/components/Kbd'
+import { useKeys } from '@renderer/lib/shortcuts'
 import { useOpenPluginPage, useServedPlugins } from '@renderer/hooks/plugins'
 import { useResource } from '@renderer/hooks/resources'
 import { api } from '@renderer/lib/api'
@@ -148,6 +149,7 @@ function PageMore({
 
 export function Header() {
   const { context } = useCluster()
+  const keys = useKeys()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const setPalette = useUi((ui) => ui.setPalette)
@@ -316,10 +318,10 @@ export function Header() {
   return (
     <header className="titlebar-trailing flex h-[52px] shrink-0 items-center gap-2 border-b border-line pr-3 pl-3 drag">
       <div className="flex items-center">
-        <IconButton label={`Back (${MOD_KEY}[)`} onClick={() => navigate(-1)}>
+        <IconButton label={keys.label('Back', 'back')} onClick={() => navigate(-1)}>
           <ArrowLeft />
         </IconButton>
-        <IconButton label={`Forward (${MOD_KEY}])`} onClick={() => navigate(1)}>
+        <IconButton label={keys.label('Forward', 'forward')} onClick={() => navigate(1)}>
           <ArrowRight />
         </IconButton>
       </div>
@@ -347,18 +349,16 @@ export function Header() {
       >
         <Search className="size-3.5" />
         <span className="flex-1 text-left">Search…</span>
-        <Kbd>{MOD_KEY}</Kbd>
-        <Kbd>K</Kbd>
+        {keys.caps('palette')?.map((key) => (
+          <Kbd key={key}>{key}</Kbd>
+        ))}
       </button>
-      <IconButton
-        label={WINDOW_SHORTCUTS ? `Create… (${MOD_KEY}N)` : 'Create…'}
-        onClick={() => setCreate(true)}
-      >
+      <IconButton label={keys.label('Create…', 'create')} onClick={() => setCreate(true)}>
         <Plus />
       </IconButton>
       {api.forwards && <ForwardsButton api={api.forwards} />}
       <ActivityButton />
-      <IconButton label={`Refresh (${MOD_KEY}R)`} onClick={() => void refresh()}>
+      <IconButton label={keys.label('Refresh', 'refresh')} onClick={() => void refresh()}>
         <RotateCw className={cn(refreshing && 'animate-spin [animation-duration:0.8s]')} />
       </IconButton>
       <PageMore groups={moreGroups} />

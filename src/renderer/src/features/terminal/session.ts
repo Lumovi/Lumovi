@@ -10,6 +10,7 @@ import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import type { KubeErrorCode, ShellExit, ShellRequest } from '@shared/api'
 import { api } from '@renderer/lib/api'
+import { pressed } from '@renderer/lib/shortcuts'
 import { ShellInput } from './input'
 
 export type Phase =
@@ -58,17 +59,17 @@ export function terminalFont(mono: string): string {
   return [font, `'${SYMBOLS}'`, ...fallbacks].join(', ')
 }
 
-/** The dock's shortcuts, which terminals leave to it (see TERMINAL_KEYS). */
-export function dockKey(event: KeyboardEvent): boolean {
-  const ctrl = event.ctrlKey && !event.metaKey && !event.altKey
-  const cmd = event.metaKey && !event.ctrlKey && !event.altKey && event.shiftKey
-  return (
-    (ctrl &&
-      (['Backquote', 'PageUp', 'PageDown'].includes(event.code) ||
-        (event.shiftKey && ['KeyW', 'KeyT'].includes(event.code)))) ||
-    (cmd && ['BracketLeft', 'BracketRight'].includes(event.code))
-  )
-}
+/** The dock's shortcuts, which terminals leave to it: their keys as Settings has them. */
+const DOCK_KEYS = [
+  'terminal',
+  'new-terminal',
+  'terminal.new',
+  'terminal.close',
+  'terminal.next',
+  'terminal.previous',
+]
+
+export const dockKey = (event: KeyboardEvent): boolean => DOCK_KEYS.some((id) => pressed(event, id))
 
 const live = new Set<TerminalSession>()
 let watching = false

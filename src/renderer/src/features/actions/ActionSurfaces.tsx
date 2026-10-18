@@ -4,12 +4,13 @@ import { useEffect, type ReactNode } from 'react'
 import type { KubeObject } from '@shared/api'
 import { BusyButton, formatElapsed, spokenElapsed, useTicking } from '@renderer/components/Busy'
 import { Button } from '@renderer/components/Button'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { CommandKeys, Kbd } from '@renderer/components/Kbd'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { useGo } from '@renderer/hooks/go'
 import { ADMINS_ONLY, useClusterName, useReadOnly } from '@renderer/hooks/settings'
 import { formatDateTime } from '@renderer/lib/format'
 import { cn } from '@renderer/lib/cn'
+import { pressed, useClaim } from '@renderer/lib/shortcuts'
 import { useLayout } from '@renderer/lib/layout'
 import { keepFocusInActionDialog, useActionsUi } from '@renderer/state/actions'
 import { useCluster } from '@renderer/state/cluster'
@@ -80,25 +81,22 @@ export function ActionBar({ object, children }: { object: KubeObject; children?:
     headline.length ? headline : available.filter(({ action }) => action.editor)
   ).slice(0, 2)
 
+  // Every kind with actions can be deleted (but not on a phone, where it isn't offered).
+  const remove = available.find(({ action }) => action.id === 'delete')
+  const removing = remove && !remove.disabled ? () => run(remove.action, object) : undefined
+  // (Their keys over an everywhere command's, and the menu's, while the object is open.)
+  useClaim('object.actions', () => setOpen(true))
+  useClaim('object.delete', () => removing?.())
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditable(event.target) || document.querySelector('[role="dialog"], [role="menu"]'))
         return
-      if (event.key === '.' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (pressed(event, 'object.actions')) {
         event.preventDefault()
         setOpen(true)
-        return
-      }
-      // Every kind with actions can be deleted (but not on a phone, where it isn't offered).
-      const remove = available.find(({ action }) => action.id === 'delete')
-      if (
-        event.key === 'Backspace' &&
-        (event.metaKey || event.ctrlKey) &&
-        remove &&
-        !remove.disabled
-      ) {
+      } else if (pressed(event, 'object.delete') && removing) {
         event.preventDefault()
-        run(remove.action, object)
+        removing()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -269,8 +267,7 @@ function ActionItems({
       <span className="flex-1">{action.label}</span>
       {action.danger && (
         <span aria-hidden className="flex gap-0.5 opacity-70">
-          <Kbd>{MOD_KEY}</Kbd>
-          <Kbd>⌫</Kbd>
+          <CommandKeys id="object.delete" />
         </span>
       )}
     </Item>

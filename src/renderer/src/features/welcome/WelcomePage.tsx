@@ -21,6 +21,7 @@ import { ClusterPicker, useClusters } from './ClusterPicker'
 import { KubeconfigFilesButton, useKubeconfigFiles } from './KubeconfigFiles'
 import { NothingToShow } from './NothingToShow'
 import { useClusterActions } from './useClusterActions'
+import { pressed, useClaim } from '@renderer/lib/shortcuts'
 
 export { REPO_URL } from '@shared/app'
 
@@ -54,26 +55,18 @@ export function WelcomePage() {
   useEffect(() => {
     if (asked) setParams({}, { replace: true })
   }, [asked, setParams])
-  // ⌘N adds one: the menu's New, which makes objects in a cluster, adds a cluster here (the
-  // menu takes the key before the page does).
-  useEffect(() => {
-    if (!canAdd) return
-    return api.desktop?.onCommand((command) => {
-      if (command !== 'create') return
-      if (document.querySelector('[role="dialog"][data-state="open"]')) return
-      setAdding({})
-    })
-  }, [canAdd])
+  // ⌘N (or its keys as Settings has them) adds one: where the menu's Create… has the same key
+  // (the menu takes it before the page does), it adds a cluster here.
+  // (Not past a dialog that's open: editing a connection, say.)
+  const open = () => !document.querySelector('[role="dialog"][data-state="open"]')
+  useClaim('clusters.add', () => open() && setAdding({}), canAdd)
   // And where the page gets the key itself (no menu takes it).
   useEffect(() => {
     if (!canAdd) return
     const onKey = (event: KeyboardEvent) => {
-      // Not past a dialog that's open (editing a connection, say).
-      if (document.querySelector('[role="dialog"][data-state="open"]')) return
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'n') {
-        event.preventDefault()
-        setAdding({})
-      }
+      if (!pressed(event, 'clusters.add') || !open()) return
+      event.preventDefault()
+      setAdding({})
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

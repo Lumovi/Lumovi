@@ -2,6 +2,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  Keyboard,
   LayoutGrid,
   Lock,
   Minus,
@@ -42,6 +43,7 @@ import { age } from '@renderer/lib/format'
 import { useLayout } from '@renderer/lib/layout'
 import { localClockIs12, localZone } from '@renderer/lib/time'
 import { useUi } from '@renderer/state/ui'
+import { ShortcutsSection } from './ShortcutsSection'
 
 type Section = keyof typeof SECTIONS
 
@@ -50,6 +52,7 @@ const SECTION_NAMES: Record<Section, { label: string; icon: LucideIcon }> = {
   time: { label: 'Time', icon: Clock },
   terminal: { label: 'Terminal', icon: SquareTerminal },
   namespaces: { label: 'Namespaces', icon: LayoutGrid },
+  shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Download },
 }
 
@@ -93,8 +96,9 @@ export function SettingsPage() {
   }, [])
   const [params, setParams] = useSearchParams()
   const phone = useLayout() === 'phone'
+  // (A phone has no keys: no shortcuts.)
   const sections = (Object.keys(SECTION_NAMES) as Section[]).filter(
-    (section) => section !== 'updates' || api.updates,
+    (section) => (section !== 'updates' || api.updates) && (section !== 'shortcuts' || !phone),
   )
   const asked = params.get('section') as Section | null
   const section = asked && sections.includes(asked) ? asked : phone ? undefined : 'appearance'
@@ -109,7 +113,11 @@ export function SettingsPage() {
       },
       { replace: !phone },
     )
-  const sectionLocked = (s: Section) => SECTIONS[s].some((key) => locked(key))
+  const lockedNames = useSettings().data?.locked ?? []
+  const sectionLocked = (s: Section) =>
+    s === 'shortcuts'
+      ? lockedNames.some((name) => name.startsWith('shortcuts.'))
+      : SECTIONS[s].some((key) => locked(key))
   // On a phone, a section is a page of its own: the bar's Back (where its menu is) goes to the list.
   const setInside = useUi((ui) => ui.setInside)
   const inSection = phone && section !== undefined
@@ -206,6 +214,7 @@ function SectionSummary({ section }: { section: Section }) {
         : p.namespaces.mode === 'all'
           ? 'All'
           : p.namespaces.namespace,
+    shortcuts: '',
     updates: '',
   }[section]
   return <span className="ml-auto truncate text-[13px] text-ink-3">{said}</span>
@@ -224,7 +233,12 @@ function SectionBody({ section }: { section: Section }) {
     if (key === 'theme') return (settings?.theme ?? 'system') !== 'system'
     if (key === 'autoUpdate') return settings?.autoUpdate === false
     if (key === 'shell' && !api.desktop) return false
-    return JSON.stringify(p[key]) !== JSON.stringify(PREFERENCE_DEFAULTS[key])
+    // (A command's keys the organization sets stay as they are.)
+    if (key === 'shortcuts') {
+      return Object.keys(p.shortcuts).some((id) => !locked(`shortcuts.${id}`))
+    }
+    const name = key as keyof Preferences
+    return JSON.stringify(p[name]) !== JSON.stringify(PREFERENCE_DEFAULTS[name])
   })
   const restore = async () => {
     const patch: Record<string, null> = {}
@@ -241,6 +255,8 @@ function SectionBody({ section }: { section: Section }) {
     time: 'How times and dates are shown. Ages (“2h”, “3d”) are the same everywhere.',
     terminal: 'For every terminal in the dock. Open ones change at once.',
     namespaces: 'Which namespace a cluster opens in.',
+    shortcuts:
+      'Change a command’s keys, or put them back. The menus, the palette and ? show yours.',
     updates: 'On this computer.',
   }[section]
   return (
@@ -252,6 +268,7 @@ function SectionBody({ section }: { section: Section }) {
       {section === 'time' && <Time />}
       {section === 'terminal' && <Terminal />}
       {section === 'namespaces' && <Namespaces />}
+      {section === 'shortcuts' && <ShortcutsSection />}
       {section === 'updates' && <Updates />}
       <p className="mt-4 flex flex-wrap items-center gap-2.5 text-xs text-ink-3">
         {keptWhere()}

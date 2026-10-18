@@ -68,6 +68,7 @@ export type AppCommand =
   | 'new-terminal'
   /** Search the cluster (LMV-171). */
   | 'search'
+  | 'new-window'
   | 'close-terminal'
   | 'clear-terminal'
   | 'assistants'
