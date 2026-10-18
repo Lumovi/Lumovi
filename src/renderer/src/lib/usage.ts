@@ -5,6 +5,8 @@ export type { Capacity } from '@shared/api'
 
 export interface NodeUsage {
   metricsAvailable: boolean
+  /** Why live usage couldn't be read, where it couldn't: the account may not, or the read failed. */
+  unread?: 'refused' | 'failed'
   cpu: Capacity
   memory: Capacity
   sampledAt: number

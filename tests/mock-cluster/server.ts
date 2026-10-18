@@ -711,11 +711,22 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   function metrics(rest: string[]): Json {
-    if (!fixture.metrics || !metricsAvailable) throw notFoundPath()
-    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     const namespaced = rest[0] === 'namespaces'
     const namespace = namespaced ? rest[1] : undefined
     const [plural, name] = namespaced ? rest.slice(2) : rest
+    // As the API server does, who may read is asked before whether there's metrics-server at all:
+    // denied as `nodes.metrics.k8s.io`, say.
+    const verb = name ? 'get' : 'list'
+    if (
+      denied({ verb, resource: `${plural}.metrics.k8s.io`, ...(namespace ? { namespace } : {}) })
+    ) {
+      throw new HttpError(
+        403,
+        `${plural}.metrics.k8s.io is forbidden: User "${username()}" cannot ${verb} resource "${plural}" in API group "metrics.k8s.io"${namespace ? ` in the namespace "${namespace}"` : ' at the cluster scope'}`,
+      )
+    }
+    if (!fixture.metrics || !metricsAvailable) throw notFoundPath()
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     if (plural === 'nodes' && !namespaced) {
       const items = fixture.metrics.nodes
         .filter((n) => store.has(objectKey('Node', undefined, n.name)))

@@ -213,3 +213,24 @@ test('keeps working when one resource is forbidden', async ({ page, clusters }) 
   await warnings.getByRole('button', { name: 'Try again' }).click()
   await expect(warnings.getByRole('list', { name: 'Recent warnings' })).toBeVisible()
 })
+
+test('an account that may not list nodes has the rest of the page, the node parts saying why', async ({
+  page,
+  clusters,
+}) => {
+  // As Kubernetes' own `view` role: everything in the namespaces, no nodes.
+  clusters.demo.deny({ verb: 'list', resource: 'nodes' })
+  await openCluster(page)
+  const tile = page.getByRole('region', { name: 'Nodes ready' })
+  await expect(tile).toContainText('Not allowed to list nodes')
+  await expect(tile).toContainText('—')
+  for (const title of ['Nodes', 'CPU', 'Memory']) {
+    await expect(page.getByRole('region', { name: title, exact: true })).toContainText(
+      'Your account isn’t allowed to list nodes.',
+    )
+  }
+  await expect(page.getByRole('region', { name: 'Pods running' })).not.toContainText('—')
+  await expect(
+    page.getByRole('region', { name: 'Recent warnings' }).getByRole('list'),
+  ).toBeVisible()
+})
