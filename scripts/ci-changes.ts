@@ -3,17 +3,18 @@
  * job), for $GITHUB_OUTPUT:
  *
  * - `docs`: a pull request that changes only docs (Markdown, docs/, images outside the app): no
- *   E2E, packaging or integration tests, and "CI passed" all the same. Likewise a nightly run on
- *   a head that's run macOS in full, green, already: there's nothing new for it to run.
+ *   E2E, packaging or integration tests, and "CI passed" all the same.
  * - `e2e`: the E2E shards, each with the tests' projects it runs. Linux runs every test, the
  *   desktop app's (tests/e2e) and the browser's (tests/web). macOS and Windows run the desktop
  *   app's, less those whose logic is the same on every system (tests/e2e/linux-only.txt): those,
  *   and the browser's, run there only nightly, for a run by hand and for a release's pull
- *   request, since the server Lumovi ships runs on Linux. macOS, for now, runs only its smoke set
- *   (tests/e2e/smoke.txt) for a pull request and for main's merges, whatever they change: an
- *   account has five macOS machines at once, and a full run takes all five. Its full suite runs
- *   nightly on main's head (CI's schedule), for a release's pull request (`release-<version>`),
- *   for a run by hand, and for a pull request whose label (`macos-full`) asks.
+ *   request, since the server Lumovi ships runs on Linux. macOS runs its desktop tests in full for
+ *   main's merges, and for a pull request that changes what macOS does differently (MACOS: the
+ *   main process, Electron, packaging, the dependencies, the tests' harness, CI's own scripts and
+ *   workflow), names a system (NAMES_A_SYSTEM), is a release's (`release-<version>`), or whose
+ *   label (`macos-full`) asks. Any other pull request runs macOS's smoke set
+ *   (tests/e2e/smoke.txt): an account has five macOS machines at once, and a full run takes all
+ *   five.
  * - `release`: whether this is a release's own pull request, whose branch is named for its version
  *   (`release-1.22.0`): any other branch whose name starts the same is an ordinary one.
  * - `platforms`: whether Windows, macOS, the Firefox and WebKit job and the packages run. They
@@ -27,9 +28,12 @@
  *   smoke set), and this run's didn't, is borrowed from it (scripts/borrow-coverage.ts), and
  *   nothing else: the rest is this run's own to reach.
  *
- * Main's nightly run is the one that counts for macOS: what a merge's run can't see (something
- * only macOS reaches that a change stops being reached) shows there, and a red nightly is a red
- * main, a warning on every pull request (the workflow's "Whether main is red").
+ * Main's merges and its nightly run are the ones that bind. A merge's run is the one that counts
+ * for macOS: what a pull request's can't see (something only macOS reaches that a change elsewhere
+ * stops being reached) shows there. The nightly run is every test on every system, the only run
+ * of main's that runs the browser's tests and linux-only.txt's on macOS and Windows; so a red
+ * nightly is a red main too, a warning on every pull request (the workflow's "Whether main is
+ * red").
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
  *
@@ -117,6 +121,25 @@ const NOT_INTEGRATIONS = [
 export const integrationsSee = (path: string) =>
   !isDocs(path) && !NOT_INTEGRATIONS.some((not) => not.test(path))
 
+/**
+ * What macOS does differently, or what decides how the app is built and tested: a pull request
+ * that changes it runs macOS's desktop tests in full, not its smoke set.
+ */
+const MACOS = [
+  /^src\/(main|preload)\//,
+  /^src\/backend\/(helm\/service|kube\/(client|kubeconfig|files|streams)|network)\.ts$/,
+  /^(build|packaging)\//,
+  /^electron(-builder\.yml|\.vite\.config\.ts)$/,
+  /^package(-lock)?\.json$/,
+  /^\.nvmrc$/,
+  /^playwright\.config\.ts$/,
+  /^tests\/e2e\/(fixtures|global-setup)\.ts$/,
+  /^tests\/e2e\/(smoke|linux-only)\.txt$/,
+  /^scripts\/(ci-changes|e2e-shard|borrow-coverage|vite-coverage|judge)\.(ts|sh)$/,
+  /^\.github\/workflows\/ci\.yml$/,
+]
+export const isMacos = (path: string) => MACOS.some((macos) => macos.test(path))
+
 /** A release's own branch: `release-` and its version (`release-1.22.0`, `release-2.0.0-rc.1`). */
 export const isRelease = (branch: string) =>
   /^release-\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(branch)
@@ -139,7 +162,6 @@ export function plan({
   branch = '',
   changed,
   labels = [],
-  ranAlready = false,
   namesASystem = [],
 }: {
   event: string | undefined
@@ -147,22 +169,19 @@ export function plan({
   changed: string[]
   /** The pull request's labels. */
   labels?: string[]
-  /** A nightly run's: its head has run macOS in full, green, already. */
-  ranAlready?: boolean
   /** Of the files changed, those whose text asks which system it's on (NAMES_A_SYSTEM). */
   namesASystem?: string[]
 }) {
   const pullRequest = event === 'pull_request'
   const release = pullRequest && isRelease(branch)
   const asked = pullRequest && labels.includes(MACOS_FULL)
-  // A nightly run on a head that's run in full already has nothing new to run.
-  const again = event === 'schedule' && ranAlready
-  // macOS in full: main's nightly run, a run by hand, a release's pull request, or a label's ask.
-  // (For now, a merge and any other pull request run its smoke set, whatever they change.)
-  const macos =
-    !again && (event === 'schedule' || event === 'workflow_dispatch' || release || asked)
+  // What macOS does differently, or a file that asks which system it's on.
+  const macosOwn = changed.some((path) => isMacos(path) || namesASystem.includes(path))
+  // macOS in full: main's merges and nightly run, a run by hand, a release's pull request, a
+  // label's ask, or a pull request that changes macOS's own. Any other runs its smoke set.
+  const macos = !pullRequest || release || asked || macosOwn
   // Docs alone run no tests on a pull request; main runs its tests for every merge.
-  const docs = again || (pullRequest && !release && changed.length > 0 && changed.every(isDocs))
+  const docs = pullRequest && !release && changed.length > 0 && changed.every(isDocs)
   // Windows, macOS, the other browsers' engines and the packages: everywhere but a pull request
   // whose every change is alike on every system (and doesn't ask which it's on), or a release's.
   const platforms =
@@ -174,7 +193,7 @@ export function plan({
   const integration = !pullRequest || release || changed.some(integrationsSee)
   // The browser's tests on every system: the nightly run, a run by hand, a release's pull request.
   // Otherwise on Linux alone, where the server Lumovi ships runs.
-  const everySystem = !again && (event === 'schedule' || event === 'workflow_dispatch' || release)
+  const everySystem = event === 'schedule' || event === 'workflow_dispatch' || release
   const projectsOn = (os: (typeof OSES)[number]) =>
     os === 'ubuntu-latest' || everySystem ? 'desktop web' : 'desktop'
   // What a system's shards leave to Linux: the tests that are alike on every system.
@@ -195,18 +214,16 @@ export function plan({
           })),
   )
   const said = [
-    again
-      ? 'Main’s nightly run: its head has run macOS in full already, so nothing more runs.'
-      : event === 'schedule'
-        ? 'Main’s nightly run: everything, on every system, macOS in full.'
-        : event === 'workflow_dispatch'
-          ? 'A run by hand: everything, on every system, macOS in full.'
-          : release
-            ? 'A release’s pull request: everything, on every system, macOS in full.'
-            : !pullRequest
-              ? 'Main’s merge: every test on Linux, the desktop app’s on Windows, and macOS its smoke set (everything runs on every system nightly).'
-              : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
-    docs && !again ? 'Docs only: no E2E, packaging or integration tests.' : '',
+    event === 'schedule'
+      ? 'Main’s nightly run: everything, on every system, macOS in full.'
+      : event === 'workflow_dispatch'
+        ? 'A run by hand: everything, on every system, macOS in full.'
+        : release
+          ? 'A release’s pull request: everything, on every system, macOS in full.'
+          : !pullRequest
+            ? 'Main’s merge: every test on Linux, the desktop app’s on Windows and macOS (everything runs on every system nightly).'
+            : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
+    docs ? 'Docs only: no E2E, packaging or integration tests.' : '',
     pullRequest && !release && !docs && !platforms
       ? 'Linux alone: nothing it changes is a system’s own (Windows, macOS, Firefox and WebKit, and the packages, run on main, nightly and for a release).'
       : '',
@@ -216,7 +233,9 @@ export function plan({
     pullRequest && !release && !docs && platforms
       ? asked
         ? `The desktop app’s tests in full on macOS, as its label asks (${MACOS_FULL}).`
-        : `macOS runs its smoke set (its full suite runs nightly; the label ${MACOS_FULL} asks for it here).`
+        : macosOwn
+          ? 'The desktop app’s tests in full on macOS: it changes what macOS does differently.'
+          : `macOS runs its smoke set: nothing it changes is macOS’s own (its full suite runs on main; the label ${MACOS_FULL} asks for it here).`
       : '',
     pullRequest && !release && !docs
       ? 'The browser’s tests run on Linux (on every system nightly).'
@@ -245,37 +264,6 @@ function labelsNow(): string[] {
       .filter(Boolean)
   } catch {
     return []
-  }
-}
-
-/**
- * Whether this commit (GITHUB_SHA) has a green run of CI whose macOS ran in full, its coverage
- * kept, asked of GitHub (GH_TOKEN, GITHUB_REPOSITORY). Where it can't be asked: no, and the
- * nightly runs.
- */
-function ranInFullAlready(): boolean {
-  const { GITHUB_SHA, GITHUB_REPOSITORY } = process.env
-  if (!GITHUB_SHA || !GITHUB_REPOSITORY) return false
-  const gh = (...args: string[]) =>
-    execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
-  try {
-    return gh(
-      ...['run', 'list', '--repo', GITHUB_REPOSITORY, '--workflow', 'ci.yml'],
-      ...['--commit', GITHUB_SHA, '--status', 'success', '--json', 'databaseId'],
-      ...['--jq', '.[].databaseId'],
-    )
-      .split('\n')
-      .filter(Boolean)
-      .some((id) =>
-        ranMacosInFull(
-          gh(
-            ...['api', `repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?per_page=100`],
-            ...['--jq', '.artifacts[] | select(.expired | not) | .name'],
-          ).split('\n'),
-        ),
-      )
-  } catch {
-    return false
   }
 }
 
@@ -308,7 +296,6 @@ if (import.meta.main) {
     branch: process.env.GITHUB_HEAD_REF,
     changed,
     labels: labelsNow(),
-    ranAlready: event === 'schedule' && ranInFullAlready(),
     namesASystem,
   })
   console.log(said)
