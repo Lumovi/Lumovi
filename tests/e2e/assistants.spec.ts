@@ -32,6 +32,7 @@ import {
   test,
 } from './fixtures.ts'
 import { addRule, openPermissions, rulesNow } from './ai-rules.ts'
+import { holds } from '../holds.ts'
 
 /** A port nothing listens on (for now). */
 const freePort = () =>
@@ -1201,6 +1202,51 @@ test('Rules say where assistants’ changes are asked about, made, or refused', 
     },
   ])
   await client.close()
+})
+
+test('an answer to how things stand that a change overtook never puts back an assistant that left', async ({
+  launch,
+}) => {
+  const { app, page } = await launch()
+  const status = await turnOn(page)
+  await page.getByRole('button', { name: 'AI assistants' }).click()
+  const connected = assistantsPage(page).getByRole('region', { name: 'Connected now' })
+  const cursor = await connect(status, 'cursor-vscode')
+  await expect(connected.getByRole('listitem')).toHaveText(['Cursor'])
+
+  // How things stand, worked out at once in the app but answered a second and a half later.
+  await app.evaluate(({ ipcMain }) => {
+    type Handler = (...args: unknown[]) => unknown
+    const held = globalThis as { __asked?: number; __answered?: number }
+    const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
+      ._invokeHandlers
+    const original = handlers.get('assistants:status')!
+    handlers.set('assistants:status', async (...args: unknown[]) => {
+      const answer = await original(...args)
+      held.__asked = (held.__asked ?? 0) + 1
+      await new Promise((resolve) => setTimeout(resolve, 1_500))
+      held.__answered = (held.__answered ?? 0) + 1
+      return answer
+    })
+  })
+  const counts = () =>
+    app.evaluate(() => {
+      const held = globalThis as { __asked?: number; __answered?: number }
+      return { asked: held.__asked ?? 0, answered: held.__answered ?? 0 }
+    })
+  // Opened afresh, the page asks; while its answer (Cursor connected) is held, Cursor leaves.
+  await page.reload()
+  await expect.poll(async () => (await counts()).asked).toBeGreaterThan(0)
+  await leave(cursor)
+  await expect(connected).toHaveText(/None yet/)
+  // The answer comes, worked out before Cursor left: it doesn't put it back.
+  const { asked } = await counts()
+  await expect.poll(async () => (await counts()).answered).toBeGreaterThanOrEqual(asked)
+  await holds(
+    async () => /None yet/.test((await connected.textContent()) ?? ''),
+    1_000,
+    'no assistant listed',
+  )
 })
 
 test('Changes an assistant gives up on, or nobody answers in time, end', async ({ launch }) => {

@@ -14,7 +14,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import type { LumoviApi } from '@shared/api'
 import { isPort, type AssistantClient, type AssistantsStatus } from '@shared/assistants'
@@ -23,19 +23,19 @@ import { CopyButton } from '@renderer/components/CopyButton'
 import { Switch } from '@renderer/components/Switch'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { cn } from '@renderer/lib/cn'
+import { asked } from '@renderer/lib/pushed'
 import { useSettings } from '@renderer/hooks/settings'
 import { Card } from './PageParts'
 
 type AssistantsApi = NonNullable<LumoviApi['assistants']>
 
-/** Whether assistants can connect, and which have: kept up to date by the app. */
+/** Whether assistants can connect, and which have: kept up to date by the app (PushedFeeds). */
 export function useAssistantsStatus(assistants: AssistantsApi): AssistantsStatus | undefined {
   const queryClient = useQueryClient()
-  useEffect(
-    () => assistants.onStatus((status) => queryClient.setQueryData(['assistants'], status)),
-    [assistants, queryClient],
-  )
-  return useQuery({ queryKey: ['assistants'], queryFn: () => assistants.status() }).data
+  return useQuery({
+    queryKey: ['assistants'],
+    queryFn: () => asked(queryClient, ['assistants'], () => assistants.status()),
+  }).data
 }
 
 /** Opens the AI assistants page; a dot says one's connected. */

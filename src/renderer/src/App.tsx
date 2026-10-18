@@ -5,6 +5,7 @@ import { RouterProvider } from 'react-router/dom'
 import { RESOURCES } from '@shared/resources'
 import { Toaster } from './components/Toaster'
 import { StartupProblems } from './components/StartupProblems'
+import { PushedFeeds } from './components/PushedFeeds'
 import { UpdateNotice } from './components/UpdateNotice'
 import { TooltipProvider } from './components/Tooltip'
 import { AccessPage } from './features/access/AccessPage'
@@ -212,6 +213,7 @@ export function App() {
             {/* (The signed-in person's: read over the connection a session opens.) */}
             <PreferencesApplied />
             <AccessUpdates />
+            <PushedFeeds />
             <ServerWarningNotices navigate={openNotice} />
             <RouterProvider router={router} />
             {/* The signed-in person's: over the page's connection, which a session opens. */}
@@ -221,6 +223,7 @@ export function App() {
         ) : (
           <>
             <PreferencesApplied />
+            <PushedFeeds />
             <RouterProvider router={router} />
             {assistants}
             {proposals}
