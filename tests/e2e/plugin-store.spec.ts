@@ -210,7 +210,8 @@ test('at the narrowest, beside what’s newer, where a plugin came from breaks b
   expect(await page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(1024)
   await expect(row(page, 'Toys')).toContainText('Comes with Lumovi')
   const lines = table(page).getByText('Comes with Lumovi')
-  // A word cut in two takes two lines.
+  // A word cut in two takes two lines. (Counted by the lines its boxes are on, not the boxes:
+  // macOS can give a word on one line a second box, empty or on that same line.)
   const cut = await lines.evaluateAll((each) =>
     each.flatMap((line) => {
       const text = line.firstChild!
@@ -219,7 +220,8 @@ test('at the narrowest, beside what’s newer, where a plugin came from breaks b
           const range = document.createRange()
           range.setStart(text, word.index)
           range.setEnd(text, word.index + word[0].length)
-          return range.getClientRects().length > 1
+          const boxes = [...range.getClientRects()].filter((box) => box.width > 0)
+          return new Set(boxes.map((box) => Math.round(box.top))).size > 1
         })
         .map((word) => word[0])
     }),
