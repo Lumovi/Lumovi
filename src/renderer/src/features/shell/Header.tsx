@@ -54,6 +54,7 @@ const PAGES: Record<string, [string, LucideIcon]> = {
   'api-resources': ['API resources', Blocks],
   compare: ['Compare', GitCompareArrows],
   helm: ['Helm releases', ShipWheel],
+  search: ['Search', Search],
   settings: ['Settings', Settings],
   // A plugin the cluster doesn't have (the others go by their own names).
   plugins: ['Plugins', Puzzle],

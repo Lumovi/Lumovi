@@ -9,6 +9,7 @@ import { targetPath } from '@renderer/lib/routes'
 import { useUi } from '@renderer/state/ui'
 import { useDock } from '../terminal/dock'
 import { useLinkCard } from '../links/LinkCard'
+import { searchPath } from '../search/saved'
 import { TEXT_SIZES } from '@shared/preferences'
 import { useSetPreferences } from '@renderer/hooks/settings'
 import type { Settings } from '@shared/api'
@@ -106,6 +107,13 @@ export function Commands() {
         else ask?.(true)
       },
       assistants: () => void navigate('/assistants'),
+      // Search, in the cluster that's open: its field focused, its text selected.
+      search: () => {
+        if (!context) return
+        if (location.hash.includes(`/cluster/${encodeURIComponent(context)}/search`)) {
+          window.dispatchEvent(new Event('lumovi:search'))
+        } else void navigate(searchPath(context, undefined))
+      },
       // Settings: in the cluster that's open, as its page; from the start screen, on its own.
       settings: () =>
         void navigate(context ? `/cluster/${encodeURIComponent(context)}/settings` : '/settings'),
@@ -140,9 +148,25 @@ export function Commands() {
         runRef.current(event.shiftKey ? 'new-terminal' : 'terminal')
         return
       }
+      // ⌘⇧F (Ctrl+Shift+F): Search. Off a Mac, a terminal keeps it while it has the keyboard.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.code === 'KeyF' &&
+        (api.platform === 'darwin' || !(event.target as Element | null)?.closest?.('.xterm'))
+      ) {
+        event.preventDefault()
+        runRef.current('search')
+        return
+      }
+      // (With Shift, a digit isn't the Go menu's: on some layouts, AZERTY's, Shift and the digit row
+      // still type the digit, and Ctrl+Shift+1 is a saved search on Windows.)
       const command =
         event.metaKey || event.ctrlKey
-          ? MOD_KEYS[event.key.toLowerCase()]
+          ? event.shiftKey && /^Digit\d$/.test(event.code)
+            ? undefined
+            : MOD_KEYS[event.key.toLowerCase()]
           : event.altKey && !isEditable(event.target)
             ? ALT_KEYS[event.key]
             : undefined

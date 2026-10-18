@@ -499,6 +499,8 @@ function checked(given: unknown, path: string): Policy {
     if ((settings as { autoUpdate?: unknown }).autoUpdate !== undefined) {
       problems.push('autoUpdate isn’t set here: "updates": false turns updates off.')
     }
+    // (Saved searches are the person's own: set by an organization, they couldn't save theirs.)
+    if ('searches' in preferences) problems.push('searches isn’t a setting an organization sets.')
     if (Object.values(preferences).includes(null)) problems.push('A setting can’t be null.')
     if (problems.length) throw new Error(`settings: ${problems.join(' ')}`)
     locked = {

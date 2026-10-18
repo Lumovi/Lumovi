@@ -1,8 +1,7 @@
-import { X } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { barButton } from '@renderer/components/Sheet'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
-import { useQueryClient } from '@tanstack/react-query'
 import { Command } from 'cmdk'
 import {
   AppWindow,
@@ -40,19 +39,19 @@ import {
   Link,
 } from 'lucide-react'
 import { Dialog } from 'radix-ui'
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router'
-import type { KubeList, KubeObject } from '@shared/api'
+import type { KubeObject } from '@shared/api'
 import { spelled } from '@shared/kit/characters'
 import { MARKS_LIMITS, samePin, type Pin as PinOf } from '@shared/marks'
 import { GO_KEYS } from '@shared/navigation'
 import { apiKindOf, isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
 import { pluginIcon, KIND_ICONS, KindIcon, kindIcon } from '@renderer/components/KindIcon'
-import { StatusDot } from '@renderer/components/Status'
+import { StatusDot, StatusPill } from '@renderer/components/Status'
 import { ALT_KEY, Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
 import { useGo } from '@renderer/hooks/go'
 import { usePinning } from '@renderer/hooks/marks'
-import { useContexts, useList, useObject } from '@renderer/hooks/queries'
+import { useContexts, useList, useListResponses, useObject } from '@renderer/hooks/queries'
 import { useServedPlugins } from '@renderer/hooks/plugins'
 import { useResources } from '@renderer/hooks/resources'
 import { useClusterName, useReadOnly, useSetTheme } from '@renderer/hooks/settings'
@@ -76,7 +75,7 @@ import {
   pluginAsksPath,
 } from '@renderer/lib/routes'
 import { api, KubeApiError } from '@renderer/lib/api'
-import { statusOf } from '@renderer/lib/health'
+import { hasHealth, statusFor, statusOf } from '@renderer/lib/health'
 import {
   deletingView,
   movingPin,
@@ -102,6 +101,15 @@ import { useDock } from '../terminal/dock'
 import { TERMINAL_KEYS } from '../terminal/keys'
 import { kindName, pinKey, pinNumber, pinPath, PINS_NUMBERED } from './PinnedObjects'
 import { CATEGORY_LABELS } from './Sidebar'
+import {
+  savedKeyCaps,
+  savedKeysHere,
+  savedNumber,
+  searchPath,
+  useSavedSearches,
+} from '../search/saved'
+import { nameRank, searches, termsOf, type Terms } from '../search/terms'
+import { useClusterSearch, type KindSearch } from '../search/use-search'
 
 const THEMES = [
   { value: 'system', label: 'Use system theme', icon: Monitor },
@@ -109,27 +117,71 @@ const THEMES = [
   { value: 'dark', label: 'Use dark theme', icon: Moon },
 ] as const
 
+/** What tells the cluster's objects' rows, and Search the cluster's, from today's rows. */
+const OBJECT_ROW = '\u2063object '
+const SEARCH_ROW = '\u2063search '
+
+/**
+ * Every typed word in a row's value; today's rows (pages, views, actions) first wherever they
+ * match, then the cluster's objects, then Search the cluster: so ↵ does what it did before.
+ */
+function paletteMatch(value: string, search: string): number {
+  const score = matchWords(value, search)
+  if (score === 0) return 0
+  return value.startsWith(SEARCH_ROW) ? 0.1 : value.startsWith(OBJECT_ROW) ? 0.5 : score
+}
+
 /** Objects are searched once the query is this long. */
 const MIN_OBJECT_QUERY = 2
-const MAX_OBJECTS = 20
+/** The objects the palette shows, best first. */
+const MAX_OBJECTS = 8
+/** How long the Objects group waits for every kind's answer before it shows what it has. */
+const OBJECTS_WAIT_MS = 300
+const MOD = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl'
+
+/**
+ * The objects the palette shows: up to eight, best first across kinds. Shown once every kind has
+ * answered, or after a moment; after that, rows only join at the end, so the row chosen never moves.
+ */
+function useFound(kinds: KindSearch[], terms: Terms, on: boolean) {
+  const best = useMemo(
+    () =>
+      kinds
+        .flatMap((kind) => kind.found.map((item) => ({ item, kind })))
+        .map((entry) => ({ ...entry, rank: nameRank(entry.item.name, terms.words) ?? 3 }))
+        .sort((a, b) => a.rank - b.rank || a.item.name.localeCompare(b.item.name)),
+    [kinds, terms],
+  )
+  const answered = kinds.every((kind) => kind.state !== 'waiting')
+  const [waited, setWaited] = useState(false)
+  const [shown, setShown] = useState<string[]>([])
+  const words = terms.words.join(' ') + terms.selector
+  const [was, setWas] = useState(words)
+  if (was !== words) {
+    setWas(words)
+    setWaited(false)
+    setShown([])
+  }
+  useEffect(() => {
+    if (!on) return
+    const timer = setTimeout(() => setWaited(true), OBJECTS_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [on, words])
+  const ready = on && (answered || waited)
+  const byUid = new Map(best.map((entry) => [entry.item.uid, entry]))
+  const kept = shown.flatMap((uid) => byUid.get(uid) ?? [])
+  const more = best.filter((entry) => !shown.includes(entry.item.uid))
+  const rows = ready ? [...kept, ...more].slice(0, MAX_OBJECTS) : []
+  const uids = rows.map((entry) => entry.item.uid)
+  if (uids.join() !== shown.join()) setShown(uids)
+  return rows
+}
 
 const goKey = (target: string) => GO_KEYS.find((entry) => entry.target === target)!.key
 
 /** A pinned object's row: told apart from the same object found by its name ("object"). */
 const pinValue = (pin: PinOf, kind: string) =>
   `${pin.name} ${kind} ${pin.namespace ?? ''} pinned ${formatRef(pin)}`
-
-/** Every object in the lists already loaded for this cluster, without duplicates. */
-function useCachedObjects(context: string): KubeObject[] {
-  const queryClient = useQueryClient()
-  const seen = new Map<string, KubeObject>()
-  for (const [, list] of queryClient.getQueriesData<KubeList>({ queryKey: ['list', context] })) {
-    for (const object of list?.items ?? []) {
-      seen.set(`${kindOf(object)}/${object.metadata.namespace}/${object.metadata.name}`, object)
-    }
-  }
-  return [...seen.values()]
-}
 
 export function CommandPalette() {
   const open = useUi((ui) => ui.palette)
@@ -180,7 +232,6 @@ function Palette({ onDone }: { onDone: () => void }) {
   const linksOffered = useLinksOffered()
   const touch = useTouch()
   const setMetricsSource = useUi((ui) => ui.setMetricsSource)
-  const objects = useCachedObjects(context)
   const open = useSearchParams()[0].get('open')
   const readOnly = useReadOnly()
   const switching = useSwitching()
@@ -188,10 +239,30 @@ function Palette({ onDone }: { onDone: () => void }) {
     contexts.some((c) => c.name === name),
   )
   const needle = search.trim().toLowerCase()
-  const matches =
-    needle.length < MIN_OBJECT_QUERY
-      ? []
-      : objects.filter((o) => o.metadata.name.includes(needle)).slice(0, MAX_OBJECTS)
+  // The cluster's objects that match, as Search finds them (LMV-171): best first, up to eight.
+  const terms = useMemo(() => termsOf(search), [search])
+  const finding = searches(terms) && needle.length >= MIN_OBJECT_QUERY
+  const cluster = useClusterSearch(terms, finding)
+  const found = useFound(cluster.kinds, terms, finding)
+  // Their statuses, where Lumovi has a health for their kind, as their lists read them.
+  const statusKinds = [
+    ...new Map(
+      found
+        .filter(({ kind }) => hasHealth(kind.resource.kind))
+        .map(({ kind }) => [kind.resource.kind, kind.resource]),
+    ).values(),
+  ]
+  const statusLists = useListResponses(statusKinds)
+  const statusOfUid = new Map(
+    statusLists.flatMap((list, i) =>
+      (list.data?.items ?? []).map(
+        (object) => [object.metadata.uid, statusFor(statusKinds[i]!.kind, object)] as const,
+      ),
+    ),
+  )
+  const foundCount = cluster.kinds.reduce((sum, kind) => sum + kind.found.length, 0)
+  const saved = useSavedSearches().saved
+  const searchHere = (text: string) => run(() => go(searchPath(context, text)))()
 
   const run = (action: () => unknown) => () => {
     void action()
@@ -330,6 +401,19 @@ function Palette({ onDone }: { onDone: () => void }) {
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // ⌘↵, from any row: the cluster searched for what's typed.
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && needle) {
+      event.preventDefault()
+      searchHere(search)
+      return
+    }
+    // With nothing typed, a saved search's key runs it (only a number it has a row for).
+    const savedAt = search === '' && savedKeysHere(phone) ? savedNumber(event) : undefined
+    if (savedAt !== undefined && saved[savedAt - 1]) {
+      event.preventDefault()
+      searchHere(saved[savedAt - 1]!)
+      return
+    }
     const number = pinNumber(event)
     if (number !== undefined) {
       const pin = numbered ? pins[number - 1] : undefined
@@ -363,7 +447,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   return (
     <Command
       loop
-      filter={matchWords}
+      filter={paletteMatch}
       value={chosen}
       onValueChange={setChosen}
       onKeyDown={onKeyDown}
@@ -438,34 +522,19 @@ function Palette({ onDone }: { onDone: () => void }) {
             </Command.Group>
           )
         )}
-        {matches.length > 0 && (
-          <Command.Group heading="Objects">
-            {matches.map((object) => {
-              const kind = kindOf(object)
-              const Icon = kindIcon(kind)
-              const ref = formatRef({
-                kind,
-                name: object.metadata.name,
-                namespace: object.metadata.namespace,
-              })
-              return (
-                <Item
-                  key={ref}
-                  icon={<Icon />}
-                  value={`${object.metadata.name} ${object.kind} ${object.metadata.namespace ?? ''} object`}
-                  hint={
-                    <span className="text-xs text-ink-3">
-                      {object.metadata.namespace ?? object.kind}
-                    </span>
-                  }
-                  onSelect={run(() =>
-                    go(`${kindPath(context, kind)}?open=${encodeURIComponent(ref)}`),
-                  )}
-                >
-                  {object.metadata.name}
-                </Item>
-              )
-            })}
+        {search === '' && saved.length > 0 && (
+          <Command.Group heading="Saved searches">
+            {saved.map((text, i) => (
+              <Item
+                key={text}
+                icon={<Search />}
+                value={`${text} saved search`}
+                hint={savedKeysHere(phone) && i < 9 && <Keys keys={savedKeyCaps(i + 1)} />}
+                onSelect={() => searchHere(text)}
+              >
+                {text}
+              </Item>
+            ))}
           </Command.Group>
         )}
         <Command.Group heading="Go to">
@@ -764,6 +833,61 @@ function Palette({ onDone }: { onDone: () => void }) {
             </Item>
           )}
         </Command.Group>
+        {/* (Last, after today's rows wherever they match: ↵ does what it did.) */}
+        {/* (With nothing found once every kind has answered, "No matches." says so.) */}
+        {finding &&
+          (found.length > 0 || cluster.kinds.some((kind) => kind.state === 'waiting')) && (
+            <Command.Group heading="Objects">
+              {found.map(({ item, kind }) => {
+                const Icon = kindIcon(kind.resource.kind)
+                const ref = formatRef({
+                  kind: kind.resource.kind,
+                  name: item.name,
+                  namespace: item.namespace,
+                })
+                return (
+                  <Item
+                    key={ref}
+                    icon={<Icon />}
+                    value={`${OBJECT_ROW}${item.name} ${kind.resource.kind} ${item.namespace ?? ''} object`}
+                    hint={
+                      <span className="flex items-center gap-2 text-xs text-ink-3">
+                        {[kind.resource.apiKind, item.namespace].filter(Boolean).join(' · ')}
+                        {statusOfUid.get(item.uid) && (
+                          <StatusPill status={statusOfUid.get(item.uid)!} />
+                        )}
+                      </span>
+                    }
+                    onSelect={run(() =>
+                      go(
+                        `${kindPath(context, kind.resource.kind)}?open=${encodeURIComponent(ref)}`,
+                      ),
+                    )}
+                  >
+                    {item.name}
+                  </Item>
+                )
+              })}
+              <Item
+                icon={<Search />}
+                value={`${SEARCH_ROW}${search} search the cluster`}
+                // (Its name stays its own: what's typed is the other rows' names.)
+                label="Search the cluster"
+                keys="Meta+Enter Control+Enter"
+                hint={
+                  <span className="flex items-center gap-2 text-xs text-ink-3">
+                    {cluster.kinds.some((kind) => kind.state === 'waiting')
+                      ? 'Searching…'
+                      : `${foundCount.toLocaleString('en-US')} found`}
+                    <Keys keys={[MOD, '↵']} />
+                  </span>
+                }
+                onSelect={() => searchHere(search)}
+              >
+                Search the cluster for “{search.trim()}”
+              </Item>
+            </Command.Group>
+          )}
       </Command.List>
       <p role="status" className="sr-only">
         {said}

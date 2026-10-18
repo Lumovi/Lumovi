@@ -312,11 +312,12 @@ test('the command palette finds every kind, and objects of custom ones', async (
   await page.keyboard.press('ControlOrMeta+k')
   const palette = page.getByRole('dialog')
   await palette.getByRole('combobox').fill('payments')
-  await expect(palette.getByRole('option', { name: /payments/ })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  )
-  await page.keyboard.press('Enter')
+  // (Every kind's, Search's: the Application among them, as its kind says.)
+  await palette
+    .getByRole('group', { name: 'Objects' })
+    .getByRole('option', { name: /payments/ })
+    .filter({ hasText: 'Application' })
+    .click()
   await expect(panel(page, 'Application', CUSTOM.applications.progressing)).toBeVisible()
 
   await page.keyboard.press('ControlOrMeta+k')

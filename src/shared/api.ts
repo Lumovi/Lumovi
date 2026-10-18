@@ -1063,6 +1063,32 @@ export interface ClusterVersion {
   latencyMs: number
 }
 
+/** One kind's objects as Search reads them (LMV-171): in a namespace, or all; by labels, or all. */
+export interface SearchQuery {
+  context: string
+  kind: ResourceKind
+  namespace?: string
+  labelSelector?: string
+}
+
+/** An object as Search knows it: its metadata alone, never what it holds. */
+export interface SearchItem {
+  name: string
+  namespace?: string
+  uid: string
+  labels?: Record<string, string>
+  created: string
+}
+
+/** What Search read of a kind: at most as many as a list reads, and how many there are. */
+export interface SearchList {
+  items: SearchItem[]
+  /** There were more than were read. */
+  truncated: boolean
+  /** How many there are, where the cluster says (it doesn't, past a read cut short by labels). */
+  total?: number
+}
+
 export interface ListQuery {
   context: string
   kind: ResourceKind
@@ -1617,6 +1643,8 @@ export interface LumoviApi {
     /** A kind's schema, from the cluster's OpenAPI documents; null when it publishes none. */
     schema(context: string, kind: ResourceKind): Promise<Result<FieldSchema | null>>
     list(query: ListQuery): Promise<Result<KubeList>>
+    /** A kind's names, namespaces, labels and ages, for Search: its metadata alone. */
+    search(query: SearchQuery): Promise<Result<SearchList>>
     get(query: GetQuery): Promise<Result<KubeObject>>
     /** Some of a Secret's values, picked by key where it's read: the rest never reach the page. */
     secretValues(query: SecretValuesQuery): Promise<Result<SecretValues>>
@@ -2092,6 +2120,7 @@ export const IPC = {
   resources: 'kube:resources',
   schema: 'kube:schema',
   list: 'kube:list',
+  search: 'kube:search',
   get: 'kube:get',
   secretValues: 'kube:secret-values',
   certificates: 'kube:certificates',

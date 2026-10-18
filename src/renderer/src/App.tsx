@@ -18,6 +18,7 @@ import { ProposalDialog } from './plugins/ProposalDialog'
 import { AssistantsPage } from './features/assistants/AssistantsPage'
 import { AuditPage } from './features/audit/AuditPage'
 import { HelmPage } from './features/helm/HelmPage'
+import { SearchPage } from './features/search/SearchPage'
 import { ApiResourcesPage } from './features/resources/ApiResourcesPage'
 import { NotFound } from './features/errors/NotFound'
 import { RouteError } from './features/errors/RouteError'
@@ -156,6 +157,7 @@ const routes: RouteObject[] = [
                   ]
                 : []),
               { path: 'helm', element: <HelmPage /> },
+              { path: 'search', element: <SearchPage /> },
               { path: 'settings', element: <SettingsPage /> },
               { path: '*', element: <NotFound /> },
             ],

@@ -45,6 +45,7 @@ const READS: readonly string[] = [
   IPC.resources,
   IPC.schema,
   IPC.list,
+  IPC.search,
   IPC.get,
   IPC.secretValues,
   // What a Secret's certificates say: a read, as a get is.

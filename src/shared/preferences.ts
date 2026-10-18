@@ -16,6 +16,10 @@ export const TEXT_SIZES = [90, 100, 110, 125] as const
 /** The terminal's font sizes, in px. */
 export const TERMINAL_FONT_SIZES = { min: 10, max: 24 }
 
+/** How many searches can be saved, and how long one can be. */
+export const SAVED_SEARCHES_AT_MOST = 50
+export const SAVED_SEARCH_LENGTH = 200
+
 /** Which namespace a cluster opens in. */
 export type OpenNamespaces =
   { mode: 'last' } | { mode: 'all' } | { mode: 'named'; namespace: string }
@@ -37,6 +41,8 @@ export interface Preferences {
   /** The desktop's: the program its terminals start; empty, the login shell. */
   shell: string
   namespaces: OpenNamespaces
+  /** Saved searches (LMV-171): what was typed into Search, as typed, in the order saved. */
+  searches: string[]
 }
 
 export const PREFERENCE_DEFAULTS: Preferences = {
@@ -50,6 +56,7 @@ export const PREFERENCE_DEFAULTS: Preferences = {
   copyOnSelect: false,
   shell: '',
   namespaces: { mode: 'last' },
+  searches: [],
 }
 
 /** Fonts offered for the terminal (any other the system has can be typed). */
@@ -146,6 +153,16 @@ export function checkedPreferences(value: unknown): {
               NAMESPACE.test(n.namespace)))
         )
       },
+      searches: () =>
+        Array.isArray(given) &&
+        given.length <= SAVED_SEARCHES_AT_MOST &&
+        new Set(given).size === given.length &&
+        given.every(
+          (search) =>
+            typeof search === 'string' &&
+            search.length <= SAVED_SEARCH_LENGTH &&
+            /^\S[^\n]*$/.test(search),
+        ),
     }[name]()
     if (ok) preferences[name] = given
     else if (name === 'shell')

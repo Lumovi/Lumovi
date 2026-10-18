@@ -422,11 +422,17 @@ test('every setting a policy sets is locked where it’s shown; a policy whose s
   writeFileSync(
     policy,
     JSON.stringify({
-      settings: { theme: 'neon', autoUpdate: false, clock: null, shell: 'bin/sh' },
+      settings: {
+        theme: 'neon',
+        autoUpdate: false,
+        clock: null,
+        shell: 'bin/sh',
+        searches: ['app=web'],
+      },
     }),
   )
   const again = await launch({ env: { LUMOVI_POLICY: policy } })
   expect((await again.page.evaluate(() => window.lumovi!.app.settings())).managed?.problem).toMatch(
-    /settings: .*shell can’t be "bin\/sh": it’s a full path.*theme must be system, light or dark\. autoUpdate isn’t set here/,
+    /settings: .*shell can’t be "bin\/sh": it’s a full path.*theme must be system, light or dark\. autoUpdate isn’t set here.*searches isn’t a setting an organization sets/,
   )
 })

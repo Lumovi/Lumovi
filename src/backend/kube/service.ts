@@ -12,6 +12,8 @@ import type {
   KubeList,
   KubeObject,
   ListQuery,
+  SearchList,
+  SearchQuery,
   MetricsQuery,
   MetricsSnapshot,
   PodLogsQuery,
@@ -387,6 +389,58 @@ export class KubeService {
         items: list.items.map((item) =>
           withhold(slimListItem({ apiVersion, kind: resource.apiKind, ...item }), hidden),
         ),
+      }
+    })
+  }
+
+  /**
+   * A kind's objects for Search (LMV-171): their metadata alone (names, namespaces, labels, ages),
+   * never what they hold, so nothing withheld is read. In chunks, at most as many as a list reads
+   * (LUMOVI_MAX_LIST_ITEMS); by labels where asked. Secrets only where they're shown, as lists.
+   */
+  search(query: unknown): Promise<Result<SearchList>> {
+    return this.#run(async () => {
+      const q = assertQuery<SearchQuery>(query)
+      assertString(q.context, 'context')
+      assertKind(q.kind)
+      optionalString(q.namespace, 'namespace')
+      optionalString(q.labelSelector, 'labelSelector')
+      const resource = await this.#resource(q.context, q.kind)
+      const path = resourcePath(resource, q.namespace)
+      const items: KubeObject[] = []
+      let token: string | undefined
+      let remaining: number
+      do {
+        const chunk = new URLSearchParams()
+        if (q.labelSelector) chunk.set('labelSelector', q.labelSelector)
+        chunk.set('limit', String(Math.min(LIST_CHUNK, this.#maxListItems - items.length)))
+        if (token) chunk.set('continue', token)
+        const list = await this.#getJson<ListResponse>(
+          q.context,
+          `${path}?${chunk}`,
+          METADATA_ACCEPT.list,
+        )
+        items.push(...list.items)
+        token = list.metadata.continue
+        remaining = list.metadata.remainingItemCount ?? 0
+      } while (token && items.length < this.#maxListItems)
+      let shown = items
+      if (this.guard && resource.kind === 'Secret') {
+        if (q.namespace) await this.#secretsShown(q.context, q.namespace)
+        else shown = await this.#onlyShown(q.context, items)
+      }
+      const truncated = Boolean(token)
+      return {
+        items: shown.map(({ metadata }) => ({
+          name: metadata.name!,
+          ...(metadata.namespace ? { namespace: metadata.namespace } : {}),
+          uid: metadata.uid!,
+          ...(metadata.labels ? { labels: metadata.labels } : {}),
+          created: metadata.creationTimestamp!,
+        })),
+        truncated,
+        // (The cluster says how many are left only of a read without labels.)
+        ...(truncated && remaining === 0 ? {} : { total: items.length + remaining }),
       }
     })
   }
