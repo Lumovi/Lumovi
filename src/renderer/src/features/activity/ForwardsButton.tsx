@@ -1,22 +1,22 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cable, CircleAlert, ExternalLink, Square } from 'lucide-react'
 import { Popover } from 'radix-ui'
-import { useEffect } from 'react'
 import type { LumoviApi, PortForward } from '@shared/api'
 import { IconButton } from '@renderer/components/Button'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { asked } from '@renderer/lib/pushed'
 import { menuContent } from '../shell/menu-styles'
 
 /** Ports forwarded to pods (by the desktop app), in every cluster; shown while there are any. */
 export function ForwardsButton({ api: forwarding }: { api: NonNullable<LumoviApi['forwards']> }) {
   const queryClient = useQueryClient()
-  const forwards = useQuery({ queryKey: ['forwards'], queryFn: () => forwarding.list() }).data
-  useEffect(
-    () => forwarding.onChange((list) => queryClient.setQueryData(['forwards'], list)),
-    [forwarding, queryClient],
-  )
+  // (Kept up to date by PushedFeeds.)
+  const forwards = useQuery({
+    queryKey: ['forwards'],
+    queryFn: () => asked(queryClient, ['forwards'], () => forwarding.list()),
+  }).data
   if (!forwards?.length) return null
   const failing = forwards.some((f) => f.error)
   return (

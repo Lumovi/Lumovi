@@ -38,6 +38,7 @@ import { useContexts } from '@renderer/hooks/queries'
 import { readOnlyIn, useClusterName, useSettings } from '@renderer/hooks/settings'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { cn } from '@renderer/lib/cn'
+import { asked } from '@renderer/lib/pushed'
 import { Card, Segmented } from './PageParts'
 import { useNamespaceIndex, type IndexedNamespace, type NamespaceIndex } from './namespaces'
 import {
@@ -63,14 +64,13 @@ const SAVE_MS = 400
 /** How many of what a rule matches are shown; search finds the rest. */
 const SAMPLE = 12
 
-/** The person's AI permissions, kept up to date as another page changes them. */
+/** The person's AI permissions, kept up to date as another page changes them (PushedFeeds). */
 export function useAiPermissions(permissions: PermissionsApi) {
   const queryClient = useQueryClient()
-  useEffect(
-    () => permissions.onChanged((view) => queryClient.setQueryData(['ai-permissions'], view)),
-    [permissions, queryClient],
-  )
-  return useQuery({ queryKey: ['ai-permissions'], queryFn: () => permissions.get() })
+  return useQuery({
+    queryKey: ['ai-permissions'],
+    queryFn: () => asked(queryClient, ['ai-permissions'], () => permissions.get()),
+  })
 }
 
 export function PermissionsTab({

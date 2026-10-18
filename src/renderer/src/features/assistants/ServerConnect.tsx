@@ -5,28 +5,31 @@
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { LumoviApi } from '@shared/api'
 import type { ServerAssistantsStatus } from '@shared/assistants'
 import { Button, buttonClass, IconButton } from '@renderer/components/Button'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
 import { age } from '@renderer/lib/format'
+import { asked } from '@renderer/lib/pushed'
 import { Snippet } from './DesktopConnect'
 import { Card } from './PageParts'
 
 export type ServerAssistantsApi = NonNullable<LumoviApi['serverAssistants']>
 
-/** The person's assistants on this server, and how they connect: kept up to date by the server. */
+/**
+ * The person's assistants on this server, and how they connect: kept up to date by the server
+ * (PushedFeeds).
+ */
 export function useServerStatus(
   assistants: ServerAssistantsApi,
 ): ServerAssistantsStatus | undefined {
   const queryClient = useQueryClient()
-  useEffect(
-    () => assistants.onStatus((status) => queryClient.setQueryData(['server-assistants'], status)),
-    [assistants, queryClient],
-  )
-  return useQuery({ queryKey: ['server-assistants'], queryFn: () => assistants.status() }).data
+  return useQuery({
+    queryKey: ['server-assistants'],
+    queryFn: () => asked(queryClient, ['server-assistants'], () => assistants.status()),
+  }).data
 }
 
 /** Opens the AI assistants page; a dot says one of the person's is connected. Hidden when they're off. */
