@@ -1,4 +1,4 @@
-/** Checks an OpenID Connect ID token: its signature, issuer, audience, time and nonce. */
+/** Checks an OpenID Connect ID token: its signature, issuer, audience, times and nonce. */
 import { constants, createPublicKey, verify, type JsonWebKeyInput } from 'node:crypto'
 
 /** A provider's public key, as its JWKS document lists it. */
@@ -28,7 +28,9 @@ export type Claims = Record<string, unknown>
 export interface Expected {
   issuer: string
   audience: string
+  /** The sign-in's; a renewed ID token has none, or the sign-in's still (`renewed`). */
   nonce: string
+  renewed?: boolean
 }
 
 /** The token's parts, decoded; throws when it isn't a JWT. */
@@ -93,6 +95,11 @@ export function verifyIdToken(token: string, keys: Jwk[], expected: Expected): C
   if (typeof claims.exp !== 'number' || claims.exp + LEEWAY_SECONDS < now) {
     throw new Error('The ID token has expired')
   }
-  if (claims.nonce !== expected.nonce) throw new Error('The ID token is from another sign-in')
+  if (typeof claims.iat !== 'number' || claims.iat - LEEWAY_SECONDS > now) {
+    throw new Error('The ID token doesn’t say when it was issued, or says it’s from the future')
+  }
+  if (claims.nonce !== expected.nonce && !(expected.renewed && claims.nonce === undefined)) {
+    throw new Error('The ID token is from another sign-in')
+  }
   return claims
 }

@@ -109,6 +109,9 @@ auth:
     # client-secret.
     clientSecret: ''
     existingSecret: ''
+    # With a refresh token (offline_access, for most providers), Lumovi takes people's
+    # groups again from each renewed ID token, and ends their session when the provider
+    # won't renew it. Without one, groups stay as they were at sign-in.
     scopes: openid email profile
     # The ID token's claims that name people, and list their groups.
     usernameClaim: email
@@ -121,6 +124,10 @@ auth:
     # needs no permissions, and renews tokens with refresh tokens (ask for them:
     # offline_access, for most providers). Unset, it impersonates.
     forwardToken: ''
+    # Where Lumovi reads the groups of someone in too many for their ID token (Entra
+    # ID's overage), with User.Read: Microsoft Graph, by itself for Entra ID's global
+    # issuer. A national cloud's, say https://graph.microsoft.us.
+    graphUrl: ''
 
   proxy:
     userHeader: X-Forwarded-User

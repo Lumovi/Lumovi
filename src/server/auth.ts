@@ -10,12 +10,19 @@ import { kubeRequest } from '@backend/kube/client'
 import type { AuditOutcome } from '@shared/audit'
 import type { AuditLog } from '@backend/audit/log'
 import { toKubeError } from '@backend/kube/errors'
-import { origin, personActor, SERVER_ACTOR } from './audit'
+import { origin, personActor, SERVER_ACTOR, sessionActor } from './audit'
 import type { Hosted, Identity } from './cluster'
 import type { ServerConfig } from './config'
 import { cookie, cookies, readJson, redirect, sameOrigin, secure, sendJson } from './http'
 import { log } from './log'
-import type { OidcClient, PendingSignIn, SignedIn } from './oidc'
+import {
+  RenewalRefused,
+  type OidcClient,
+  type PendingSignIn,
+  type Renewed,
+  type Said,
+  type SignedIn,
+} from './oidc'
 import type { Sessions, StoredSession } from './sessions'
 
 export const SESSION_COOKIE = 'lumovi-session'
@@ -33,8 +40,14 @@ const signature = (body: string) => createHmac('sha256', KEY).update(body).diges
 const same = (a: string, b: string) =>
   timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 const REVIEWS = '/apis/authentication.k8s.io/v1/selfsubjectreviews'
-/** How long before a passed-on token expires it's renewed. */
+/** How long before a passed-on token, or what the provider said, expires it's renewed. */
 const RENEW_EARLY_MS = 60_000
+/** Never sooner than this after the last renewal (a provider whose tokens last under a minute). */
+const RENEW_SOONEST_MS = 1_000
+/** A provider that didn't answer is asked again after this, then twice as long each time, to… */
+const RETRY_FIRST_MS = 1_000
+/** …this at most: and never past when what it last said expires. */
+const RETRY_MOST_MS = 60_000
 
 /**
  * Sign-ins that didn't succeed are recorded each, this many a minute at most: past that (anyone
@@ -79,6 +92,13 @@ export class Auth {
   readonly #stopped = new WeakSet<object>()
   /** Those behind the sign-in proxy whose requests stopped saying where they come from, said once. */
   readonly #stoppedBehindProxy = new Set<string>()
+  /**
+   * Sessions whose provider didn't answer as they were renewed: each ends as what it last said
+   * expires, unless it answers before.
+   */
+  readonly #lapsing = new Map<string, NodeJS.Timeout>()
+  /** Sessions whose provider renews them without an ID token: each ends as its last one does. */
+  readonly #unrenewed = new Map<string, NodeJS.Timeout>()
 
   constructor(
     private readonly config: ServerConfig,
@@ -128,7 +148,12 @@ export class Auth {
     req: IncomingMessage,
     outcome: AuditOutcome,
     summary: string,
-    { user, session, error }: { user?: SessionUser; session?: string; error?: string },
+    {
+      user,
+      session,
+      error,
+      groupsUnread,
+    }: { user?: SessionUser; session?: string; error?: string; groupsUnread?: string },
   ) {
     if (outcome !== 'success' && ++this.#failed > FAILED_RECORDED) {
       const address = String(req.socket.remoteAddress)
@@ -143,7 +168,11 @@ export class Auth {
         ? personActor(user, req, session)
         : { user: '(unknown)', via: 'ui', ...origin(req) },
       summary,
-      details: { method: this.config.auth.mode, with: how },
+      details: {
+        method: this.config.auth.mode,
+        with: how,
+        ...(groupsUnread ? { groupsUnread } : {}),
+      },
       ...(error ? { error } : {}),
     })
   }
@@ -215,8 +244,15 @@ export class Auth {
       return { unsaid: true }
     }
     const session = this.sessions.get(cookie)
-    // Back after a restart: what renews its token (single sign-on) starts again.
-    if (session?.resumed) this.#keepFresh(session.id)
+    // Back after a restart: what renews its token (single sign-on) starts again, and past what
+    // the provider last said, its person has no groups until it says again.
+    if (session?.resumed) {
+      const { refreshToken, tokenExpires, idExpires } = this.sessions.credentials(session.id) ?? {}
+      if (refreshToken && Math.min(tokenExpires ?? Infinity, idExpires ?? Infinity) <= Date.now()) {
+        this.sessions.stale(session.id)
+      }
+      this.#keepFresh(session.id)
+    }
     return (
       session && {
         identity: session.identity,
@@ -230,7 +266,11 @@ export class Auth {
   describe(req: IncomingMessage, res: ServerResponse): void {
     const caller = this.identify(req)
     if (caller && 'identity' in caller) {
-      sendJson(res, 200, this.#session(caller.identity.user))
+      const unread = caller.session && this.sessions.byId(caller.session)?.groupsUnread
+      sendJson(res, 200, {
+        ...this.#session(caller.identity.user),
+        ...(unread ? { groupsUnread: true } : {}),
+      })
       return
     }
     const signIn: SignIn = {
@@ -300,7 +340,11 @@ export class Auth {
         user: caller.identity.user,
         session: caller.session,
       })
+      // What renewed it is let go of at the provider too, where it can be (never waited for).
+      const refreshToken = this.sessions.credentials(caller.session!)?.refreshToken
+      this.#lapsed(caller.session!)
       this.sessions.end(caller.session!, 'signed-out', 'They signed out.')
+      if (refreshToken) this.#revoke(refreshToken, caller.identity.user.name)
       try {
         await this.sessions.kept()
       } catch (error) {
@@ -386,13 +430,22 @@ export class Auth {
       return
     }
     // Their own token, when the API server trusts the provider; otherwise they're impersonated.
+    // What renews it all is kept (sealed) either way: their groups follow the provider's.
     const { cookie: id, session } = this.sessions.create(
       { user, token },
-      { tokenExpires: signedIn.expires, refreshToken: signedIn.refreshToken },
+      {
+        tokenExpires: signedIn.expires,
+        refreshToken: signedIn.refreshToken,
+        idExpires: signedIn.idExpires,
+        subject: signedIn.subject,
+        nonce: signedIn.nonce,
+      },
       saysWhereFrom(req),
+      signedIn.groupsUnread !== undefined,
     )
     this.#keepFresh(session.id)
     log(`${user.name} signed in`)
+    if (signedIn.groupsUnread) log(`${user.name} has no groups: ${signedIn.groupsUnread}`)
     this.#record(
       req,
       'success',
@@ -400,6 +453,7 @@ export class Auth {
       {
         user,
         session: session.id,
+        ...(signedIn.groupsUnread ? { groupsUnread: signedIn.groupsUnread } : {}),
       },
     )
     redirect(res, `${this.config.basePath}${pending.then.slice(1)}`, {
@@ -411,33 +465,192 @@ export class Auth {
   }
 
   /**
-   * Renews the token a session passes on, shortly before it expires, for as
-   * long as the session lasts. Without a way to (no refresh token), the
-   * cluster refusing it ends the session.
+   * Renews what a session passes on, and what the provider says of its person (their groups),
+   * shortly before either expires, for as long as the session lasts. The provider saying no ends
+   * the session at once. One that doesn't answer is asked again, until what it last said
+   * expires, and then the session ends: nobody keeps what a group gave them past that. Without a
+   * way to renew (no refresh token), what it said at sign-in holds for the session, and the
+   * cluster refusing a token passed on ends it.
    */
-  #keepFresh(id: string): void {
-    const { refreshToken, tokenExpires } = this.sessions.credentials(id) ?? {}
-    if (!refreshToken || !this.oidc) return
+  #keepFresh(id: string, failures = 0): void {
+    const scheduled = this.sessions.credentials(id)
+    if (!scheduled?.refreshToken || !this.oidc) return
+    // What it last said holds until the first of these.
+    // (Not by the ID token's end where its provider renews without one: that ends the session.)
+    const until = Math.min(
+      scheduled.tokenExpires ?? Infinity,
+      this.#unrenewed.has(id) ? Infinity : (scheduled.idExpires ?? Infinity),
+    )
+    if (!Number.isFinite(until)) return
+    const left = Math.max(0, until - Date.now())
+    // (Expired already, back after a restart: at once.)
+    const wait = failures
+      ? Math.min(RETRY_FIRST_MS * 2 ** (failures - 1), RETRY_MOST_MS, left)
+      : left === 0
+        ? 0
+        : Math.max(RENEW_SOONEST_MS, left - RENEW_EARLY_MS)
     const renew = async () => {
-      // Signed out meanwhile.
+      // Signed out meanwhile, or ended as what was said expired. (What renews it is read from
+      // the session now, not kept here: an ended session's is gone with it.)
       const session = this.sessions.byId(id)
-      if (!session) return
+      const credentials = this.sessions.credentials(id)
+      const refreshToken = credentials?.refreshToken
+      if (!session || !refreshToken) return
+      const { name, groups } = session.identity.user
+      const wasUnread = session.groupsUnread === true
+      // Not answered by the time what it last said expires: no groups until it is.
+      const stale = setTimeout(
+        () => this.sessions.stale(id),
+        Math.max(0, until - Date.now()),
+      ).unref()
+      let next: Renewed
       try {
-        const next = await this.oidc!.renew(refreshToken)
-        // Providers that don't rotate refresh tokens keep taking the same one.
+        next = await this.oidc!.renew(refreshToken, {
+          subject: credentials.subject,
+          name,
+          nonce: credentials.nonce ?? '',
+        })
+        clearTimeout(stale)
+      } catch (error) {
+        clearTimeout(stale)
+        const why = (error as Error).message
+        if (error instanceof RenewalRefused) {
+          log(`Renewing ${name}’s sign-in was refused: ${why}`)
+          this.#lapsed(id)
+          this.sessions.end(id, 'expired', `The provider wouldn’t renew its sign-in: ${why}`)
+          return
+        }
+        if (!this.#lapsing.has(id)) {
+          log(`Renewing ${name}’s sign-in failed, so it’s tried again until it expires: ${why}`)
+          this.#lapsing.set(
+            id,
+            setTimeout(
+              () => {
+                this.#lapsing.delete(id)
+                if (!this.sessions.byId(id)) return
+                log(
+                  `${name}’s sign-in expired, and the provider still couldn’t be reached to renew it`,
+                )
+                this.sessions.end(
+                  id,
+                  'expired',
+                  `The provider couldn’t be reached to renew its sign-in before it expired: ${why}`,
+                )
+              },
+              Math.max(0, until - Date.now()),
+            ).unref(),
+          )
+        }
+        this.#keepFresh(id, failures + 1)
+        return
+      }
+      // Signed out (or ended) while it was renewed: it stays so, and what the renewal gave is let
+      // go of at the provider too.
+      if (!this.sessions.byId(id)) {
+        if (next.refreshToken && next.refreshToken !== refreshToken)
+          this.#revoke(next.refreshToken, name)
+        return
+      }
+      if (this.#lapsed(id)) log(`Renewed ${name}’s sign-in again`)
+      const { said } = next
+      if (!said) {
+        this.#unrenewedUntil(id, name, credentials.idExpires)
         this.sessions.renewed(id, {
           token: next.token,
           tokenExpires: next.expires,
           refreshToken: next.refreshToken ?? refreshToken,
         })
         this.#keepFresh(id)
-      } catch (error) {
-        log(`Renewing ${session.identity.user.name}’s token failed: ${(error as Error).message}`)
-        this.sessions.end(id, 'expired', `Renewing its token failed: ${(error as Error).message}`)
+        return
       }
+      // Who they are, renewed after all: their groups go on.
+      clearTimeout(this.#unrenewed.get(id))
+      this.#unrenewed.delete(id)
+      this.sessions.renewed(
+        id,
+        {
+          token: next.token,
+          tokenExpires: next.expires,
+          refreshToken: next.refreshToken ?? refreshToken,
+          idExpires: said.idExpires,
+        },
+        { user: said.user, groupsUnread: said.groupsUnread !== undefined },
+      )
+      this.#regrouped(session, groups, wasUnread, said)
+      this.#keepFresh(id)
     }
-    const wait = Math.max(0, (tokenExpires ?? Date.now()) - Date.now() - RENEW_EARLY_MS)
     setTimeout(() => void renew(), wait).unref()
+  }
+
+  /**
+   * A session whose provider renewed it without an ID token (some never send one on a renewal):
+   * that renews no groups, so its person's hold only until the last ID token expires, and then
+   * the session ends, as one without a refresh token would. Said once.
+   */
+  #unrenewedUntil(id: string, name: string, idExpires: number | undefined): void {
+    if (this.#unrenewed.has(id) || idExpires === undefined) return
+    log(
+      `${name}’s provider renewed their sign-in without an ID token: their groups hold until ${new Date(idExpires).toISOString()}, and then the session ends`,
+    )
+    this.#unrenewed.set(
+      id,
+      setTimeout(
+        () => {
+          this.#unrenewed.delete(id)
+          if (!this.sessions.byId(id)) return
+          this.sessions.end(
+            id,
+            'expired',
+            'Its provider renews it without an ID token, so its groups couldn’t be renewed past the last one.',
+          )
+        },
+        Math.max(0, idExpires - Date.now()),
+      ).unref(),
+    )
+  }
+
+  /** A refresh token let go of at the provider, where it can be: never waited for. */
+  #revoke(refreshToken: string, name: string): void {
+    this.oidc?.revoke(refreshToken).catch((error: unknown) => {
+      log(
+        `Letting go of ${name}’s refresh token at the provider failed: ${(error as Error).message}`,
+      )
+    })
+  }
+
+  /** Whether a session was waiting on its provider to answer: it needn't any more. */
+  #lapsed(id: string): boolean {
+    const lapsing = this.#lapsing.get(id)
+    if (!lapsing) return false
+    clearTimeout(lapsing)
+    this.#lapsing.delete(id)
+    return true
+  }
+
+  /** Someone's groups as a renewal said them: when they changed, said and recorded. */
+  #regrouped(session: StoredSession, was: string[], wasUnread: boolean, said: Said): void {
+    const { name, groups } = said.user
+    if (said.groupsUnread && !wasUnread) log(`${name} has no groups: ${said.groupsUnread}`)
+    const added = groups.filter((group) => !was.includes(group))
+    const removed = was.filter((group) => !groups.includes(group))
+    if (added.length === 0 && removed.length === 0) return
+    log(
+      `${name}’s groups changed as the provider renewed their sign-in: ${[
+        ...added.map((group) => `+${group}`),
+        ...removed.map((group) => `−${group}`),
+      ].join(', ')}`,
+    )
+    this.audit.record({
+      action: 'session.groups',
+      outcome: 'success',
+      actor: sessionActor(said.user, session.id),
+      summary: 'Their groups changed as the provider renewed their sign-in',
+      details: {
+        added,
+        removed,
+        ...(said.groupsUnread ? { groupsUnread: said.groupsUnread } : {}),
+      },
+    })
   }
 
   /** What a sign-in with the provider is, before it's known whose it is. */

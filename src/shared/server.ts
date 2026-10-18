@@ -24,6 +24,8 @@ export interface Session {
   fleet?: boolean
   /** Where signing out of the authenticating proxy is, when it's set. */
   signOutUrl?: string
+  /** Their groups couldn't be read (the server's log says why): they have none. */
+  groupsUnread?: true
 }
 
 /**

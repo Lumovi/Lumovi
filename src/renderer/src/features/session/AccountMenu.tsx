@@ -83,6 +83,13 @@ export function AccountMenu({ session }: { session: Session }) {
                 )}
               </ul>
             )}
+            {session.groupsUnread && (
+              <p className="mt-2 text-xs leading-relaxed text-ink-3">
+                Lumovi couldn’t read your groups, so you’re signed in without them and may be able
+                to do less than usual. If this stays, ask whoever runs Lumovi: its server’s log says
+                why.
+              </p>
+            )}
           </div>
           {access && (
             <div className="border-b border-line p-1">

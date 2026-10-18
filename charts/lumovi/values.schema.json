@@ -140,6 +140,10 @@
             },
             "forwardToken": {
               "enum": ["", "id", "access"]
+            },
+            "graphUrl": {
+              "type": "string",
+              "pattern": "^(https://\\S+)?$"
             }
           }
         },
