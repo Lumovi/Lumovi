@@ -20,6 +20,7 @@ import {
   ShipWheel,
   type LucideIcon,
   Settings,
+  Network,
 } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import { Fragment, useCallback, useEffect, useState } from 'react'
@@ -49,6 +50,7 @@ import { ClusterSwitcher } from './Sidebar'
 const PAGES: Record<string, [string, LucideIcon]> = {
   '': ['Overview', LayoutDashboard],
   workloads: ['Workloads', Boxes],
+  map: ['Map', Network],
   metrics: ['Metrics', ChartSpline],
   alerts: ['Alerts', Bell],
   'api-resources': ['API resources', Blocks],

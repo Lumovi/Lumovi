@@ -1684,6 +1684,7 @@ export const LUMOVIS_TABS = [
 export const LUMOVIS_COMMANDS = [
   'Overview',
   'Workloads',
+  'Map',
   'Metrics',
   'Alerts',
   'Right-sizing',
@@ -1714,6 +1715,7 @@ export const LUMOVIS_COMMANDS = [
  */
 export const LUMOVIS_PAGES = [
   'Workloads',
+  'Map',
   'Metrics',
   'Alerts',
   'API resources',

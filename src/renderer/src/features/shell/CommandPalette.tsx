@@ -1,4 +1,4 @@
-import { Search, X } from 'lucide-react'
+import { Network, Search, X } from 'lucide-react'
 import { barButton } from '@renderer/components/Sheet'
 import { cn } from '@renderer/lib/cn'
 import { useLayout, useTouch } from '@renderer/lib/layout'
@@ -70,6 +70,7 @@ import {
   metricsPath,
   rightsizingPath,
   workloadsPath,
+  mapPath,
   parseRef,
   listedKind,
   pluginAsksPath,
@@ -553,6 +554,14 @@ function Palette({ onDone }: { onDone: () => void }) {
             onSelect={run(() => go(workloadsPath(context)))}
           >
             Workloads
+          </Item>
+          <Item
+            icon={<Network />}
+            value="Map of the cluster namespaces"
+            hint={<Keys keys={['G', 'Y']} />}
+            onSelect={run(() => go(mapPath(context)))}
+          >
+            Map
           </Item>
           <Item
             icon={<ChartSpline />}

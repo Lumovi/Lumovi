@@ -81,6 +81,11 @@ export function rightsizingPath(context: string): string {
   return `${metricsPath(context)}/right-sizing`
 }
 
+/** The map of everything in the namespaces picked (LMV-172). */
+export function mapPath(context: string): string {
+  return `${clusterPath(context)}/map`
+}
+
 /** The cluster's Helm releases. */
 export function helmPath(context: string): string {
   return `${clusterPath(context)}/helm`
@@ -157,6 +162,7 @@ export function apiResourcesPath(context: string): string {
 const PAGES: Partial<Record<NavTarget, (context: string) => string>> = {
   overview: clusterPath,
   workloads: workloadsPath,
+  map: mapPath,
   metrics: metricsPath,
   alerts: alertsPath,
   helm: helmPath,

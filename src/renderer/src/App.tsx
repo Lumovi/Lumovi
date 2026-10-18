@@ -37,6 +37,7 @@ import { ServerWarningNotices } from './features/events/warnings'
 import { FleetPage } from './features/fleet/FleetPage'
 import { WelcomePage } from './features/welcome/WelcomePage'
 import { WorkloadsPage } from './features/workloads/WorkloadsPage'
+import { MapPage } from './features/map/MapPage'
 import { api } from './lib/api'
 import { watchQueries } from './lib/watches'
 import { clusterPath } from './lib/routes'
@@ -124,6 +125,7 @@ const routes: RouteObject[] = [
             children: [
               { index: true, element: <OverviewPage /> },
               { path: 'workloads', element: <WorkloadsPage /> },
+              { path: 'map', element: <MapPage /> },
               { path: 'metrics', element: <MetricsPage /> },
               { path: 'alerts', element: <AlertsPage /> },
               { path: 'metrics/right-sizing', element: <RightsizingPage /> },

@@ -38,7 +38,7 @@ const SHORT: Record<string, string> = {
 }
 
 /** What a card calls its node's kind: "Deployment", "HTTPRoute", "Pods". */
-const kindLabel = (node: MapNode) => {
+export const kindLabel = (node: MapNode) => {
   const kind = apiKindOf(node.kind)
   return node.pods ? 'Pods' : (SHORT[kind] ?? kind)
 }
@@ -434,7 +434,7 @@ function Card({
 }
 
 /** A group's pods by health, along the bottom of its card. */
-function PodsBar({ pods }: { pods: KubeObject[] }) {
+export function PodsBar({ pods }: { pods: KubeObject[] }) {
   const healths = pods.map((p) => nodeStatus({ id: '', kind: 'Pod', name: '', object: p })!.health)
   const order: Health[] = ['healthy', 'progressing', 'warning', 'critical', 'neutral']
   return (
