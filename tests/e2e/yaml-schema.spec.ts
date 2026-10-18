@@ -4,7 +4,7 @@
  * and listed; a field's description is under the pointer; and an object's fields are offered as
  * they're typed. For built-in kinds and for CRDs, by the cluster's own OpenAPI only.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { dialog, yamlSide } from './action-helpers.ts'
 import { expect, openCluster, test } from './fixtures.ts'
 import { holds } from '../holds.ts'
@@ -14,6 +14,19 @@ const errors = (page: Page) => dialog(page).locator('.cm-lintRange-error')
 const warnings = (page: Page) => dialog(page).locator('.cm-lintRange-warning')
 const count = (page: Page) => dialog(page).locator('.cm-schema-count')
 const card = (page: Page) => page.locator('.cm-tooltip .cm-schema-card')
+
+/**
+ * Hovers `target` until a card shows, as a person's pointer would. CodeMirror shows a hover's card
+ * 500 ms after the pointer last moved, for what it moved over: where that's drawn again in
+ * between (a check's marks landing, under load), none comes until the pointer moves again. So it
+ * moves again, as the pointer of someone waiting for a card does.
+ */
+async function hoverCard(page: Page, target: Locator, position?: { x: number; y: number }) {
+  await expect(async () => {
+    await target.hover(position && { position })
+    await expect(card(page)).toBeVisible({ timeout: 2_000 })
+  }).toPass({ timeout: 20_000 })
+}
 
 /**
  * Takes the completion list's choice with `key`. A list takes a key only once it's stood 75 ms
@@ -142,9 +155,7 @@ test('what’s wrong is underlined before the dry run, counted, listed, and gone
   await expect(errors(page)).toHaveCount(1)
   // (Near its start: a hover shows within one character's width of where a character starts or
   // ends, and a tab's middle, two characters wide, is just that far from both.)
-  await errors(page)
-    .first()
-    .hover({ position: { x: 2, y: 8 } })
+  await hoverCard(page, errors(page).first(), { x: 2, y: 8 })
   await expect(card(page)).toContainText('Error: a tab can’t indent YAML: use spaces.')
 })
 
@@ -199,7 +210,7 @@ test('a CRD’s fields: values, required ones, completion and descriptions from 
   await expect(errors(page)).toHaveCount(2)
 
   // A field's description under the pointer.
-  await dialog(page).locator('.cm-line', { hasText: 'size:' }).getByText('size').hover()
+  await hoverCard(page, dialog(page).locator('.cm-line', { hasText: 'size:' }).getByText('size'))
   await expect(card(page)).toContainText('spec.size')
   await expect(card(page)).toContainText('integer')
   await expect(card(page)).toContainText('required')
@@ -227,7 +238,10 @@ test('a schema’s words, and what a problem quotes, are the cluster’s text: w
   // (One problem: its underline is drawn in two, either side of the character's placeholder.)
   await expect(count(page)).toHaveText('1 error')
   // A description with one: a mark in its card.
-  await dialog(page).locator('.cm-line', { hasText: 'aliases:' }).getByText('aliases').hover()
+  await hoverCard(
+    page,
+    dialog(page).locator('.cm-line', { hasText: 'aliases:' }).getByText('aliases'),
+  )
   await expect(card(page)).toContainText('Other names it goes by')
   await expect(card(page).getByRole('img', mark)).toHaveCount(1)
   // A value of the document's, quoted in its problem: a mark in the list's row.
@@ -410,11 +424,15 @@ test('a field’s card: its default, a description that scrolls; none on a value
   // (Once the schemas are in: a card is made of them as the pointer stops.)
   await expect(count(page)).toHaveText('1 warning')
   const line = (text: RegExp) => dialog(page).locator('.cm-line', { hasText: text })
-  /** Hovers `word` on the line, once the card of what was hovered before has gone. */
-  const hover = async (text: RegExp, word: string) => {
+  /**
+   * Hovers `word` on the line, once the card of what was hovered before has gone: until its card
+   * shows, or (`none`) once, for a word that has none.
+   */
+  const hover = async (text: RegExp, word: string, none = false) => {
     await page.mouse.move(0, 0)
     await expect(card(page)).toHaveCount(0)
-    await line(text).first().getByText(word).first().hover()
+    const target = line(text).first().getByText(word).first()
+    await (none ? target.hover() : hoverCard(page, target))
   }
   await hover(/^ {2}enabled: false$/, 'enabled')
   await expect(card(page)).toContainText('spec.enabled')
@@ -430,10 +448,12 @@ test('a field’s card: its default, a description that scrolls; none on a value
   // An object's default isn't said: only a value's.
   await page.mouse.move(0, 0)
   await expect(card(page)).toHaveCount(0)
-  await line(/^metadata:$/)
-    .nth(1)
-    .getByText('metadata')
-    .hover()
+  await hoverCard(
+    page,
+    line(/^metadata:$/)
+      .nth(1)
+      .getByText('metadata'),
+  )
   await expect(card(page)).toContainText('Standard object')
   await expect(card(page)).not.toContainText('default')
   // No field's card on a value, on a key the schema hasn't (its warning's card instead), or in a
@@ -444,7 +464,7 @@ test('a field’s card: its default, a description that scrolls; none on a value
     [/^ {2}naem: x$/, 'naem'],
     [/^ {2}name: web$/, 'name'],
   ] as const) {
-    await hover(text, word)
+    await hover(text, word, true)
     await holds(async () => (await fieldCard.count()) === 0, 800, `no field’s card on ${word}`)
   }
   // ⌥F1 on a key the schema hasn't: nothing; on one it has, its card, which Esc closes (not the
