@@ -12,6 +12,7 @@ import type { ContextsResult } from '@shared/api'
 import type { SessionUser } from '@shared/server'
 import { KubeRequestError } from '@backend/kube/errors'
 import { kubeconfigPaths, loadKubeConfig, type ClusterConfigs } from '@backend/kube/kubeconfig'
+import { OidcRenewal } from '@backend/kube/oidc-refresh'
 import { ConfigError } from './config'
 import type { Agents } from './fleet/agents'
 import type { FleetCluster } from './fleet/clusters'
@@ -19,6 +20,9 @@ import type { FleetPage } from './fleet/fleet'
 
 /** Where Kubernetes mounts a pod's service account. */
 const SERVICE_ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount'
+
+/** What renews the server's own `auth-provider: oidc` credentials: in memory only. */
+const SERVER_OIDC = new OidcRenewal({ writes: false })
 
 /**
  * Someone signed in. With a token (theirs, or one their provider issued and
@@ -75,6 +79,13 @@ export interface Hosted {
 export class RequestsAs extends KubeConfig {
   constructor(private readonly how: { as?: SessionUser; identity: Identity; agent?: https.Agent }) {
     super()
+    // The server's own credentials, where they sign in with `auth-provider: oidc`: renewed in
+    // memory only (its kubeconfig is its operator's), each cluster's apart.
+    SERVER_OIDC.install(
+      this,
+      () => undefined,
+      () => this.getCurrentCluster()?.server ?? '',
+    )
   }
 
   override async applyToHTTPSOptions(options: https.RequestOptions): Promise<void> {

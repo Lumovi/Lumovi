@@ -7,11 +7,15 @@
  * tokens), with the person as it says they are now (their groups changed, or
  * disabled), and tells the tests each token it issues, for a mock cluster
  * that trusts it to accept. And it's Microsoft Graph, at /graph, for the
- * groups of someone in too many for their ID token.
+ * groups of someone in too many for their ID token. Over HTTPS (`tls`), with
+ * an authority of its own, it stands in for the issuer a kubeconfig's
+ * `auth-provider: oidc` names.
  */
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto'
 import http from 'node:http'
+import https from 'node:https'
 import type { AddressInfo } from 'node:net'
+import { generate } from 'selfsigned'
 
 export interface MockOidcOptions {
   clientId: string
@@ -28,6 +32,8 @@ export interface MockOidcOptions {
   refreshTokens?: 'rotate' | 'keep' | 'none'
   /** Whom its access tokens are for: the cluster's (the default), or Microsoft Graph's. */
   accessAudience?: 'kubernetes' | 'graph'
+  /** Over HTTPS, with a self-signed certificate of its own (`caPem`). */
+  tls?: boolean
 }
 
 /** Microsoft Graph's application id: the audience of its access tokens. */
@@ -73,6 +79,12 @@ export interface MockOidc {
   /** Every refresh token it handed out, and those let go of at its revocation endpoint. */
   refreshTokensIssued: string[]
   revoked: string[]
+  /** Every request it was sent, by path, oldest first. */
+  requests: string[]
+  /** PEM of its certificate, over HTTPS. */
+  caPem?: string
+  /** A refresh token for `person`, as if they had signed in before. */
+  refreshTokenFor(person: Record<string, unknown>): string
   /** Called with each ID and access token it issues, which one it is, and the person's claims. */
   issued?: (token: string, kind: 'id' | 'access', claims: Record<string, unknown>) => void
   close(): Promise<void>
@@ -179,8 +191,9 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
     }
   }
 
-  const server = http.createServer((req, res) => {
+  const handle = (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url!, provider.issuer)
+    provider.requests.push(url.pathname)
     const json = (status: number, body: unknown) => {
       // A connection an answer: none is kept to be used again just as this end lets it go, which
       // the caller would see as a reset (what Lumovi does about one is LMV-255's to test).
@@ -323,12 +336,37 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
     } else {
       json(404, { error: 'not_found' })
     }
-  })
+  }
+  let caPem: string | undefined
+  let server: http.Server
+  if (options.tls) {
+    const pems = await generate([{ name: 'commonName', value: 'lumovi-mock-issuer' }], {
+      keyType: 'ec',
+      algorithm: 'sha256',
+      notAfterDate: new Date(Date.now() + 365 * 24 * 3600 * 1000),
+      extensions: [
+        { name: 'basicConstraints', cA: true },
+        { name: 'keyUsage', digitalSignature: true, keyCertSign: true },
+        { name: 'extKeyUsage', serverAuth: true },
+        {
+          name: 'subjectAltName',
+          altNames: [
+            { type: 2, value: 'localhost' },
+            { type: 7, ip: '127.0.0.1' },
+          ],
+        },
+      ],
+    })
+    caPem = pems.cert
+    server = https.createServer({ key: pems.private, cert: pems.cert }, handle)
+  } else {
+    server = http.createServer(handle)
+  }
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
 
   const provider: MockOidc = {
-    issuer: `http://127.0.0.1:${port}`,
+    issuer: `${options.tls ? 'https' : 'http'}://127.0.0.1:${port}`,
     person: {},
     refuse: false,
     failing: new Set(),
@@ -338,6 +376,13 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
     graphRequests: [],
     refreshTokensIssued: [],
     revoked: [],
+    requests: [],
+    ...(caPem ? { caPem } : {}),
+    refreshTokenFor(person) {
+      const token = randomBytes(16).toString('hex')
+      refreshTokens.set(token, person)
+      return token
+    },
     rotateKeys() {
       key = newKey(algorithm)
     },

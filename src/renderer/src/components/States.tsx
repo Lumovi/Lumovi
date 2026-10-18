@@ -53,7 +53,7 @@ const ERROR_COPY: Record<KubeErrorCode, { title: string; hint: string; icon: Luc
   },
   auth: {
     title: 'Couldn’t get credentials',
-    hint: 'The credential plugin for this context failed. Make sure it is installed and that you are logged in.',
+    hint: 'The cluster’s credential plugin or identity provider gave Lumovi no token to sign in with. Make sure you’re signed in, and that its plugin, if it uses one, is installed.',
     icon: KeyRound,
   },
   unauthorized: {
