@@ -1,119 +1,13 @@
 import { Dialog } from 'radix-ui'
 import { X } from 'lucide-react'
-import { GO_KEYS, navLabel, QUICK_NAV } from '@shared/navigation'
-import { ALT_KEY, Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { Kbd } from '@renderer/components/Kbd'
 import { useUi } from '@renderer/state/ui'
-import { TERMINAL_KEYS } from '../terminal/keys'
-import { PINS_NUMBERED } from './PinnedObjects'
-
-const SECTIONS: {
-  title: string
-  shortcuts: { keys: string[]; label: string; alt?: string[] }[]
-  /** Said under its shortcuts. */
-  note?: string
-}[] = [
-  {
-    title: 'General',
-    shortcuts: [
-      { keys: [MOD_KEY, 'K'], label: 'Command palette' },
-      { keys: ['/'], label: 'Filter the list' },
-      { keys: [MOD_KEY, 'R'], label: 'Refresh' },
-      ...(WINDOW_SHORTCUTS
-        ? [
-            {
-              keys: [MOD_KEY, 'N'],
-              label: 'Create… (on the clusters page, add a cluster)',
-            },
-            { keys: [MOD_KEY, '↵'], label: 'Approve an AI assistant’s change' },
-          ]
-        : []),
-      { keys: [MOD_KEY, '['], label: 'Back' },
-      { keys: [MOD_KEY, ']'], label: 'Forward' },
-      ...(PINS_NUMBERED
-        ? [{ keys: [ALT_KEY, '1–9'], label: 'Open a pinned object (the first nine)' }]
-        : []),
-      { keys: ['?'], label: 'Keyboard shortcuts' },
-    ],
-    // (Where they'd switch the browser's tabs, pins have none.)
-    note: PINS_NUMBERED
-      ? undefined
-      : 'In a browser on Linux, Alt+1 to 8 switch the browser’s tabs, so pinned objects have no number keys here: open them from the sidebar or the command palette.',
-  },
-  {
-    title: 'Lists',
-    shortcuts: [
-      { keys: ['↑', '↓'], label: 'Move through rows (or J / K)' },
-      { keys: ['↵'], label: 'Open the selected row' },
-      { keys: ['←', '→'], label: 'Previous / next page' },
-      { keys: ['Home', 'End'], label: 'First / last row' },
-      { keys: ['Esc'], label: 'Close the detail panel' },
-      { keys: ['X'], label: 'Select the row (Shift for a range)' },
-      { keys: [MOD_KEY, 'A'], label: 'Select every row on the page' },
-    ],
-  },
-  {
-    title: 'Open object',
-    shortcuts: [
-      { keys: ['.'], label: 'Actions: scale, restart, edit…' },
-      { keys: [MOD_KEY, '⌫'], label: 'Delete' },
-      { keys: [MOD_KEY, 'S'], label: 'Review a YAML edit' },
-      { keys: [ALT_KEY, 'P'], label: 'Pin or unpin the open object' },
-    ],
-  },
-  // On this computer, in the desktop app.
-  ...(WINDOW_SHORTCUTS
-    ? [
-        {
-          title: 'Clusters page',
-          shortcuts: [
-            { keys: ['↑', '↓'], label: 'Move through clusters' },
-            { keys: ['↵'], label: 'Open the selected cluster' },
-            { keys: ['.'], label: 'Its actions' },
-            { keys: [MOD_KEY, 'I'], label: 'Its settings' },
-            { keys: [MOD_KEY, 'N'], label: 'Add a cluster' },
-            { keys: [MOD_KEY, '⌫'], label: 'Remove one added in Lumovi' },
-          ],
-        },
-        {
-          title: 'Terminal',
-          shortcuts: [
-            { keys: TERMINAL_KEYS.toggle, label: 'Show or hide the terminal' },
-            { keys: TERMINAL_KEYS.add, label: 'New terminal' },
-            {
-              keys: TERMINAL_KEYS.addHere,
-              label: 'New terminal, in one',
-              alt: TERMINAL_KEYS.addHereToo,
-            },
-            { keys: TERMINAL_KEYS.close, label: 'Close it, in one' },
-            ...(TERMINAL_KEYS.clear
-              ? [{ keys: TERMINAL_KEYS.clear, label: 'Clear it, in one' }]
-              : []),
-            {
-              keys: TERMINAL_KEYS.next,
-              label: 'Previous or next terminal',
-              alt: TERMINAL_KEYS.previous,
-            },
-            { keys: ['F2'], label: 'Rename the terminal (on its tab)' },
-          ],
-        },
-      ]
-    : []),
-  {
-    title: 'Go to',
-    shortcuts: GO_KEYS.map(({ key, target }) => {
-      const quick = QUICK_NAV.indexOf(target)
-      return {
-        label: navLabel(target),
-        keys: ['G', key.toUpperCase()],
-        alt: WINDOW_SHORTCUTS && quick >= 0 ? [MOD_KEY, String(quick + 1)] : undefined,
-      }
-    }),
-  },
-]
+import { useSheet } from './sheet'
 
 export function ShortcutsDialog() {
   const open = useUi((ui) => ui.shortcuts)
   const setOpen = useUi((ui) => ui.setShortcuts)
+  const sections = useSheet()
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
@@ -133,7 +27,7 @@ export function ShortcutsDialog() {
             </Dialog.Close>
           </header>
           <div className="grid gap-x-10 gap-y-6 overflow-y-auto px-5 py-5 sm:grid-cols-2">
-            {SECTIONS.map((section) => (
+            {sections.map((section) => (
               <section
                 key={section.title}
                 className={section.title === 'Go to' ? 'sm:row-span-2' : ''}
@@ -142,23 +36,26 @@ export function ShortcutsDialog() {
                   {section.title}
                 </h3>
                 <dl className="space-y-1.5">
-                  {section.shortcuts.map((shortcut) => (
+                  {section.rows.map((row) => (
                     <div
-                      key={shortcut.label}
+                      key={row.label}
                       className="flex items-center justify-between gap-4 text-[13px]"
                     >
-                      <dt className="text-ink-2">{shortcut.label}</dt>
+                      <dt className="text-ink-2">{row.label}</dt>
                       <dd className="flex shrink-0 items-center gap-1">
-                        {shortcut.alt && (
-                          <>
-                            {shortcut.alt.map((key) => (
+                        {row.keys.length === 0 && <span className="text-xs text-ink-3">None</span>}
+                        {row.keys.map((caps, i) => (
+                          <span key={caps.join('')} className="flex items-center gap-1">
+                            {i > 0 &&
+                              (row.apart ? (
+                                <span className="w-0.5" />
+                              ) : (
+                                <span className="px-1 text-xs text-ink-3">or</span>
+                              ))}
+                            {caps.map((key) => (
                               <Kbd key={key}>{key}</Kbd>
                             ))}
-                            <span className="px-1 text-xs text-ink-3">or</span>
-                          </>
-                        )}
-                        {shortcut.keys.map((key) => (
-                          <Kbd key={key}>{key}</Kbd>
+                          </span>
                         ))}
                       </dd>
                     </div>

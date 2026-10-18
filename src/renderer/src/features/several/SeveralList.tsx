@@ -26,6 +26,7 @@ import { useClusterName, useProduction } from '@renderer/hooks/settings'
 import { useUpdateParams } from '@renderer/hooks/update-params'
 import type { KubeApiError } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
+import { pressed } from '@renderer/lib/shortcuts'
 import { hasHealth, healthName, statusOf, type Health } from '@renderer/lib/health'
 import { formatRef } from '@renderer/lib/routes'
 import { listedWorkloads } from '@renderer/lib/workloads'
@@ -680,8 +681,7 @@ function AcrossKeys({ clusters, panelOpen }: { clusters: number; panelOpen: bool
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditable(event.target) || document.querySelector('[role="dialog"], [role="menu"]'))
         return
-      const mod = event.metaKey || event.ctrlKey
-      if ((event.key === '.' && !mod && !event.altKey) || (event.key === 'Backspace' && mod)) {
+      if (pressed(event, 'object.actions') || pressed(event, 'object.delete')) {
         event.preventDefault()
         toast({ tone: 'info', title: acrossWhy(clusters) })
       }

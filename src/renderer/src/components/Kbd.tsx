@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { api } from '@renderer/lib/api'
+import { useKeys } from '@renderer/lib/shortcuts'
 
 export const MOD_KEY = api.platform === 'darwin' ? '⌘' : 'Ctrl'
 /** The Option key, Alt off a Mac. */
@@ -19,4 +20,10 @@ export function Kbd({ children }: { children: ReactNode }) {
       {children}
     </kbd>
   )
+}
+
+/** A command's keys as Settings has them (shared/shortcuts.ts), or nothing where it has none. */
+export function CommandKeys({ id }: { id: string }) {
+  const caps = useKeys().caps(id)
+  return caps ? caps.map((key) => <Kbd key={key}>{key}</Kbd>) : null
 }

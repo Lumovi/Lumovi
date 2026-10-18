@@ -30,10 +30,13 @@ import {
   checkedPreferences,
   effectivePreferences,
   isDefault,
+  lockedNames,
+  refusedNames,
   type PreferenceKey,
   type Preferences,
 } from '@shared/preferences'
 import { NO_POLICY, type Policy } from './policy'
+import { effectiveKeys, shortcutProblems } from '@shared/shortcuts'
 
 const DEFAULTS: Settings = {
   theme: 'system',
@@ -76,7 +79,7 @@ export class SettingsStore implements SettingsAccess {
     const { managed } = this.policy
     const { theme: lockedTheme, ...lockedOwn } = managed?.settings ?? {}
     const locked: PreferenceKey[] = [
-      ...(Object.keys(managed?.settings ?? {}) as PreferenceKey[]),
+      ...lockedNames(managed?.settings ?? {}),
       ...(managed?.updatesOff ? (['autoUpdate'] as const) : []),
     ]
     return {
@@ -109,17 +112,21 @@ export class SettingsStore implements SettingsAccess {
    */
   setPreferences(patch: unknown): Settings {
     const { preferences, problems } = checkedPreferences(patch)
-    const locked = Object.keys(preferences).filter((key) =>
-      Object.hasOwn(this.policy.managed?.settings ?? {}, key),
-    )
+    const lockedOwn = this.policy.managed?.settings ?? {}
+    const locked = refusedNames(preferences, lockedOwn)
     if (locked.length) problems.push(`${locked.join(', ')}: set by your organization.`)
-    if (problems.length) throw new Error(problems.join(' '))
     const own: Record<string, unknown> = { ...this.#own() }
     // (One set to its default is kept as unset: it follows the default, and Restore has nothing.)
     for (const [key, value] of Object.entries(preferences)) {
       if (value === null || isDefault(key, value)) delete own[key]
       else own[key] = value
     }
+    if ('shortcuts' in preferences && !problems.length) {
+      const { shortcuts } = effectivePreferences(own, lockedOwn as Partial<Preferences>)
+      const keys = effectiveKeys(shortcuts, process.platform === 'darwin')
+      problems.push(...shortcutProblems(keys, process.platform === 'darwin', true))
+    }
+    if (problems.length) throw new Error(problems.join(' '))
     return this.update({ preferences: own as unknown as Preferences })
   }
 

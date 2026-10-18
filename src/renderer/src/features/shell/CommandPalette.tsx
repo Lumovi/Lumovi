@@ -48,7 +48,8 @@ import { GO_KEYS } from '@shared/navigation'
 import { apiKindOf, isBuiltinKind, kindOf, RESOURCES } from '@shared/resources'
 import { pluginIcon, KIND_ICONS, KindIcon, kindIcon } from '@renderer/components/KindIcon'
 import { StatusDot, StatusPill } from '@renderer/components/Status'
-import { ALT_KEY, Kbd, MOD_KEY, WINDOW_SHORTCUTS } from '@renderer/components/Kbd'
+import { ALT_KEY, Kbd } from '@renderer/components/Kbd'
+import { useKeys } from '@renderer/lib/shortcuts'
 import { useGo } from '@renderer/hooks/go'
 import { usePinning } from '@renderer/hooks/marks'
 import { useContexts, useList, useListResponses, useObject } from '@renderer/hooks/queries'
@@ -96,10 +97,8 @@ import { useMyAccess } from '../access/use-access'
 import { useObjectActions, useRunAction } from '../actions/use-actions'
 import { copyLink, useLinksOffered } from '../links/copy'
 import { openView } from '../resources/views'
-import { PIN_KEY } from '../details/PinButton'
 import { severalPath } from '../several/set'
 import { useDock } from '../terminal/dock'
-import { TERMINAL_KEYS } from '../terminal/keys'
 import { kindName, pinKey, pinNumber, pinPath, PINS_NUMBERED } from './PinnedObjects'
 import { CATEGORY_LABELS } from './Sidebar'
 import {
@@ -218,6 +217,7 @@ function Palette({ onDone }: { onDone: () => void }) {
   const served = new Map(resources.map((r) => [r.kind as string, r]))
   const pinnedKinds = usePrefs((prefs) => prefs.pinned).flatMap((kind) => served.get(kind) ?? [])
   const pinning = usePinning()
+  const keys = useKeys()
   const pins = pinning.marks.pins
   // The row that's chosen, for what the keys do to a pin's (⌥↑ ⌥↓ move it, ⌫ unpins it).
   const [chosen, setChosen] = useState('')
@@ -739,7 +739,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             <Item
               icon={<FilePlus2 />}
               value="Create new object form from YAML"
-              hint={WINDOW_SHORTCUTS && <Keys keys={[MOD_KEY, 'N']} />}
+              hint={<Hint keys={keys.caps('create')} />}
               onSelect={run(() => setCreate(true))}
             >
               Create…
@@ -749,7 +749,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             <Item
               icon={<SquareTerminal />}
               value="New terminal kubectl shell this computer"
-              hint={<Keys keys={TERMINAL_KEYS.add} />}
+              hint={<Hint keys={keys.caps('new-terminal')} />}
               onSelect={run(() => useDock.getState().add(context, namespace ?? undefined))}
             >
               New terminal
@@ -759,7 +759,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             <Item
               icon={<AppWindow />}
               value="New window another cluster"
-              hint={<Keys keys={[MOD_KEY, '⇧', 'N']} />}
+              hint={<Hint keys={keys.caps('new-window')} />}
               onSelect={run(() => void api.desktop!.newWindow())}
             >
               New window
@@ -793,6 +793,7 @@ function Palette({ onDone }: { onDone: () => void }) {
           <Item
             icon={<Settings />}
             value="Settings preferences appearance theme accent density text size time zone clock terminal font shell namespaces updates"
+            hint={<Hint keys={keys.caps('settings')} />}
             onSelect={run(() => go(`/cluster/${encodeURIComponent(context)}/settings`))}
           >
             Settings
@@ -820,7 +821,7 @@ function Palette({ onDone }: { onDone: () => void }) {
             <Item
               icon={<Keyboard />}
               value="Keyboard shortcuts"
-              hint={<Keys keys={['?']} />}
+              hint={<Hint keys={keys.caps('shortcuts')} />}
               onSelect={run(() => setShortcuts(true))}
             >
               Keyboard shortcuts
@@ -1072,6 +1073,7 @@ function ObjectActionItems({
   const available = useObjectActions(object)
   const start = useRunAction()
   const { pinned, toggle } = usePinning()
+  const keys = useKeys()
   const kind = kindOf(object)
   const pin: PinOf = {
     kind,
@@ -1110,7 +1112,7 @@ function ObjectActionItems({
         <Item
           icon={on ? <PinOff /> : <Pin />}
           value={`${on ? 'Unpin' : 'Pin'} ${object.metadata.name} sidebar action`}
-          hint={<Keys keys={[PIN_KEY]} />}
+          hint={<Hint keys={keys.caps('object.pin')} />}
           onSelect={run(() => toggle(pin, called))}
         >
           {on ? 'Unpin' : 'Pin'} {called}
@@ -1143,6 +1145,9 @@ function Keys({ keys }: { keys: string[] }) {
     </span>
   )
 }
+
+/** A command's keys as Settings has them, or nothing where it has none. */
+const Hint = ({ keys }: { keys: string[] | undefined }) => (keys ? <Keys keys={keys} /> : null)
 
 function Item({
   icon,

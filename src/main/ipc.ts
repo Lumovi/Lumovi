@@ -65,6 +65,8 @@ interface Dependencies extends Backend {
   /** What's saved and picked on this computer, for files copied out of and into containers. */
   localFiles: DesktopFiles
   updates: Updates
+  /** Builds the native menu again, as the settings are now (its keys). */
+  setMenu: () => void
   /** What's newer in Lumovi-plugins, for the Plugins page. */
   pluginStore: PluginStore
   /** What's installed from it. */
@@ -125,6 +127,7 @@ export function registerIpc(deps: Dependencies): void {
     forwards,
     localFiles,
     updates,
+    setMenu,
     pluginStore,
     installed,
     agreed,
@@ -239,6 +242,7 @@ export function registerIpc(deps: Dependencies): void {
           if (item) item.checked = on
         }
         const changed = settings.setPreferences(rest)
+        if ('shortcuts' in rest) setMenu()
         if (changed.preferences && changed.preferences.textSize !== before) {
           for (const win of windows.all()) {
             win.webContents.setZoomFactor(changed.preferences.textSize / 100)
@@ -600,15 +604,24 @@ export function registerIpc(deps: Dependencies): void {
   })
   // Whether a page's terminal has focus is that page's own: its window's ⌘ keys follow it.
   const focusing = new Set<number>()
-  ipcMain.on(IPC.terminalFocus, (event: IpcMainEvent, focused: unknown) => {
-    if (!trusted(event)) return
-    const page = event.sender
-    terminalKeys.focus(page.id, focused)
+  const forget = (page: Electron.WebContents) => {
     if (focusing.has(page.id)) return
     focusing.add(page.id)
     page.once('destroyed', () => {
       focusing.delete(page.id)
       terminalKeys.focus(page.id, false)
+      terminalKeys.record(page.id, false)
     })
+  }
+  ipcMain.on(IPC.terminalFocus, (event: IpcMainEvent, focused: unknown) => {
+    if (!trusted(event)) return
+    terminalKeys.focus(event.sender.id, focused)
+    forget(event.sender)
+  })
+  // And while its Settings records a command's keys, its keys are sent to it alone.
+  ipcMain.on(IPC.recordKeys, (event: IpcMainEvent, on: unknown) => {
+    if (!trusted(event)) return
+    terminalKeys.record(event.sender.id, on === true)
+    forget(event.sender)
   })
 }

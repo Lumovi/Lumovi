@@ -43,8 +43,9 @@
  *     "links": "off",                    lumovi:// links open nothing, and Copy link isn't there
  *     "settings": {                      a person's own settings, set and locked (Settings shows
  *       "theme": "dark",                 them, its controls off): theme, accent, density,
- *       "shell": "/bin/bash"             textSize, timeZone, clock, terminalFont, terminalFontSize,
- *     },                                 copyOnSelect, shell ("" for the login shell), namespaces
+ *       "shell": "/bin/bash",            textSize, timeZone, clock, terminalFont, terminalFontSize,
+ *       "shortcuts": {"palette": ["Mod+P"]} copyOnSelect, shell ("" for the login shell), namespaces,
+ *     },                                 and shortcuts: a command's keys, each command locked alone
  *     "network": {                       Lumovi's own connections
  *       "proxy": "http://proxy.corp.example.com:3128",
  *       "noProxy": ".corp.example.com",
@@ -81,6 +82,7 @@ import { checkedLimits, type AiRule } from '@shared/ai-permissions'
 import type { ManagedSettings } from '@shared/api'
 import { PLUGIN_NAME } from '@shared/plugins'
 import { checkedPreferences, type Preferences } from '@shared/preferences'
+import { effectiveKeys, shortcutProblems } from '@shared/shortcuts'
 import { isTheme } from '@backend/settings'
 import { trustedMirror } from './kubectl'
 
@@ -502,6 +504,12 @@ function checked(given: unknown, path: string): Policy {
     // (Saved searches are the person's own: set by an organization, they couldn't save theirs.)
     if ('searches' in preferences) problems.push('searches isn’t a setting an organization sets.')
     if (Object.values(preferences).includes(null)) problems.push('A setting can’t be null.')
+    // Keys it sets that the system keeps, or that do two things where both work.
+    if (preferences.shortcuts && !problems.length) {
+      const mac = process.platform === 'darwin'
+      const keys = effectiveKeys(preferences.shortcuts as Record<string, string[]>, mac)
+      problems.push(...shortcutProblems(keys, mac, true))
+    }
     if (problems.length) throw new Error(`settings: ${problems.join(' ')}`)
     locked = {
       ...(preferences as Partial<Preferences>),

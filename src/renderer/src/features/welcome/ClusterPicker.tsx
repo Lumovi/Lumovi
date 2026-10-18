@@ -26,7 +26,8 @@ import { createContext, useContext, useEffect, useRef, useState, type KeyboardEv
 import { managedReadOnly, type KubeconfigFiles, type KubeContext } from '@shared/api'
 import type { ClusterSettings } from '@shared/cluster-settings'
 import { Button, IconButton } from '@renderer/components/Button'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { CommandKeys, Kbd } from '@renderer/components/Kbd'
+import { pressed, useClaim, useKeys } from '@renderer/lib/shortcuts'
 import { useGo } from '@renderer/hooks/go'
 import { spelled } from '@shared/kit/characters'
 import { useVersion } from '@renderer/hooks/queries'
@@ -208,6 +209,7 @@ export function ClusterPicker({
   /** The cluster just added: selected, and tinted for a moment. */
   justAdded?: string
 }) {
+  const keys = useKeys()
   const everyCluster = useClusters(contexts, files)
   const recentNames = usePrefs((prefs) => prefs.recent)
   const grouping = usePrefs((prefs) => prefs.clusterGrouping)
@@ -270,7 +272,8 @@ export function ClusterPicker({
     setSelected(RECENT_VALUE + recent[0].context.name)
   }
   const list = useRef<HTMLDivElement>(null)
-  // ⌘I opens the selected one's settings wherever the focus is on the page (not in a dialog).
+  // ⌘I (or its keys as Settings has them) opens the selected one's settings wherever the focus
+  // is on the page (not in a dialog).
   const settingsOf = useRef<() => void>(undefined)
   useEffect(() => {
     settingsOf.current = () => {
@@ -285,7 +288,7 @@ export function ClusterPicker({
   })
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'i') return
+      if (!pressed(event, 'clusters.settings')) return
       // Not past an open dialog or menu (one closing still is in the page a moment).
       if (
         document.querySelector(
@@ -299,6 +302,7 @@ export function ClusterPicker({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  useClaim('clusters.settings', () => settingsOf.current?.())
   const onKeyDown = (event: KeyboardEvent) => {
     // Enter on a button in the list's bar or notices presses it, not opens the selected cluster.
     const target = event.target as HTMLElement
@@ -366,19 +370,18 @@ export function ClusterPicker({
     const typed = (event.target as HTMLInputElement).value ?? ''
     // The last set's row: `.` opens its menu.
     if ((value ?? selected) === LAST_SET_VALUE) {
-      if (event.key === '.' && typed === '') {
+      if (pressed(event, 'clusters.actions') && typed === '') {
         event.preventDefault()
         setMenuFor(LAST_SET_VALUE)
       }
       return
     }
     if (!selectedCluster || !actions) return
-    const mod = event.metaKey || event.ctrlKey
     // `.` opens its actions, unless it's searched for (as in a server's address).
-    if (event.key === '.' && !mod && typed === '') {
+    if (pressed(event, 'clusters.actions') && typed === '') {
       event.preventDefault()
       setMenuFor(value ?? selected)
-    } else if (mod && event.key === 'Backspace' && typed === '' && selectedCluster.own) {
+    } else if (pressed(event, 'clusters.remove') && typed === '' && selectedCluster.own) {
       event.preventDefault()
       actions.remove(selectedCluster)
     }
@@ -525,13 +528,12 @@ export function ClusterPicker({
           </span>
         ) : (
           <span className="flex items-center gap-1.5">
-            <Kbd>?</Kbd> for all shortcuts
+            <CommandKeys id="shortcuts" /> for all shortcuts
           </span>
         )}
-        {onAdd && !files?.locked && (
+        {onAdd && !files?.locked && keys.caps('clusters.add') && (
           <span className="flex items-center gap-1.5">
-            <Kbd>{MOD_KEY}</Kbd>
-            <Kbd>N</Kbd> to add
+            <CommandKeys id="clusters.add" /> to add
           </span>
         )}
         {hidden > 0 && <HiddenToggle count={hidden} />}

@@ -9,30 +9,25 @@ import { spelled } from '@shared/kit/characters'
 import { apiKindOf } from '@shared/resources'
 import { tooManyPins, MARKS_LIMITS, type Pin } from '@shared/marks'
 import { Button } from '@renderer/components/Button'
-import { ALT_KEY } from '@renderer/components/Kbd'
 import { Tooltip } from '@renderer/components/Tooltip'
 import { usePinning } from '@renderer/hooks/marks'
 import { cn } from '@renderer/lib/cn'
+import { pressed, useClaim, useKeys } from '@renderer/lib/shortcuts'
 import { isEditable } from '../actions/ActionSurfaces'
-
-/** ⌥P as it's written: "⌥P" on a Mac, "Alt+P" off one. */
-export const PIN_KEY = ALT_KEY === '⌥' ? '⌥P' : `${ALT_KEY}+P`
 
 export function PinButton({ pin }: { pin: Pin }) {
   const { pinned, toggle, marks } = usePinning()
   const on = pinned(pin)
   const called = `${apiKindOf(pin.kind)} ${spelled(pin.name)}`
   const full = !on && marks.pins.length >= MARKS_LIMITS.pins
+  const keys = useKeys()
 
+  useClaim('object.pin', () => void toggle(pin, called))
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      // By the key's place: ⌥P types a character of its own on a Mac.
+      // (By the key's place: ⌥P types a character of its own on a Mac.)
       if (
-        event.code !== 'KeyP' ||
-        !event.altKey ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
+        !pressed(event, 'object.pin') ||
         isEditable(event.target) ||
         document.querySelector('[role="dialog"], [role="menu"]')
       )
@@ -67,13 +62,13 @@ export function PinButton({ pin }: { pin: Pin }) {
   return (
     <Tooltip
       content={
-        full ? (
+        full || !keys.text('object.pin') ? (
           said
         ) : (
           <span className="flex items-center gap-1.5">
             {said}
             <kbd className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-surface/20 px-1 font-sans text-[11px] font-medium text-surface">
-              {PIN_KEY}
+              {keys.text('object.pin')}
             </kbd>
           </span>
         )

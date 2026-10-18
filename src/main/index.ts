@@ -64,6 +64,7 @@ import { LocalTerminals } from './local-terminal'
 import { TerminalKeys } from './terminal-keys'
 import { chromiumProxy, proxyCredentials } from './chromium-proxy'
 import { buildMenu, popupMenu } from './menu'
+import { effectiveKeys } from '@shared/shortcuts'
 import { readPolicy } from './policy'
 import { SettingsStore } from './settings'
 import { loadLoginShellEnv } from './shell-env'
@@ -676,7 +677,9 @@ if (stdio) {
       void chromiumProxy(proxy, noProxy ?? '', [session.defaultSession, updates.session])
     }
     // A focused terminal's ⌘ keys are its own, before the menu's (each window's: see wire).
-    const terminalKeys = new TerminalKeys()
+    const terminalKeys = new TerminalKeys(() =>
+      effectiveKeys(settings.get().preferences?.shortcuts, process.platform === 'darwin'),
+    )
     // AI assistants on this computer, over MCP. How the app is started again, should
     // Claude Desktop's bridge find it isn't running: as it was this time.
     settings.update({ assistants: { ...settings.get().assistants!, launch: process.argv } })
@@ -776,6 +779,20 @@ if (stdio) {
           return
         }
         keysHeld.delete(page.id)
+        // Settings recording a command's keys has them all, the menu's too.
+        if (terminalKeys.recording(page.id)) {
+          if (input.type !== 'keyDown') return
+          event.preventDefault()
+          page.send(IPC.keyRecorded, {
+            key: input.key,
+            code: input.code,
+            ctrlKey: input.control,
+            altKey: input.alt,
+            shiftKey: input.shift,
+            metaKey: input.meta,
+          })
+          return
+        }
         const command = terminalKeys.command(page.id, input)
         if (!command) return
         event.preventDefault()
@@ -789,10 +806,22 @@ if (stdio) {
         for (const notice of notices) notice.close()
         notices.clear()
       })
+      // A page that goes (loads anew, or its renderer is gone) neither records keys nor has a
+      // terminal with focus any more: the window's keys are its own again.
+      const keysLetGo = () => {
+        terminalKeys.record(page.id, false)
+        terminalKeys.focus(page.id, false)
+      }
       page.on('did-start-navigation', (details) => {
         // (The page's own: a plugin's box arriving in a frame of it ends nothing.)
-        if (details.isMainFrame && !details.isSameDocument) closeStreams(windows.release(page))
+        if (details.isMainFrame && !details.isSameDocument) {
+          keysLetGo()
+          closeStreams(windows.release(page))
+        }
       })
+      page.on('render-process-gone', keysLetGo)
+      // (And a window that's left, for another or another app, records no keys either.)
+      win.on('blur', () => terminalKeys.record(page.id, false))
       // (Its page gone with it: what it started ends.)
       win.on('closed', () => closeStreams(windows.release(page)))
     }
@@ -863,7 +892,13 @@ if (stdio) {
       setImmediate(() => win.close())
       return {}
     }
+    // The native menu: its keys are the person's, so it's built again as they change.
+    const setMenu = () =>
+      Menu.setApplicationMenu(
+        buildMenu({ front: () => windows.front(), newWindow, updates, settings }),
+      )
     registerIpc({
+      setMenu,
       problems: () => envReady.then(() => problems),
       links,
       kubeconfigFiles,
@@ -954,9 +989,7 @@ if (stdio) {
         new Promise((resolve) => setTimeout(resolve, 3_000)),
       ]).then(() => app.quit())
     })
-    Menu.setApplicationMenu(
-      buildMenu({ front: () => windows.front(), newWindow, updates, settings }),
-    )
+    setMenu()
     // Started again: with a link, it's the link's (which raises the window it asks in).
     app.on('second-instance', (_event, _argv, _directory, handed) => {
       const link = handedLink(handed)

@@ -6,6 +6,8 @@
  * LUMOVI_SETTINGS) is what they are, and locked.
  */
 
+import { isChord, SHORTCUT_IDS } from './shortcuts'
+
 /** The accents: each a fill, its label, and a strong shade, per theme (see styles/index.css). */
 export const ACCENTS = ['blue', 'cyan', 'violet', 'graphite'] as const
 export type Accent = (typeof ACCENTS)[number]
@@ -43,6 +45,11 @@ export interface Preferences {
   namespaces: OpenNamespaces
   /** Saved searches (LMV-171): what was typed into Search, as typed, in the order saved. */
   searches: string[]
+  /**
+   * Keyboard shortcuts (LMV-358): a command's keys where they aren't its defaults, by its id
+   * (see shared/shortcuts.ts); none, for no keys.
+   */
+  shortcuts: Record<string, string[]>
 }
 
 export const PREFERENCE_DEFAULTS: Preferences = {
@@ -57,6 +64,7 @@ export const PREFERENCE_DEFAULTS: Preferences = {
   shell: '',
   namespaces: { mode: 'last' },
   searches: [],
+  shortcuts: {},
 }
 
 /** Fonts offered for the terminal (any other the system has can be typed). */
@@ -70,18 +78,22 @@ export const TERMINAL_FONTS = [
   'monospace',
 ]
 
-/** What can be set: these, the theme, and (on the desktop) whether updates are checked for. */
-export type PreferenceKey = keyof Preferences | 'theme' | 'autoUpdate'
+/**
+ * What can be set: these, the theme, and (on the desktop) whether updates are checked for. A
+ * command's keys are locked one by one: "shortcuts.palette".
+ */
+export type PreferenceKey = keyof Preferences | 'theme' | 'autoUpdate' | `shortcuts.${string}`
 
 /** Each section's settings, as its Restore puts them back. */
 export const SECTIONS: Record<
-  'appearance' | 'time' | 'terminal' | 'namespaces' | 'updates',
+  'appearance' | 'time' | 'terminal' | 'namespaces' | 'shortcuts' | 'updates',
   PreferenceKey[]
 > = {
   appearance: ['theme', 'accent', 'density', 'textSize'],
   time: ['timeZone', 'clock'],
   terminal: ['terminalFont', 'terminalFontSize', 'copyOnSelect', 'shell'],
   namespaces: ['namespaces'],
+  shortcuts: ['shortcuts'],
   updates: ['autoUpdate'],
 }
 
@@ -163,6 +175,17 @@ export function checkedPreferences(value: unknown): {
             search.length <= SAVED_SEARCH_LENGTH &&
             /^\S[^\n]*$/.test(search),
         ),
+      shortcuts: () =>
+        typeof given === 'object' &&
+        !Array.isArray(given) &&
+        Object.entries(given as object).every(
+          ([id, keys]) =>
+            SHORTCUT_IDS.has(id) &&
+            Array.isArray(keys) &&
+            keys.length <= 3 &&
+            new Set(keys).size === keys.length &&
+            keys.every(isChord),
+        ),
     }[name]()
     if (ok) preferences[name] = given
     else if (name === 'shell')
@@ -180,10 +203,54 @@ export const isDefault = (key: string, value: unknown): boolean =>
   Object.hasOwn(PREFERENCE_DEFAULTS, key) &&
   JSON.stringify(PREFERENCE_DEFAULTS[key as keyof Preferences]) === JSON.stringify(value)
 
+/**
+ * What a policy's settings lock, by name: each setting, but a command's keys one by one
+ * ("shortcuts.palette").
+ */
+export const lockedNames = (locked: object): PreferenceKey[] =>
+  Object.entries(locked).flatMap(([key, value]) =>
+    key === 'shortcuts'
+      ? Object.keys(value as object).map((id): PreferenceKey => `shortcuts.${id}`)
+      : [key as PreferenceKey],
+  )
+
+/** Of a change, what a policy's settings lock: the names it would change. */
+export const refusedNames = (patch: Record<string, unknown>, locked: object): string[] =>
+  lockedNames(locked).filter((name) =>
+    name.startsWith('shortcuts.')
+      ? patch.shortcuts !== undefined &&
+        // (Reset all puts back what's the person's; what's locked stays as it is set.)
+        patch.shortcuts !== null &&
+        Object.hasOwn(patch.shortcuts as object, name.slice('shortcuts.'.length))
+      : Object.hasOwn(patch, name),
+  )
+
+/**
+ * A command's keys: the person's, but where the policy sets that command's; and a key the policy
+ * gave another command is that one's alone.
+ */
+function lockedOver(
+  own: Record<string, string[]> = {},
+  locked: Record<string, string[]> = {},
+): Record<string, string[]> {
+  const held = new Set(Object.values(locked).flat())
+  return {
+    ...Object.fromEntries(
+      Object.entries(own).map(([id, keys]) => [id, keys.filter((key) => !held.has(key))]),
+    ),
+    ...locked,
+  }
+}
+
 /** Settings as they are: the defaults, what the person set, and over both what policy sets. */
 export function effectivePreferences(
   own: Partial<Preferences>,
   locked: Partial<Preferences> = {},
 ): Preferences {
-  return { ...PREFERENCE_DEFAULTS, ...own, ...locked }
+  return {
+    ...PREFERENCE_DEFAULTS,
+    ...own,
+    ...locked,
+    shortcuts: lockedOver(own.shortcuts, locked.shortcuts),
+  }
 }

@@ -5,7 +5,8 @@ import type { KubeObject } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
-import { Kbd, MOD_KEY } from '@renderer/components/Kbd'
+import { CommandKeys } from '@renderer/components/Kbd'
+import { useKeys } from '@renderer/lib/shortcuts'
 import { useChange } from '@renderer/hooks/change'
 import { api } from '@renderer/lib/api'
 import { kubectl, objectArg } from '@renderer/lib/kubectl'
@@ -83,6 +84,7 @@ function fromEditing(edited: Record<string, unknown>, base: KubeObject): KubeObj
  */
 export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () => void }) {
   const { context } = useCluster()
+  const keys = useKeys()
   const change = useChange()
   const schema = useSchemaSource()
   const { name, namespace } = object.metadata
@@ -171,8 +173,13 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
           </span>
         ) : (
           <span className="flex flex-1 items-center gap-1.5 text-xs text-ink-3">
-            Editing · <Kbd>{MOD_KEY}</Kbd>
-            <Kbd>S</Kbd> to review
+            Editing
+            {keys.caps('object.review') && (
+              <>
+                {' '}
+                · <CommandKeys id="object.review" /> to review
+              </>
+            )}
           </span>
         )}
         {diff ? (
