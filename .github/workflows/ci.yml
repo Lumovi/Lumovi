@@ -328,6 +328,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build with coverage instrumentation
+        env:
+          # The instrumented build is near Node's own heap limit: it ran out of memory on macOS
+          # (whose runners have the least).
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build:coverage
       - name: Run e2e tests
         shell: bash
@@ -733,6 +737,9 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       # (The tests' build: the piece of the page that opens a plugin's box is in no other.)
       - run: npm run build:coverage
+        env:
+          # (Near Node's own heap limit: see the E2E job's.)
+          NODE_OPTIONS: --max-old-space-size=6144
       - name: Run what differs by engine
         env:
           # Here, a browser that isn't installed or doesn't start fails its test.

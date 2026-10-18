@@ -1721,6 +1721,7 @@ export const LUMOVIS_PAGES = [
   'Helm releases',
   'Plugins',
   'Settings',
+  'Search',
 ]
 /**
  * What a plugin may do is Lumovi's to say, in its own places (the bar's More, the palette's

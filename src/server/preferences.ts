@@ -41,6 +41,7 @@ export function lockedSettings(text: string | undefined): LockedSettings | undef
   if (theme !== undefined && !isTheme(theme)) problems.push('theme must be system, light or dark.')
   if ('shell' in preferences)
     problems.push('shell is the desktop app’s: a server starts no shells of its own.')
+  if ('searches' in preferences) problems.push('searches isn’t a setting an organization sets.')
   if (Object.values(preferences).includes(null)) problems.push('A setting can’t be null.')
   if (problems.length) throw new ConfigError(`LUMOVI_SETTINGS: ${problems.join(' ')}`)
   return { ...(preferences as Partial<Preferences>), ...(isTheme(theme) ? { theme } : {}) }

@@ -168,6 +168,7 @@ export function createWebApi(): LumoviApi {
       resources: invoke(IPC.resources),
       schema: invoke(IPC.schema),
       list: invoke(IPC.list),
+      search: invoke(IPC.search),
       get: invoke(IPC.get),
       secretValues: invoke(IPC.secretValues),
       certificates: invoke(IPC.certificates),

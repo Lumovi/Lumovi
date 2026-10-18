@@ -413,6 +413,7 @@ export function handlers({
       [IPC.version]: (context) => kube.version(context),
       [IPC.resources]: (context) => kube.resources(context),
       [IPC.schema]: (context, kind) => kube.schema(context, kind),
+      [IPC.search]: (query) => kube.search(query),
       [IPC.list]: async (query) => {
         const result = await kube.list(query)
         if (result.ok && result.data.certificates) {

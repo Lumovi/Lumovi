@@ -139,6 +139,11 @@ export function buildMenu({
         ),
         { type: 'separator' },
         command('clusters', 'All Clusters', 'CmdOrCtrl+Shift+C'),
+        // Off a Mac, a terminal keeps Ctrl+Shift+F while it has the keyboard: the page decides.
+        {
+          ...command('search', 'Search the Cluster…', 'CmdOrCtrl+Shift+F'),
+          registerAccelerator: process.platform === 'darwin',
+        },
       ],
     },
     { role: 'windowMenu' },

@@ -62,6 +62,8 @@ export type AppCommand =
   | 'create'
   | 'terminal'
   | 'new-terminal'
+  /** Search the cluster (LMV-171). */
+  | 'search'
   | 'close-terminal'
   | 'clear-terminal'
   | 'assistants'

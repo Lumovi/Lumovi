@@ -62,6 +62,7 @@ const api: LumoviApi = {
     resources: (context) => invoke(IPC.resources, context),
     schema: (context, kind) => invoke(IPC.schema, context, kind),
     list: (query) => invoke(IPC.list, query),
+    search: (query) => invoke(IPC.search, query),
     get: (query) => invoke(IPC.get, query),
     secretValues: (query) => invoke(IPC.secretValues, query),
     certificates: (query) => invoke(IPC.certificates, query),

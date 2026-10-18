@@ -59,6 +59,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Build with coverage instrumentation
+        env:
+          # The instrumented build is near Node's own heap limit (as CI's E2E job says).
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build:coverage
       - name: Run them
         shell: bash

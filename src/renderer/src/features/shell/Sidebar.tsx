@@ -15,6 +15,7 @@ import {
   Plug,
   ScrollText,
   Settings,
+  Search,
   ShipWheel,
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
@@ -46,6 +47,7 @@ import { formatDateTime } from '@renderer/lib/format'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { navItem } from './nav-style'
+import { searchPath } from '../search/saved'
 import { PinnedObjects, useUnpinned } from './PinnedObjects'
 import { matchWords } from '@renderer/lib/match'
 import {
@@ -221,6 +223,9 @@ export function Sidebar() {
         <NavItem to={helmPath(context)}>
           <ShipWheel className="size-4 text-ink-3" /> Helm releases
           <GoHint target="helm" />
+        </NavItem>
+        <NavItem to={searchPath(context)}>
+          <Search className="size-4 text-ink-3" /> Search
         </NavItem>
         {/* Workloads and Pods lead to the workload kinds' lists. */}
         {SIDEBAR_CATEGORIES.map((category) => (

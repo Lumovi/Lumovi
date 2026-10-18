@@ -37,17 +37,22 @@ test('the command palette jumps anywhere', async ({ page }) => {
     .click()
   await expect(page.getByRole('button', { name: 'Namespace' })).toHaveText('monitoring')
 
-  // Objects already loaded can be opened straight from the palette.
-  await page.keyboard.press('Meta+k')
-  await input.fill('checkout-')
-  await palette.getByRole('group', { name: 'Objects' }).getByRole('option').first().click()
-  await expect(page.getByRole('complementary', { name: /^Pod checkout-/ })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
-
   await page.keyboard.press('Meta+k')
   await input.fill('all namespaces')
   await palette.getByRole('option', { name: 'All namespaces' }).click()
   await expect(page.getByRole('button', { name: 'Namespace' })).toHaveText('All namespaces')
+
+  // The cluster's objects can be opened straight from the palette.
+  await page.keyboard.press('Meta+k')
+  await input.fill('checkout-')
+  await palette
+    .getByRole('group', { name: 'Objects' })
+    .getByRole('option')
+    .filter({ hasText: 'Pod ·' })
+    .first()
+    .click()
+  await expect(page.getByRole('complementary', { name: /^Pod checkout-/ })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Pods')
 
   await page.keyboard.press('Meta+k')
   await input.fill('nothing-is-called-this')

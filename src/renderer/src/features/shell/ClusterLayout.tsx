@@ -36,6 +36,7 @@ import { CommandPalette } from './CommandPalette'
 import { Commands } from './Commands'
 import { ContextRow, Header, usePage } from './Header'
 import { PinKeys } from './PinnedObjects'
+import { SavedSearchKeys } from '../search/saved'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { Sidebar } from './Sidebar'
 import { UsageSampler } from './UsageSampler'
@@ -197,6 +198,7 @@ export function ClusterLayout() {
       <CommandPalette />
       <Commands />
       <PinKeys />
+      <SavedSearchKeys />
       <ShortcutsDialog />
       <ActionHost />
       {/* Nothing is written on a phone: not from the header, the palette, or its key. */}

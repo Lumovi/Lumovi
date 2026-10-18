@@ -157,6 +157,8 @@ export interface MockCluster {
   expireContinueTokens(times?: number, list?: { kind: string; namespace?: string }): void
   /** Denies access, as RBAC would: reviews say no and matching writes fail with 403. */
   deny(rule: AccessRule): void
+  /** Answers a kind's lists (by its plural) only after `ms`; none, at once again. */
+  slowLists(plural: string, ms?: number): void
   /** Lets a token in as `user`, or (undefined) revokes it. */
   setUser(token: string, user: MockUser | undefined): void
   /** The stored object, as the API server has it now. */
@@ -498,6 +500,8 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   let metricsAvailable = true
   let resourceVersion = 0
   let expireContinue = 0
+  /** Kinds' lists held back, by plural, and for how long. */
+  const slowed = new Map<string, number>()
   let expireList: { kind: string; namespace?: string } | undefined
   const denials: AccessRule[] = []
   let users = new Map<string, MockUser>()
@@ -630,6 +634,14 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
   }
 
   function list(def: Served, namespace: string | undefined, query: URLSearchParams): Json {
+    // A list the account may not read, as RBAC refuses it (`deny({ verb: 'list', … })`).
+    if (denied({ verb: 'list', resource: def.plural, namespace })) {
+      const plural = def.group ? `${def.plural}.${def.group}` : def.plural
+      throw new HttpError(
+        403,
+        `${plural} is forbidden: User "${username()}" cannot list resource "${def.plural}" in API group "${def.group}"${namespace ? ` in the namespace "${namespace}"` : ' at the cluster scope'}`,
+      )
+    }
     const labelSelector = query.get('labelSelector')
     const fieldSelector = query.get('fieldSelector')
     const items: Json[] = []
@@ -1710,9 +1722,26 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         json(result.status, result.body)
         return
       }
-      const { body: response, contentType } = route(url.pathname, url.searchParams, accept)
-      if (typeof response === 'string') send(req, res, 200, response, contentType ?? 'text/plain')
-      else send(req, res, 200, JSON.stringify(response), contentType ?? 'application/json')
+      const answer = () => {
+        try {
+          const { body: response, contentType } = route(url.pathname, url.searchParams, accept)
+          if (typeof response === 'string') {
+            send(req, res, 200, response, contentType ?? 'text/plain')
+          } else send(req, res, 200, JSON.stringify(response), contentType ?? 'application/json')
+        } catch (error) {
+          if (error instanceof HttpError) json(error.status, error.body)
+          else json(500, statusBody(500, 'InternalError', (error as Error).message))
+        }
+      }
+      // A kind's lists held back, as a slow API server's (slowLists).
+      const held = [...slowed].find(
+        ([plural]) => url.pathname.endsWith(`/${plural}`) && !url.searchParams.has('watch'),
+      )
+      if (held) {
+        setTimeout(answer, held[1])
+        return
+      }
+      answer()
     } catch (error) {
       if (error instanceof HttpError) json(error.status, error.body)
       else json(500, statusBody(500, 'InternalError', (error as Error).message))
@@ -1883,6 +1912,10 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
     setMetricsAvailable(available) {
       metricsAvailable = available
     },
+    slowLists(plural, ms) {
+      if (ms === undefined) slowed.delete(plural)
+      else slowed.set(plural, ms)
+    },
     expireContinueTokens(times = 1, list) {
       expireContinue = times
       expireList = list
@@ -1900,6 +1933,7 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
       for (const follower of followers) follower.res.destroy()
       for (const watcher of watchers) watcher.res.destroy()
       appended.clear()
+      slowed.clear()
       controllers.stop()
       streams.closeAll()
       streams.files.reset()
