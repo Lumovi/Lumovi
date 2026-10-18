@@ -67,18 +67,27 @@ export function OverviewPage() {
   const podMetrics = useMetrics('pods', namespaces)
   const usage = useNodeUsage()
   const version = useVersion(context)
-  const server = useContexts().data?.contexts.find((c) => c.name === context)?.server
+  const contexts = useContexts().data?.contexts
+  const server = contexts?.find((c) => c.name === context)?.server
   const go = useGo()
   const queryClient = useQueryClient()
+  // An account that may not list nodes (Kubernetes' own `view` role, say) has the rest of the
+  // page: the parts made of nodes say why they're empty.
+  const nodesCode = (nodes.error as KubeApiError | null)?.code
+  const nodesRefused =
+    !nodes.data && nodes.isError && (nodesCode === 'forbidden' || nodesCode === 'not-allowed')
 
-  if (!nodes.data && nodes.isError) {
+  if (!nodes.data && nodes.isError && !nodesRefused) {
     return (
       <ErrorState
         error={nodes.error as KubeApiError}
         onRetry={() => void nodes.refetch()}
         className="py-24"
       >
-        <Button onClick={() => go('/')}>Choose another cluster</Button>
+        {/* (Where there's another to choose.) */}
+        {(contexts?.length ?? 0) > 1 && (
+          <Button onClick={() => go('/')}>Choose another cluster</Button>
+        )}
       </ErrorState>
     )
   }
@@ -115,7 +124,7 @@ export function OverviewPage() {
       </p>
 
       <div className="grid grid-cols-2 gap-4 @4xl:grid-cols-4">
-        <NodesTile nodes={nodes.data} />
+        <NodesTile nodes={nodes.data} refused={nodesRefused} />
         <PodsTile pods={pods.data} />
         <WorkloadsTile
           workloads={workloads.map((w) => statusOf(w.kind, w.object))}
@@ -127,11 +136,13 @@ export function OverviewPage() {
       <div className="grid animate-rise gap-4 [animation-delay:60ms] @3xl:grid-cols-2">
         <CapacityCard
           resource="cpu"
+          refused={nodesRefused}
           usage={usage}
           reservations={allPods.data && podReservations(allPods.data).cpu}
         />
         <CapacityCard
           resource="memory"
+          refused={nodesRefused}
           usage={usage}
           reservations={allPods.data && podReservations(allPods.data).memory}
         />
@@ -142,7 +153,11 @@ export function OverviewPage() {
           <Body query={pods}>{(data) => <PodHealth pods={data} />}</Body>
         </Card>
         <Card title="Nodes" className="@4xl:col-span-5">
-          <Body query={nodes}>{(data) => <NodeList nodes={data} usage={usage} />}</Body>
+          {nodesRefused ? (
+            <NodesRefused />
+          ) : (
+            <Body query={nodes}>{(data) => <NodeList nodes={data} usage={usage} />}</Body>
+          )}
         </Card>
       </div>
 
@@ -234,7 +249,25 @@ export function Tile({
 
 const UNHEALTHY = 'health=critical,warning'
 
-function NodesTile({ nodes }: { nodes?: KubeObject[] }) {
+/** What a card made of nodes says where the account may not list them. */
+const NODES_REFUSED = 'Your account isn’t allowed to list nodes.'
+
+function NodesRefused() {
+  return <p className="py-8 text-center text-[13px] text-ink-3">{NODES_REFUSED}</p>
+}
+
+function NodesTile({ nodes, refused }: { nodes?: KubeObject[]; refused: boolean }) {
+  if (refused) {
+    return (
+      <Tile
+        icon={KIND_ICONS.Node}
+        label="Nodes ready"
+        value="—"
+        detail="Not allowed to list nodes"
+        to="nodes"
+      />
+    )
+  }
   if (!nodes) return <Tile icon={KIND_ICONS.Node} label="Nodes ready" to="nodes" />
   const notReady = nodes.filter((n) => nodeStatus(n).health === 'critical').length
   return (
@@ -350,10 +383,13 @@ const CAPACITY = {
 
 function CapacityCard({
   resource,
+  refused,
   usage,
   reservations,
 }: {
   resource: 'cpu' | 'memory'
+  /** The account may not list nodes: there's no capacity to measure against. */
+  refused: boolean
   usage?: NodeUsage
   reservations?: Reservations
 }) {
@@ -368,6 +404,13 @@ function CapacityCard({
     { range: '1h' },
   )
   const { title, format } = CAPACITY[resource]
+  if (refused) {
+    return (
+      <Card title={title}>
+        <NodesRefused />
+      </Card>
+    )
+  }
   if (!usage || !reservations) {
     return (
       <Card title={title}>
@@ -394,7 +437,12 @@ function CapacityCard({
         <span className="flex items-center gap-3">
           {!live && (
             <span className="flex items-center gap-1.5 text-xs text-ink-3">
-              <Gauge className="size-3.5" /> Live usage needs metrics-server
+              <Gauge className="size-3.5" />{' '}
+              {usage.unread === 'refused'
+                ? 'Your account isn’t allowed to read live usage'
+                : usage.unread === 'failed'
+                  ? 'Live usage couldn’t be read'
+                  : 'Live usage needs metrics-server'}
             </span>
           )}
           {recorded && (
