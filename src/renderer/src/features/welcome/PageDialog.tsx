@@ -16,6 +16,7 @@ export function PageDialog({
   subtitle,
   top = 'top-[12vh]',
   error,
+  errorAction,
   footer,
   onSubmit,
   onClose,
@@ -28,6 +29,8 @@ export function PageDialog({
   /** Where it sits: lower for short ones, higher for tall ones. */
   top?: string
   error?: string
+  /** Beside the error: what to do about it (a page that says how, say). */
+  errorAction?: ReactNode
   footer: ReactNode
   onSubmit?: () => void
   onClose: () => void
@@ -96,7 +99,10 @@ export function PageDialog({
                   className="flex gap-2.5 rounded-lg border border-critical/25 bg-critical/8 px-3 py-2.5 text-[13px] leading-relaxed text-critical-text"
                 >
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <p className="min-w-0 break-words selectable">{error}</p>
+                  <p className="min-w-0 break-words selectable">
+                    {error}
+                    {errorAction && <> {errorAction}</>}
+                  </p>
                 </div>
               </div>
             )}

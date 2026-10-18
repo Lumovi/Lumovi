@@ -310,6 +310,56 @@ test('a check that fails says why; Cancel while checking adds nothing', async ({
   await expect(clusterOption(page, 'pasted')).toHaveCount(0)
 })
 
+test('a kubeconfig dropped as a file is checked as a pasted one is, said to be from it; one larger than any isn’t read', async ({
+  launch,
+  clusters,
+}) => {
+  const { page } = await launch()
+  await page.getByRole('button', { name: 'Add cluster' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog
+    .getByRole('group', { name: 'From' })
+    .getByRole('button', { name: 'A file', exact: true })
+    .click()
+  const zone = dialog.locator('div.border-dashed')
+  const files = (...dropped: { name: string; text: string }[]) =>
+    page.evaluateHandle((dropped) => {
+      const data = new DataTransfer()
+      for (const { name, text } of dropped) data.items.add(new File([text], name))
+      return data
+    }, dropped)
+  await expect(zone).toHaveText('Drop a kubeconfig here')
+  // Held over it, then taken away.
+  const big = await files({ name: 'big.yaml', text: 'x'.repeat(1_100_000) })
+  await zone.dispatchEvent('dragover', { dataTransfer: big })
+  await expect(zone).toHaveText('Drop it to add it')
+  await zone.dispatchEvent('dragleave')
+  await expect(zone).toHaveText('Drop a kubeconfig here')
+  // Dropped: one larger than any kubeconfig isn't read, and a drop of no file is nothing.
+  await zone.dispatchEvent('dragover', { dataTransfer: big })
+  await zone.dispatchEvent('drop', { dataTransfer: big })
+  await expect(dialog).toContainText('It’s larger than any kubeconfig (over 1 MB).')
+  await expect(zone).toHaveText('Drop a kubeconfig here')
+  await zone.dispatchEvent('drop', { dataTransfer: await files() })
+  await expect(zone).toHaveText('Drop a kubeconfig here')
+  // A kubeconfig: ready, by its file's name, and checked as from it.
+  const text = config(clusters.demo.url, clusters.demo.caPem, { token: 'not-a-token' }, ['dropped'])
+  await zone.dispatchEvent('drop', { dataTransfer: await files({ name: 'dev.yaml', text }) })
+  await expect(zone).toHaveText('Ready to checkdev.yaml')
+  await expect(dialog).not.toContainText('larger than any')
+  await dialog.getByRole('button', { name: 'Check it' }).click()
+  await expect(dialog).toContainText('From a file · 1 context, dropped')
+  await expect(dialog).toContainText('The credentials didn’t work')
+  await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible()
+  // Edited: back to its file, ready as it was.
+  await dialog.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'A file', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(zone).toHaveText('Ready to checkdev.yaml')
+})
+
 test('editing an added cluster: the one opened is the one checked, its secrets stay, ⌘N leaves it be, and its server moved is asked about', async ({
   launch,
   clusters,

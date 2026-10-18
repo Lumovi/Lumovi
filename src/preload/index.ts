@@ -116,6 +116,8 @@ const api: LumoviApi = {
       invoke(IPC.addedCheck, text, context, agreed, editing),
     add: (text, options) => invoke(IPC.addedAdd, text, options),
     read: (path) => invoke(IPC.addedRead, path),
+    awsProfiles: () => invoke(IPC.addedAwsProfiles),
+    awsFind: (asks) => invoke(IPC.addedAwsFind, asks),
     edit: (path, text, agreed) => invoke(IPC.addedEdit, path, text, agreed),
     remove: (path) => invoke(IPC.addedRemove, path),
     forKubectl: (path) => invoke(IPC.addedForKubectl, path),

@@ -34,6 +34,7 @@ import { checkedDecision } from '@backend/mcp/approvals'
 import type { SponsorSource } from '@backend/sponsor/source'
 import type { Assistants } from './assistants'
 import type { AddedClusters } from './added-clusters'
+import type { AwsClusters } from './aws-clusters'
 import type { DesktopFiles } from './file-copies'
 import type { KubeconfigFiles } from './kubeconfig-files'
 import { availableShells, LocalTerminals } from './local-terminal'
@@ -55,6 +56,8 @@ interface Dependencies extends Backend {
   kubeconfigFiles: KubeconfigFiles
   /** Clusters added in Lumovi, each a kubeconfig of its own. */
   addedClusters: AddedClusters
+  /** EKS clusters found with the person's own `aws` CLI, as they ask. */
+  awsClusters: AwsClusters
   settings: SettingsStore
   local: LocalTerminals
   terminalKeys: TerminalKeys
@@ -113,6 +116,7 @@ export function registerIpc(deps: Dependencies): void {
     assistants,
     kubeconfigFiles,
     addedClusters,
+    awsClusters,
     helm,
     settings,
     terminals,
@@ -342,6 +346,25 @@ export function registerIpc(deps: Dependencies): void {
     [IPC.addedRead]: (path) => {
       assertString(path, 'path')
       return addedClusters.read(path)
+    },
+    [IPC.addedAwsProfiles]: () => awsClusters.profiles(),
+    [IPC.addedAwsFind]: (asks) => {
+      // A few profiles and regions at a time, each named as text.
+      if (
+        !Array.isArray(asks) ||
+        asks.length > 20 ||
+        !asks.every(
+          (ask) =>
+            typeof ask === 'object' &&
+            ask !== null &&
+            typeof (ask as { profile?: unknown }).profile === 'string' &&
+            isStrings((ask as { regions?: unknown }).regions) &&
+            (ask as { regions: string[] }).regions.length <= 20,
+        )
+      ) {
+        throw invalid('asks must be profiles, each with its regions')
+      }
+      return awsClusters.find(asks as { profile: string; regions: string[] }[])
     },
     [IPC.addedEdit]: (path, text, agreed) => {
       assertString(path, 'path')
