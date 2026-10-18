@@ -393,6 +393,26 @@ test('the server says what’s wrong with its configuration, and stops', async (
       'LUMOVI_OIDC_FORWARD_TOKEN must be id, access or unset (impersonate), not "both".',
     ],
     [
+      {
+        LUMOVI_AUTH: 'oidc',
+        LUMOVI_OIDC_ISSUER: 'https://login.microsoftonline.com/tenant/v2.0',
+        LUMOVI_URL: 'https://lumovi.example.com',
+        LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+        LUMOVI_OIDC_GRAPH_URL: 'graph.microsoft.us',
+      },
+      'LUMOVI_OIDC_GRAPH_URL must be an http or https URL.',
+    ],
+    [
+      {
+        LUMOVI_AUTH: 'oidc',
+        LUMOVI_OIDC_ISSUER: 'https://login.microsoftonline.us/tenant/v2.0',
+        LUMOVI_URL: 'https://lumovi.example.com',
+        LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+        LUMOVI_OIDC_GRAPH_URL: 'http://graph.microsoft.us',
+      },
+      'LUMOVI_OIDC_GRAPH_URL must be https (plain http only to this machine).',
+    ],
+    [
       { LUMOVI_AUTH: 'proxy', LUMOVI_PROXY_SIGN_OUT_URL: 'javascript:alert(1)' },
       'LUMOVI_PROXY_SIGN_OUT_URL must be an http or https URL.',
     ],

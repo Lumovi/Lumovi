@@ -4,8 +4,10 @@
  * says no), the token endpoint (authorization code with PKCE), and its keys.
  * Tests change what it does next: who signs in, a tampered ID token, an
  * endpoint that fails, keys that rotate. It also renews tokens (refresh
- * tokens), and tells the tests each token it issues, for a mock cluster
- * that trusts it to accept.
+ * tokens), with the person as it says they are now (their groups changed, or
+ * disabled), and tells the tests each token it issues, for a mock cluster
+ * that trusts it to accept. And it's Microsoft Graph, at /graph, for the
+ * groups of someone in too many for their ID token.
  */
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto'
 import http from 'node:http'
@@ -24,7 +26,12 @@ export interface MockOidcOptions {
   accessTokens?: 'jwt' | 'opaque'
   /** Refresh tokens: a new one each time (the default), the same one again, or none at all. */
   refreshTokens?: 'rotate' | 'keep' | 'none'
+  /** Whom its access tokens are for: the cluster's (the default), or Microsoft Graph's. */
+  accessAudience?: 'kubernetes' | 'graph'
 }
+
+/** Microsoft Graph's application id: the audience of its access tokens. */
+export const GRAPH = '00000003-0000-0000-c000-000000000000'
 
 /** A change to the next ID token. */
 export interface Tamper {
@@ -48,12 +55,24 @@ export interface MockOidc {
   /** Says no, once: access_denied, or what it's given. */
   refuse: boolean | string
   tamper?: Tamper
+  /** A change to the next renewal's answer: what's sent instead of its ID, access or refresh token. */
+  renewalTamper?: { idToken?: unknown; accessToken?: unknown; refreshToken?: unknown }
+  /** Waited for before each renewal is answered (what's done meanwhile, say). */
+  beforeRenewal?: () => Promise<void> | void
   /** Endpoints that answer 500 until removed. */
-  failing: Set<'discovery' | 'jwks' | 'token'>
+  failing: Set<'discovery' | 'jwks' | 'token' | 'graph'>
+  /** Those (by sub) it won't renew a sign-in of any more: disabled, or removed. */
+  disabled: Set<string>
   /** Signs with a new key from now on, and publishes only that one. */
   rotateKeys(): void
   /** What the token endpoint was sent. */
   tokenRequests: { authorization?: string; body: URLSearchParams }[]
+  /** The group ids Graph says whoever asks is in; and what it was asked, with which token. */
+  graphGroups: string[]
+  graphRequests: { token: string; body: unknown }[]
+  /** Every refresh token it handed out, and those let go of at its revocation endpoint. */
+  refreshTokensIssued: string[]
+  revoked: string[]
   /** Called with each ID and access token it issues, which one it is, and the person's claims. */
   issued?: (token: string, kind: 'id' | 'access', claims: Record<string, unknown>) => void
   close(): Promise<void>
@@ -83,6 +102,8 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
   const codes = new Map<string, { challenge: string; nonce: string; redirectUri: string }>()
   /** Refresh tokens handed out, and whose they are. */
   const refreshTokens = new Map<string, Record<string, unknown>>()
+  /** Access tokens for Microsoft Graph, which Graph takes. */
+  const graphTokens = new Set<string>()
 
   /** A signed token for `person`, for `audience`. */
   const jwt = (
@@ -111,12 +132,16 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
     return `${signed}.${signature.toString('base64url')}`
   }
 
-  /** What the token endpoint answers: an ID token, an access token, and maybe a refresh token. */
+  /**
+   * What the token endpoint answers: an ID token, an access token (for `audience`), and maybe a
+   * refresh token.
+   */
   const issue = (
     person: Record<string, unknown>,
     extra: Record<string, unknown>,
     withRefreshToken: boolean,
     tamper: Tamper = {},
+    audience = options.accessAudience ?? 'kubernetes',
   ) => {
     const idToken =
       'idToken' in tamper ? tamper.idToken : jwt(person, options.clientId, extra, tamper)
@@ -125,7 +150,15 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
         ? tamper.accessToken
         : options.accessTokens === 'opaque'
           ? randomBytes(16).toString('hex')
-          : jwt(person, 'kubernetes', {}, { claims: tamper.accessClaims })
+          : jwt(
+              person,
+              audience === 'graph' ? GRAPH : audience,
+              {},
+              {
+                claims: tamper.accessClaims,
+              },
+            )
+    if (audience === 'graph' && typeof accessToken === 'string') graphTokens.add(accessToken)
     for (const [token, kind] of [
       [idToken, 'id'],
       [accessToken, 'access'],
@@ -133,7 +166,10 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
       if (typeof token === 'string') provider.issued?.(token, kind, person)
     }
     const refreshToken = withRefreshToken ? randomBytes(16).toString('hex') : undefined
-    if (refreshToken) refreshTokens.set(refreshToken, person)
+    if (refreshToken) {
+      refreshTokens.set(refreshToken, person)
+      provider.refreshTokensIssued.push(refreshToken)
+    }
     return {
       token_type: 'Bearer',
       expires_in: options.lifetime ?? 300,
@@ -152,7 +188,7 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
         .writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' })
         .end(JSON.stringify(body))
     }
-    const failing = (what: 'discovery' | 'jwks' | 'token') => {
+    const failing = (what: 'discovery' | 'jwks' | 'token' | 'graph') => {
       if (!provider.failing.has(what)) return false
       json(500, { error: 'server_error' })
       return true
@@ -164,6 +200,7 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
         authorization_endpoint: `${provider.issuer}/authorize`,
         token_endpoint: `${provider.issuer}/token`,
         jwks_uri: `${provider.issuer}/keys`,
+        revocation_endpoint: `${provider.issuer}/revoke`,
         ...(options.authMethods
           ? { token_endpoint_auth_methods_supported: options.authMethods }
           : {}),
@@ -190,6 +227,18 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
         back.searchParams.set('code', code)
       }
       res.writeHead(302, { Location: back.href }).end()
+    } else if (url.pathname === '/revoke' && req.method === 'POST') {
+      // RFC 7009: the token stops working; the answer is the same whatever it was.
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        const token = new URLSearchParams(Buffer.concat(chunks).toString('utf8')).get('token')
+        if (token) {
+          provider.revoked.push(token)
+          refreshTokens.delete(token)
+        }
+        res.writeHead(200, { Connection: 'close' }).end()
+      })
     } else if (url.pathname === '/token' && req.method === 'POST') {
       const chunks: Buffer[] = []
       req.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -202,17 +251,32 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
           options.clientSecret === undefined ||
           req.headers.authorization === basic ||
           body.get('client_secret') === options.clientSecret
-        // A refresh token: the same person, signed in still (no nonce: that was the sign-in's).
+        // A refresh token: the same person, signed in still (no nonce: that was the sign-in's), as
+        // the provider says they are now; unless they're disabled.
         if (body.get('grant_type') === 'refresh_token') {
-          const person = refreshTokens.get(body.get('refresh_token') ?? '')
-          if (!person || !authenticated) {
+          const signedIn = refreshTokens.get(body.get('refresh_token') ?? '')
+          if (!signedIn || !authenticated || provider.disabled.has(String(signedIn.sub))) {
             json(400, { error: 'invalid_grant' })
             return
           }
+          const person = provider.person.sub === signedIn.sub ? provider.person : signedIn
           // Rotating: a new one each time, and the old one stops working.
           const rotate = (options.refreshTokens ?? 'rotate') === 'rotate'
           if (rotate) refreshTokens.delete(body.get('refresh_token')!)
-          json(200, issue(person, {}, rotate))
+          // Asked for Microsoft Graph's User.Read: a token for Graph.
+          const forGraph = /\/User\.Read$/.test(body.get('scope') ?? '')
+          const issued = issue(person, {}, rotate, {}, forGraph ? 'graph' : undefined)
+          // Answered once the test lets it be, as the test has it be.
+          void Promise.resolve(provider.beforeRenewal?.()).then(() => {
+            const tamper = provider.renewalTamper
+            provider.renewalTamper = undefined
+            json(200, {
+              ...issued,
+              ...(tamper && 'idToken' in tamper ? { id_token: tamper.idToken } : {}),
+              ...(tamper && 'accessToken' in tamper ? { access_token: tamper.accessToken } : {}),
+              ...(tamper && 'refreshToken' in tamper ? { refresh_token: tamper.refreshToken } : {}),
+            })
+          })
           return
         }
         const grant = codes.get(body.get('code') ?? '')
@@ -236,6 +300,26 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
           issue(provider.person, { nonce: grant.nonce }, options.refreshTokens !== 'none', tamper),
         )
       })
+    } else if (url.pathname === '/graph/v1.0/me/getMemberObjects' && req.method === 'POST') {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        const token = (req.headers.authorization ?? '').replace(/^Bearer /, '')
+        let body: unknown
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        } catch {
+          body = undefined
+        }
+        provider.graphRequests.push({ token, body })
+        if (failing('graph')) return
+        // Only a token for Graph (Graph's own answer to one for anything else).
+        if (!graphTokens.has(token)) {
+          json(401, { error: { code: 'InvalidAuthenticationToken', message: 'Invalid audience.' } })
+          return
+        }
+        json(200, { value: provider.graphGroups })
+      })
     } else {
       json(404, { error: 'not_found' })
     }
@@ -248,7 +332,12 @@ export async function startMockOidc(options: MockOidcOptions): Promise<MockOidc>
     person: {},
     refuse: false,
     failing: new Set(),
+    disabled: new Set(),
     tokenRequests: [],
+    graphGroups: [],
+    graphRequests: [],
+    refreshTokensIssued: [],
+    revoked: [],
     rotateKeys() {
       key = newKey(algorithm)
     },

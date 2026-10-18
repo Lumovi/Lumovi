@@ -67,6 +67,8 @@ export const AUDIT_ACTIONS = {
   'session.sign-in': 'sign-in',
   'session.sign-out': 'sign-in',
   'session.expired': 'sign-in',
+  // Someone's groups, changed as the provider renewed their sign-in.
+  'session.groups': 'sign-in',
   // AI assistants: allowed to act as someone, what they asked, what they read.
   'assistant.allowed': 'assistant',
   'assistant.denied': 'assistant',

@@ -36,6 +36,7 @@ import {
   TriangleAlert,
   Unplug,
   Upload,
+  Users,
   Wrench,
   type LucideIcon,
 } from 'lucide-react'
@@ -247,6 +248,7 @@ export const ACTIONS: Record<AuditAction, { label: string; icon: LucideIcon }> =
   'session.sign-in': { label: 'Signed in', icon: LogIn },
   'session.sign-out': { label: 'Signed out', icon: LogOut },
   'session.expired': { label: 'Session ended', icon: TimerOff },
+  'session.groups': { label: 'Groups changed', icon: Users },
   'assistant.allowed': { label: 'Allowed an AI assistant', icon: ShieldCheck },
   'assistant.denied': { label: 'Didn’t allow an AI assistant', icon: ShieldX },
   'assistant.ended': { label: 'An AI assistant was let go', icon: Unplug },

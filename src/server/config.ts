@@ -38,6 +38,12 @@ export type AuthConfig =
        * trusts the provider itself; unset, the server impersonates them.
        */
       forwardToken?: 'id' | 'access'
+      /**
+       * Where someone's groups are read when there are too many for their ID token (Microsoft
+       * Entra ID's overage): Microsoft Graph, for Entra ID's own issuer or where it's set; else
+       * none, and they have no groups.
+       */
+      graphUrl?: string
     }
   | {
       mode: 'proxy'
@@ -225,6 +231,26 @@ export type RulesKeeping = SettingsKeeping
 export class ConfigError extends Error {}
 
 const AUTH_MODES: readonly AuthMode[] = ['token', 'oidc', 'proxy']
+
+/**
+ * Microsoft Entra ID's global issuers, whose people's groups are read from Microsoft Graph when
+ * there are too many for their ID token. (A national cloud's Graph is set: LUMOVI_OIDC_GRAPH_URL.)
+ */
+const ENTRA_ISSUERS = new Set(['login.microsoftonline.com', 'sts.windows.net'])
+
+/**
+ * Where people's groups are read with their own tokens: over https, or plain http only to this
+ * machine (a stand-in Graph's, say).
+ */
+function graphUrl(setting: URL): string {
+  if (
+    setting.protocol !== 'https:' &&
+    !/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(setting.hostname)
+  ) {
+    throw new ConfigError('LUMOVI_OIDC_GRAPH_URL must be https (plain http only to this machine).')
+  }
+  return setting.href.replace(/\/+$/, '')
+}
 /** `monitoring/prometheus-operated:9090`, or with a path: `vm/vmselect:8481/select/0/prometheus`. */
 const METRICS_SERVICE = /^([^/:]+)\/([^/:]+):([^/]+)(\/.*)?$/
 
@@ -283,7 +309,8 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
   let auth: AuthConfig = { mode: 'token' }
   if (mode === 'oidc') {
     const issuer = required('LUMOVI_OIDC_ISSUER', 'for single sign-on')
-    url('LUMOVI_OIDC_ISSUER', issuer)
+    const issuerUrl = url('LUMOVI_OIDC_ISSUER', issuer)
+    const graph = value('LUMOVI_OIDC_GRAPH_URL')
     if (!publicUrl) {
       throw new ConfigError(
         'LUMOVI_URL must be set for single sign-on: the provider sends people back there.',
@@ -299,6 +326,11 @@ export function readConfig(env: NodeJS.ProcessEnv, rendererDir: string): ServerC
       groupsClaim: value('LUMOVI_OIDC_GROUPS_CLAIM') ?? 'groups',
       provider: value('LUMOVI_OIDC_PROVIDER_NAME') ?? 'single sign-on',
       forwardToken: forwardToken(value('LUMOVI_OIDC_FORWARD_TOKEN')),
+      ...(graph
+        ? { graphUrl: graphUrl(url('LUMOVI_OIDC_GRAPH_URL', graph)) }
+        : ENTRA_ISSUERS.has(issuerUrl.hostname)
+          ? { graphUrl: 'https://graph.microsoft.com' }
+          : {}),
     }
   } else if (mode === 'proxy') {
     const signOut = value('LUMOVI_PROXY_SIGN_OUT_URL')

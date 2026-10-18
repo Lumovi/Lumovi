@@ -25,13 +25,16 @@ const ALICE = {
   groups: ['developers', 'on-call', 'system:masters'],
 }
 
-/** A provider, and a server that signs people in with it. */
+type Env = Record<string, string | undefined>
+
+/** A provider, and a server that signs people in with it (`env`: what else it's set, maybe by the provider). */
 async function withProvider(
   serve: (options?: ServeOptions) => Promise<Served>,
   options: Partial<MockOidcOptions> = {},
-  env: Record<string, string | undefined> = {},
+  settings: Env | ((oidc: MockOidc) => Env) = {},
 ): Promise<{ oidc: MockOidc; served: Served }> {
   const oidc = await startMockOidc({ clientId: 'lumovi', clientSecret: 's3cret', ...options })
+  const env = typeof settings === 'function' ? settings(oidc) : settings
   oidc.person = ALICE
   const port = await freePort()
   const served = await serve({
@@ -97,6 +100,8 @@ test('sign in with single sign-on, as whoever the provider says', async ({
 
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(notice(page, 'You’ve signed out.')).toBeVisible()
+  // What renewed her sign-in is let go of at the provider too.
+  await expect.poll(() => oidc.revoked).toEqual([oidc.refreshTokensIssued.at(-1)])
   // Signing in again is one click while the provider still knows Alice.
   await page.getByRole('button', { name: 'Sign in with Dex' }).click()
   await expect(page.getByRole('button', { name: 'Signed in as alice@example.com' })).toBeVisible()
@@ -153,6 +158,14 @@ test('signing in that doesn’t work says so, and the server’s log says why', 
     [{ claims: { aud: ['someone-else'] } }, 'The ID token is for another client'],
     [{ claims: { exp: now - 3600 } }, 'The ID token has expired'],
     [{ claims: { exp: 'later' } }, 'The ID token has expired'],
+    [
+      { claims: { iat: now + 3600 } },
+      'The ID token doesn’t say when it was issued, or says it’s from the future',
+    ],
+    [
+      { claims: { iat: undefined } },
+      'The ID token doesn’t say when it was issued, or says it’s from the future',
+    ],
     [{ claims: { nonce: 'replayed' } }, 'The ID token is from another sign-in'],
     [{ claims: { email: '' } }, 'The ID token has no email claim to name the user by'],
   ]
@@ -415,11 +428,11 @@ test('with a cluster that trusts the provider: people’s own tokens, renewed be
     .poll(() => clusters.demo.requests.findLast((r) => r.path === '/api/v1/pods'))
     .toMatchObject({ user: 'oidc:alice@example.com' })
 
-  // The provider stops renewing it: the session ends.
-  oidc.failing.add('token')
+  // The provider won't renew it any more (she was disabled): the session ends at once.
+  oidc.disabled.add(ALICE.sub)
   await expect(notice(page, 'Your session ended. Sign in again')).toBeVisible({ timeout: 15_000 })
-  expect(served.log()).toContain('Renewing alice@example.com’s token failed')
-  oidc.failing.delete('token')
+  expect(served.log()).toContain('Renewing alice@example.com’s sign-in was refused')
+  oidc.disabled.delete(ALICE.sub)
 
   // Signed out, nothing's renewed any more.
   await page.getByRole('button', { name: 'Sign in with single sign-on' }).click()
@@ -475,6 +488,378 @@ test('access tokens, refresh tokens that don’t change, and tokens a cluster co
     expect(served.log()).toContain(reason)
   }
   await oidc.close()
+})
+
+/** The groups the latest read of the nodes was made as (none: no header). */
+const nodesAs = (cluster: MockCluster) =>
+  cluster.requests.findLast((r) => r.path === '/api/v1/nodes')?.headers['impersonate-group']
+
+const renewalsOf = (oidc: MockOidc) =>
+  oidc.tokenRequests.filter(
+    (r) => r.body.get('grant_type') === 'refresh_token' && !r.body.has('scope'),
+  ).length
+
+test('without a token passed on, groups follow the provider at each renewal, and one it refuses signs them out at once', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // Lumovi impersonates her, and keeps her refresh token all the same. ID tokens that last a
+  // minute and two seconds: renewed a minute early, so every two seconds.
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const { oidc, served } = await withProvider(
+    serve,
+    { lifetime: 62 },
+    { LUMOVI_OIDC_SCOPES: 'openid email offline_access', LUMOVI_DATA_DIR: dir },
+  )
+  const tokens: string[] = []
+  oidc.issued = (token) => tokens.push(token)
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBe('developers, on-call')
+  await expect.poll(() => renewalsOf(oidc), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
+
+  // Taken out of on-call, put in platform: the next renewal says so, and what's asked from then
+  // on is asked as that.
+  oidc.person = { ...ALICE, groups: ['developers', 'platform', 'system:masters'] }
+  await expect
+    .poll(() => served.log(), { timeout: 15_000 })
+    .toContain(
+      'alice@example.com’s groups changed as the provider renewed their sign-in: +platform, −on-call',
+    )
+  // (Recorded as it's logged, a line later: the last line of the log may be being written.)
+  await expect
+    .poll(() => audited(served, 'session.groups'))
+    .toEqual([
+      expect.objectContaining({
+        outcome: 'success',
+        actor: expect.objectContaining({
+          user: 'alice@example.com',
+          groups: ['developers', 'platform', 'system:masters'],
+        }),
+        details: { added: ['platform'], removed: ['on-call'] },
+      }),
+    ])
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBe('developers, platform')
+  await page.getByRole('button', { name: 'Signed in as alice@example.com' }).click()
+  const groups = page.getByRole('dialog', { name: 'Account' }).getByRole('list', { name: 'Groups' })
+  await expect(groups).toContainText('platform')
+  await expect(groups).not.toContainText('on-call')
+  await page.keyboard.press('Escape')
+  // What the server keeps (her session among it) holds none of her tokens as they are, nor what
+  // renews them.
+  const kept = readFileSync(join(dir, 'state.json'), 'utf8')
+  expect(Object.keys((JSON.parse(kept) as { entries: object }).entries)).not.toHaveLength(0)
+  for (const token of [...tokens, ...oidc.refreshTokensIssued]) expect(kept).not.toContain(token)
+
+  // Disabled at the provider: it won't renew her sign-in, and the session ends then, not hours on.
+  oidc.disabled.add(ALICE.sub)
+  await expect(notice(page, 'Your session ended. Sign in again')).toBeVisible({ timeout: 15_000 })
+  expect(served.log()).toContain('Renewing alice@example.com’s sign-in was refused')
+  // Said by its status and error code: nothing else of the provider's answer.
+  await expect
+    .poll(() => audited(served, 'session.expired').at(-1)?.details?.why)
+    .toMatch(/^The provider wouldn’t renew its sign-in: \S+ answered 400: invalid_grant$/)
+  await oidc.close()
+})
+
+test('a provider that can’t be reached as a sign-in is renewed is asked again, and the session ends as what it last said expires', async ({
+  page,
+  serve,
+}) => {
+  // ID tokens that last eight seconds: under a minute, so renewed each second.
+  const { oidc, served } = await withProvider(
+    serve,
+    { lifetime: 8 },
+    { LUMOVI_OIDC_SCOPES: 'openid email offline_access' },
+  )
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => renewalsOf(oidc)).toBeGreaterThanOrEqual(1)
+
+  // Down for a moment: asked again, and carried on.
+  oidc.failing.add('token')
+  await expect
+    .poll(() => served.log())
+    .toContain('Renewing alice@example.com’s sign-in failed, so it’s tried again until it expires')
+  oidc.failing.delete('token')
+  await expect.poll(() => served.log()).toContain('Renewed alice@example.com’s sign-in again')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+
+  // Down for good: her groups hold only as long as her last ID token, eight seconds at most.
+  oidc.failing.add('token')
+  await expect(notice(page, 'Your session ended. Sign in again')).toBeVisible({ timeout: 15_000 })
+  expect(served.log()).toContain(
+    'alice@example.com’s sign-in expired, and the provider still couldn’t be reached to renew it',
+  )
+  await expect
+    .poll(() => audited(served, 'session.expired').at(-1)?.details?.why)
+    .toMatch(
+      /^The provider couldn’t be reached to renew its sign-in before it expired: .* answered 500/,
+    )
+  oidc.failing.delete('token')
+  await oidc.close()
+})
+
+test('a renewal with no access token isn’t one: it signs them out', async ({ page, serve }) => {
+  const { oidc, served } = await withProvider(
+    serve,
+    { lifetime: 62 },
+    { LUMOVI_OIDC_SCOPES: 'openid email offline_access' },
+  )
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  // (An answer of 200 all the same, as a provider that's gone wrong might give.)
+  oidc.renewalTamper = { accessToken: undefined, idToken: undefined }
+  await expect(notice(page, 'Your session ended. Sign in again')).toBeVisible({ timeout: 15_000 })
+  await expect
+    .poll(() => audited(served, 'session.expired').at(-1)?.details?.why)
+    .toBe('The provider wouldn’t renew its sign-in: The provider’s renewal has no access token')
+  await oidc.close()
+})
+
+test('a renewal with no ID token renews no groups: they hold until the last ID token ends, and then so does the session', async ({
+  page,
+  serve,
+}) => {
+  // ID tokens that last eight seconds, renewed each second.
+  const { oidc, served } = await withProvider(
+    serve,
+    { lifetime: 8 },
+    { LUMOVI_OIDC_SCOPES: 'openid email offline_access' },
+  )
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  // Renewed, as some providers renew: an access token and no ID token.
+  oidc.renewalTamper = { idToken: undefined }
+  await expect
+    .poll(() => served.log())
+    .toContain('alice@example.com’s provider renewed their sign-in without an ID token')
+  const renewed = renewalsOf(oidc)
+  // Not ended then: when the last ID token does, eight seconds at most.
+  await expect(notice(page, 'Your session ended. Sign in again')).toBeVisible({ timeout: 15_000 })
+  await expect
+    .poll(() => audited(served, 'session.expired').at(-1)?.details?.why)
+    .toBe(
+      'Its provider renews it without an ID token, so its groups couldn’t be renewed past the last one.',
+    )
+  // Said once, and not renewed again only to be told the same.
+  expect(served.log().split('without an ID token: their groups hold').length).toBe(2)
+  expect(renewalsOf(oidc)).toBe(renewed)
+  await oidc.close()
+})
+
+test('a renewal that answers after they signed out doesn’t bring the session back, and what it gave is let go of', async ({
+  page,
+  serve,
+}) => {
+  const { oidc, served } = await withProvider(
+    serve,
+    { lifetime: 62 },
+    { LUMOVI_OIDC_SCOPES: 'openid email offline_access' },
+  )
+  // The next renewal waits for the test.
+  let answer = () => {}
+  oidc.beforeRenewal = () => new Promise<void>((resolve) => (answer = resolve))
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => renewalsOf(oidc), { timeout: 15_000 }).toBe(1)
+  // Signed out while it's on its way: the one refresh token it had is let go of.
+  await page.getByRole('button', { name: 'Signed in as alice@example.com' }).click()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(notice(page, 'You’ve signed out.')).toBeVisible()
+  await expect.poll(() => oidc.revoked).toHaveLength(1)
+  // It answers now, with a new refresh token: that's let go of too, and she's signed out still.
+  oidc.beforeRenewal = undefined
+  answer()
+  await expect
+    .poll(() => oidc.revoked)
+    .toEqual([oidc.refreshTokensIssued.at(-2), oidc.refreshTokensIssued.at(-1)])
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Sign in to Lumovi' })).toBeVisible()
+  await holds(() => renewalsOf(oidc) === 1, 3_000, 'nothing renewed after')
+  expect(served.log()).not.toContain('groups changed')
+  await oidc.close()
+})
+
+test('back after a restart past what the provider last said: no groups until it says again', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lumovi-data-'))
+  const env = {
+    LUMOVI_OIDC_SCOPES: 'openid email offline_access',
+    LUMOVI_DATA_DIR: dir,
+  }
+  // ID tokens that last eight seconds, renewed each second (with a refresh token that doesn't
+  // change, so a stop in the middle of a renewal spends none: LMV-255's, not this test's).
+  const { oidc, served } = await withProvider(serve, { lifetime: 8, refreshTokens: 'keep' }, env)
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBe('developers, on-call')
+  await served.stop()
+  // Stopped past her last ID token's end; taken out of on-call meanwhile.
+  await new Promise((resolve) => setTimeout(resolve, 9_000))
+  oidc.person = { ...ALICE, groups: ['developers'] }
+  let answer = () => {}
+  oidc.beforeRenewal = () => new Promise<void>((resolve) => (answer = resolve))
+  const again = await serve({
+    port: served.port,
+    env: {
+      LUMOVI_AUTH: 'oidc',
+      LUMOVI_URL: `http://127.0.0.1:${served.port}`,
+      LUMOVI_OIDC_ISSUER: `${oidc.issuer}/`,
+      LUMOVI_OIDC_CLIENT_ID: 'lumovi',
+      LUMOVI_OIDC_CLIENT_SECRET: 's3cret',
+      ...env,
+    },
+  })
+  // Back, while the provider's answer waits: asked as her, with no groups at all.
+  const before = clusters.demo.requests.length
+  await page.goto(`${again.url}cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect
+    .poll(() => clusters.demo.requests.slice(before).findLast((r) => r.path === '/api/v1/nodes'))
+    .toMatchObject({ user: 'alice@example.com' })
+  expect(nodesAs(clusters.demo)).toBeUndefined()
+  // It answers: her groups as they are now.
+  oidc.beforeRenewal = undefined
+  answer()
+  await expect.poll(() => again.log()).toContain('alice@example.com’s groups changed')
+  await page.reload()
+  await expect.poll(() => nodesAs(clusters.demo)).toBe('developers')
+  await again.stop()
+  await oidc.close()
+})
+
+/** Bob's groups, by id, as Microsoft Graph has them. */
+const BOB_GROUPS = ['5e7b0f0a-0000-4000-8000-000000000001', '5e7b0f0a-0000-4000-8000-000000000002']
+
+/**
+ * Bob is in too many groups for his ID token: it says where they are instead, as Microsoft Entra
+ * ID's does (somewhere Lumovi never goes).
+ */
+const BOB = {
+  sub: 'u-2',
+  email: 'bob@example.com',
+  _claim_names: { groups: 'src1' },
+  _claim_sources: {
+    src1: { endpoint: 'http://127.0.0.1:9/tenant/users/u-2/getMemberObjects' },
+  },
+}
+
+test('someone in too many groups for their ID token: read from Microsoft Graph as them, at sign-in and each renewal; none when it can’t be', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  const { oidc, served } = await withProvider(
+    serve,
+    // The sign-in's access token is Graph's.
+    { lifetime: 62, accessAudience: 'graph' },
+    (oidc) => ({
+      LUMOVI_OIDC_SCOPES: 'openid email offline_access User.Read',
+      LUMOVI_OIDC_GRAPH_URL: `${oidc.issuer}/graph`,
+    }),
+  )
+  oidc.person = BOB
+  oidc.graphGroups = BOB_GROUPS
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBe(BOB_GROUPS.join(', '))
+  // Asked with his own token, for the security groups he's in; no other token asked for.
+  expect(oidc.graphRequests[0]).toEqual({
+    token: expect.any(String),
+    body: { securityEnabledOnly: true },
+  })
+  expect(oidc.tokenRequests.some((r) => r.body.has('scope'))).toBe(false)
+
+  // Each renewal reads them again: one taken away.
+  oidc.graphGroups = [BOB_GROUPS[0]!]
+  await expect
+    .poll(() => served.log(), { timeout: 15_000 })
+    .toContain(
+      `bob@example.com’s groups changed as the provider renewed their sign-in: −${BOB_GROUPS[1]}`,
+    )
+
+  // Graph can't be read: no groups at all, not the last ones; and he's told.
+  oidc.failing.add('graph')
+  await expect
+    .poll(() => served.log(), { timeout: 15_000 })
+    .toContain(
+      'bob@example.com has no groups: Lumovi couldn’t read their groups from Microsoft Graph: Microsoft Graph answered 500',
+    )
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBeUndefined()
+  await page.getByRole('button', { name: 'Signed in as bob@example.com' }).click()
+  const account = page.getByRole('dialog', { name: 'Account' })
+  await expect(account).toContainText(
+    'Lumovi couldn’t read your groups, so you’re signed in without them and may be able to do less than usual. If this stays, ask whoever runs Lumovi: its server’s log says why.',
+  )
+  await expect(account.getByRole('list', { name: 'Groups' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Read again: his group back, and nothing said.
+  oidc.failing.delete('graph')
+  await expect
+    .poll(() => served.log(), { timeout: 15_000 })
+    .toContain(
+      `bob@example.com’s groups changed as the provider renewed their sign-in: +${BOB_GROUPS[0]}`,
+    )
+  await page.reload()
+  await page.getByRole('button', { name: 'Signed in as bob@example.com' }).click()
+  await expect(account.getByRole('list', { name: 'Groups' })).toBeVisible()
+  await expect(account).not.toContainText('couldn’t read your groups')
+  await oidc.close()
+})
+
+test('someone in too many groups, where the sign-in’s token is the cluster’s: one for Graph from their refresh token; and a provider not Microsoft’s gets none', async ({
+  page,
+  serve,
+  clusters,
+}) => {
+  // Access tokens for the cluster; refresh tokens that change with every use.
+  const { oidc, served } = await withProvider(serve, { lifetime: 62 }, (oidc) => ({
+    LUMOVI_OIDC_SCOPES: 'openid email offline_access User.Read',
+    LUMOVI_OIDC_GRAPH_URL: `${oidc.issuer}/graph`,
+  }))
+  oidc.person = BOB
+  oidc.graphGroups = BOB_GROUPS
+  await page.goto(`${served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBe(BOB_GROUPS.join(', '))
+  // Graph wouldn't take the cluster's token; one for Graph's User.Read was asked for, and taken.
+  const [own, graphs] = oidc.graphRequests
+  expect(own!.token).not.toBe(graphs!.token)
+  const forGraph = oidc.tokenRequests.filter((r) => r.body.has('scope'))
+  expect(forGraph.length).toBeGreaterThanOrEqual(1)
+  for (const asked of forGraph) {
+    expect(asked.body.get('scope')).toBe(`${new URL(oidc.issuer).origin}/User.Read`)
+  }
+  // Its refresh token took the place of the one it used (no longer taken): renewed with it since.
+  await expect.poll(() => renewalsOf(oidc), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
+  expect(served.log()).not.toContain('was refused')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await oidc.close()
+
+  // A provider not Microsoft's, and no Graph set: his groups aren't looked for anywhere.
+  const other = await withProvider(serve)
+  other.oidc.person = BOB
+  await page.goto(`${other.served.url}auth/sign-in?then=/cluster/demo/nodes`)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Nodes')
+  await expect.poll(() => nodesAs(clusters.demo)).toBeUndefined()
+  const why =
+    'The provider put their groups outside the ID token, and Lumovi reads them only from Microsoft Graph, for Microsoft Entra ID (LUMOVI_OIDC_GRAPH_URL).'
+  expect(other.served.log()).toContain(`bob@example.com has no groups: ${why}`)
+  await expect
+    .poll(() => audited(other.served, 'session.sign-in').at(-1)?.details)
+    .toMatchObject({ groupsUnread: why })
+  expect(other.oidc.graphRequests).toHaveLength(0)
+  await other.oidc.close()
 })
 
 test('the server won’t act as Kubernetes’ own users, nor put anyone in their groups', async ({

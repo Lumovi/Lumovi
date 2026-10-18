@@ -114,6 +114,10 @@ spec:
             - name: LUMOVI_OIDC_FORWARD_TOKEN
               value: {{ . | quote }}
             {{- end }}
+            {{- with .graphUrl }}
+            - name: LUMOVI_OIDC_GRAPH_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- if eq .Values.auth.mode "proxy" }}

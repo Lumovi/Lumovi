@@ -23,6 +23,8 @@ export interface StoredSession {
    * said): noted once, as it signed in, and never changed. Without it, an old browser's.
    */
   saysWhereFrom?: true
+  /** Whether its person's groups couldn't be read (single sign-on): they have none. */
+  groupsUnread?: true
 }
 
 /** What a session passes on to the cluster, and with single sign-on, what renews it. */
@@ -31,6 +33,11 @@ export interface Credentials {
   /** When the token expires (ms since the epoch). */
   tokenExpires?: number
   refreshToken?: string
+  /** When what the provider last said of its person (their groups) expires: renewed before then. */
+  idExpires?: number
+  /** What each renewal must say still: whom it's about, and the sign-in's nonce. */
+  subject?: string
+  nonce?: string
 }
 
 /** A session as it's kept. */
@@ -38,6 +45,7 @@ interface KeptSession {
   user: SessionUser
   expires: number
   saysWhereFrom?: true
+  groupsUnread?: true
   /** Its credentials, sealed with its cookie's key. */
   sealed?: string
 }
@@ -76,6 +84,7 @@ export class Sessions {
         identity: { user: kept.user },
         expires: kept.expires,
         ...(kept.saysWhereFrom === true ? { saysWhereFrom: true } : {}),
+        ...(kept.groupsUnread === true ? { groupsUnread: true } : {}),
         timer: this.#expiring(id, kept.expires),
         ...(kept.sealed ? { sealed: kept.sealed } : {}),
       })
@@ -84,12 +93,14 @@ export class Sessions {
 
   /**
    * A new session: its cookie, for its browser, and what the server knows it by. `saysWhereFrom`:
-   * whether its sign-in's request said where it came from.
+   * whether its sign-in's request said where it came from; `groupsUnread`, whether its person's
+   * groups couldn't be read.
    */
   create(
     identity: Identity,
     credentials?: Credentials,
     saysWhereFrom = false,
+    groupsUnread = false,
   ): { cookie: string; session: StoredSession } {
     const cookie = randomBytes(32).toString('base64url')
     const id = sessionId(cookie)
@@ -99,6 +110,7 @@ export class Sessions {
       identity: { user: identity.user, ...(identity.token ? { token: identity.token } : {}) },
       expires,
       ...(saysWhereFrom ? { saysWhereFrom: true } : {}),
+      ...(groupsUnread ? { groupsUnread: true } : {}),
       timer: this.#expiring(id, expires),
       key: keyOf(cookie),
     }
@@ -133,6 +145,7 @@ export class Sessions {
       identity: live.identity,
       expires: live.expires,
       ...(live.saysWhereFrom ? { saysWhereFrom: true } : {}),
+      ...(live.groupsUnread ? { groupsUnread: true } : {}),
       resumed: true,
     }
   }
@@ -160,12 +173,35 @@ export class Sessions {
     return this.#sessions.get(id)?.credentials
   }
 
-  /** Its token renewed (single sign-on): passed on from now, and kept. */
-  renewed(id: string, credentials: Credentials): void {
+  /**
+   * Its token renewed (single sign-on): passed on from now, and kept; and its person as the
+   * provider says they are now (their groups), when it said.
+   */
+  renewed(
+    id: string,
+    credentials: Credentials,
+    said?: { user: SessionUser; groupsUnread: boolean },
+  ): void {
     const live = this.#sessions.get(id)
     if (!live) return
     if (credentials.token) live.identity.token = credentials.token
+    if (said) {
+      live.identity.user = said.user
+      if (said.groupsUnread) live.groupsUnread = true
+      else delete live.groupsUnread
+    }
     this.#keep(live, { ...live.credentials, ...credentials })
+  }
+
+  /**
+   * What the provider last said of its person has expired, and nothing newer has come (single
+   * sign-on): they have no groups until it says again. Not kept: a renewal says who they are.
+   */
+  stale(id: string): void {
+    const live = this.#sessions.get(id)
+    if (live && live.identity.user.groups.length > 0) {
+      live.identity.user = { ...live.identity.user, groups: [] }
+    }
   }
 
   /** Once what changed (a sign-out, say) is kept: throws if it can't be. */
@@ -197,6 +233,7 @@ export class Sessions {
       user: live.identity.user,
       expires: live.expires,
       ...(live.saysWhereFrom ? { saysWhereFrom: true } : {}),
+      ...(live.groupsUnread ? { groupsUnread: true } : {}),
       ...(has && live.key ? { sealed: seal(JSON.stringify(credentials), live.key, live.id) } : {}),
     }
     this.state?.set('sessions', live.id, kept)
@@ -212,7 +249,8 @@ const isKept = (value: unknown): value is KeptSession => {
     typeof kept.user?.name === 'string' &&
     Array.isArray(kept.user.groups) &&
     (kept.sealed === undefined || typeof kept.sealed === 'string') &&
-    (kept.saysWhereFrom === undefined || kept.saysWhereFrom === true)
+    (kept.saysWhereFrom === undefined || kept.saysWhereFrom === true) &&
+    (kept.groupsUnread === undefined || kept.groupsUnread === true)
   )
 }
 
