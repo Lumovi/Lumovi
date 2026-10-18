@@ -4,11 +4,13 @@
  */
 import { resourceByKind, type BuiltinKind } from './resources'
 
-export type NavTarget = 'overview' | 'workloads' | 'metrics' | 'alerts' | 'helm' | BuiltinKind
+export type NavTarget =
+  'overview' | 'workloads' | 'map' | 'metrics' | 'alerts' | 'helm' | BuiltinKind
 
 const PAGE_LABELS: Record<string, string> = {
   overview: 'Overview',
   workloads: 'Workloads',
+  map: 'Map',
   metrics: 'Metrics',
   alerts: 'Alerts',
   helm: 'Helm releases',
@@ -23,6 +25,8 @@ export function navLabel(target: NavTarget): string {
 export const GO_KEYS: { key: string; target: NavTarget }[] = [
   { key: 'o', target: 'overview' },
   { key: 'w', target: 'workloads' },
+  // (P is Pods and M Namespaces: Y was free.)
+  { key: 'y', target: 'map' },
   { key: 'u', target: 'metrics' },
   { key: 'h', target: 'helm' },
   { key: 'n', target: 'Node' },

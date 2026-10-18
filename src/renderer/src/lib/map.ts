@@ -207,8 +207,8 @@ function ownerOf(object: KubeObject) {
   return owners.find((o) => o.controller) ?? owners[0]
 }
 
-const HTTP_ROUTE = 'HTTPRoute.gateway.networking.k8s.io'
-const GATEWAY = 'Gateway.gateway.networking.k8s.io'
+export const HTTP_ROUTE = 'HTTPRoute.gateway.networking.k8s.io'
+export const GATEWAY = 'Gateway.gateway.networking.k8s.io'
 const PDB = 'PodDisruptionBudget.policy'
 
 /** The kinds the map lists to find relations: a namespace's, and the cluster's. */
@@ -259,12 +259,15 @@ export function buildMap({
 }: {
   pool: KubeObject[]
   listed: ReadonlyMap<ResourceKind, string | null>
-  focus: KubeObject
+  /** None for the whole of `pool`: every node and relation, as the Map page draws them. */
+  focus?: KubeObject
   expanded: ReadonlySet<string>
   related: KubeObject[]
 }): MapGraph {
   const byId = new Map<string, KubeObject>()
-  for (const object of [...pool, ...related, focus]) byId.set(objectId(object), object)
+  for (const object of [...pool, ...related, ...(focus ? [focus] : [])]) {
+    byId.set(objectId(object), object)
+  }
   const nodes = new Map<string, MapNode>()
   const node = (kind: ResourceKind, name: string, namespace?: string): MapNode => {
     const id = idOf(kind, name, namespace)
@@ -433,14 +436,14 @@ export function buildMap({
         break
     }
   }
-  const focusNode = of(focus)
-  for (const object of related) edge(focusNode, of(object), 'related')
+  const focusNode = focus ? of(focus) : undefined
+  if (focusNode) for (const object of related) edge(focusNode, of(object), 'related')
 
   // ReplicaSets of a Deployment are its revisions: their pods hang off the Deployment.
   const passThrough = new Map<string, string>()
   for (const n of nodes.values()) {
     const owner = n.object && n.kind === 'ReplicaSet' && ownerOf(n.object)
-    if (owner && owner.kind === 'Deployment' && n.id !== focusNode.id) {
+    if (owner && owner.kind === 'Deployment' && n.id !== focusNode?.id) {
       passThrough.set(n.id, idOf('Deployment', owner.name, n.namespace))
     }
   }
@@ -449,7 +452,7 @@ export function buildMap({
   for (const pod of pods) {
     const owner = ownerOf(pod)
     const id = objectId(pod)
-    if (!owner || id === focusNode.id) continue
+    if (!owner || id === focusNode?.id) continue
     const key = idOf(kindFor(owner.apiVersion, owner.kind), owner.name, pod.metadata.namespace)
     const groupId = `pods:${key}`
     if (expanded.has(groupId)) {
@@ -487,6 +490,15 @@ export function buildMap({
     add(passThrough.get(from) ?? from, to, e.relation)
   }
   const all = [...merged.values()]
+  // The whole of it: every node, but a Deployment's ReplicaSets (its pods hang off it).
+  if (!focusNode) {
+    return {
+      // (A grouped pod is its group's: drawn once, as the group.)
+      nodes: new Map([...nodes].filter(([id]) => !passThrough.has(id) && !groupOf.has(id))),
+      edges: all,
+      focus: '',
+    }
+  }
 
   // The neighbourhood: what the focus leads to, and what leads to it.
   const outgoing = new Map<string, MapEdge[]>()

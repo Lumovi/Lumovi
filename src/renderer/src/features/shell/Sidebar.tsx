@@ -17,6 +17,7 @@ import {
   Settings,
   Search,
   ShipWheel,
+  Network,
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
@@ -61,6 +62,7 @@ import {
   alertsPath,
   metricsPath,
   workloadsPath,
+  mapPath,
 } from '@renderer/lib/routes'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -211,6 +213,10 @@ export function Sidebar() {
         <NavItem to={workloadsPath(context)} also={WORKLOAD_PAGES}>
           <Boxes className="size-4 text-ink-3" /> Workloads
           <GoHint target="workloads" />
+        </NavItem>
+        <NavItem to={mapPath(context)}>
+          <Network className="size-4 text-ink-3" /> Map
+          <GoHint target="map" />
         </NavItem>
         <NavItem to={kindPath(context, 'Pod')}>
           <KIND_ICONS.Pod className="size-4 text-ink-3" /> Pods
