@@ -1,7 +1,8 @@
 /**
  * A red main is a warning on every pull request, not a stop. A pull request's "CI passed" asks,
  * as it finishes, how CI's newest finished runs on main ended: a merge's, and the nightly run's
- * (for now, macOS's full suite runs only there, so a red nightly is a red main too). While
+ * (the only run of main's with every test on every system, the browser's and linux-only.txt's
+ * on macOS and Windows: so a red nightly is a red main too). While
  * either failed it says so as a warning: main's commit, the jobs that failed there, and where to
  * read them. It passes all the same; a pull request fails only for its own jobs.
  *

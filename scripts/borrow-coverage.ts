@@ -1,9 +1,10 @@
 /**
  * What macOS alone reaches, for a run where macOS ran only its smoke set (scripts/ci-changes.ts:
- * for now, every pull request and every merge of main, unless asked otherwise). Such a run
+ * a pull request that changes nothing of macOS's own, unless its label asks). Such a run
  * reaches less than one where everything runs, though the change lost nothing: what only macOS
  * reaches. So the coverage job (CI's "Coverage (all platforms)") borrows exactly that from the
- * newest green run of CI on main whose macOS ran in full (its nightly run, or one by hand): each
+ * newest green run of CI on main whose macOS ran in full (a merge's, the nightly one, or one by
+ * hand): each
  * statement, function and branch that its macOS shards reached and its Linux and Windows shards
  * did not. Everything else is measured by this run's own systems, so a test taken away or
  * weakened here shows here, as lost coverage, unless what it reached was reached on macOS alone
@@ -13,13 +14,13 @@
  * CI's "What changed" says `windows=none`, in WINDOWS). There, what main's macOS and Windows
  * reached and its Linux didn't is borrowed alike, and this run's Linux is judged for the rest:
  * from main's newest green run whose macOS ran in full where one is kept, else from its newest
- * merge's (whose macOS ran its smoke set), so that a Linux-only pull request has something to
- * borrow every day, not only after a full macOS run (pick).
+ * merge's, so that a Linux-only pull request has something to borrow (pick).
  *
  * Coverage of a file that differs from main's is left out: its lines aren't main's, and this
  * run's own systems speak for it. What this still can't see: something only macOS reaches (or,
  * where Linux alone ran, only macOS or Windows), in a file the change didn't touch, that the
- * change stops being reached. Main's nightly run shows that, and a red one is a red main. If
+ * change stops being reached. Main's own run of the merge shows that (and for what macOS and
+ * Windows run only nightly, the nightly run), and a red one is a red main. If
  * main has nothing to borrow (no full run kept, a run with a shard's coverage missing), it says
  * so, and what ran is judged as it is.
  *

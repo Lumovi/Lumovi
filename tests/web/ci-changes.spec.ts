@@ -1,7 +1,8 @@
 /**
  * What CI runs (scripts/ci-changes.ts): nothing but the checks for a pull request of docs; and on
- * macOS, for now, its smoke set for every pull request and every merge, whatever it changes,
- * with its full suite nightly, by hand, for a release's pull request, or where a label asks. Each
+ * macOS its desktop tests in full for main's merges, nightly, by hand, for a release's pull
+ * request, a label's ask, or a pull request that changes what macOS does differently, and its
+ * smoke set for any other pull request. Each
  * case with the files as a pull request would change them (a file moved is both where it was and
  * where it is).
  */
@@ -63,7 +64,7 @@ test('docs only: Markdown, and images that aren’t the app’s', () => {
 
 test('not docs: a file moved into docs/, code there, the tests’ Markdown, the app’s images', () => {
   // git mv src/main/menu.ts docs/menu.md, as --no-renames lists it.
-  expect(pr(['src/main/menu.ts', 'docs/menu.md'])).toMatchObject({ docs: false, macos: false })
+  expect(pr(['src/main/menu.ts', 'docs/menu.md'])).toMatchObject({ docs: false, macos: true })
   expect(pr(['electron-builder.yml', 'docs/electron-builder.yml']).docs).toBe(false)
   expect(pr(['docs/x.ts']).docs).toBe(false)
   expect(pr(['tests/e2e/README.md']).docs).toBe(false)
@@ -71,22 +72,43 @@ test('not docs: a file moved into docs/, code there, the tests’ Markdown, the 
   expect(pr(['build/icon.png']).docs).toBe(false)
 })
 
-test('a pull request that changes a system’s own runs macOS’s smoke set, Windows and Linux in full', () => {
-  // The app's own process, Electron, packaging, the lockfile, CI itself, the harness: each was a
-  // reason for macOS's full suite once, and is one for every system still.
+test('a pull request that changes what macOS does differently runs macOS in full, and Windows and Linux', () => {
+  // The app's own process, Electron, packaging, the lockfile, CI itself, the harness.
   for (const changed of [
     ['src/main/menu.ts'],
+    ['src/preload/index.ts'],
+    ['src/backend/kube/kubeconfig.ts'],
     ['electron-builder.yml', 'package-lock.json'],
-    ['.github/workflows/ci.yml', 'scripts/ci-changes.ts'],
-    ['tests/e2e/fixtures.ts', 'tests/e2e/smoke.txt'],
+    ['.github/workflows/ci.yml'],
+    ['scripts/ci-changes.ts'],
+    ['tests/e2e/fixtures.ts'],
+    ['tests/e2e/smoke.txt'],
+    ['playwright.config.ts'],
   ]) {
     const result = pr(changed)
-    expect(result, changed.join(' ')).toMatchObject({ docs: false, macos: false, platforms: true })
-    expect(macos(result)).toEqual(['smoke'])
-    // Linux runs the browser's tests too, and the desktop tests alike everywhere: over fourteen.
+    expect(result, changed.join(' ')).toMatchObject({ docs: false, macos: true, platforms: true })
+    expect(macos(result)).toEqual(FULL)
+    // Linux runs the browser's tests too, and the desktop tests alike everywhere: over sixteen.
     expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
     expect(shards(result, 'windows-latest')).toEqual(FULL)
-    expect(result.said).toContain('macOS runs its smoke set (its full suite runs nightly')
+    expect(result.said).toContain(
+      'The desktop app’s tests in full on macOS: it changes what macOS does differently.',
+    )
+    // macOS, like Windows, leaves the desktop tests alike on every system to Linux.
+    expect(only(result)['macos-latest']).toBe('system')
+  }
+  // So does a file whose text asks which system it's on.
+  const keys = 'src/renderer/src/features/terminal/keys.ts'
+  expect(macos(plan({ event: 'pull_request', changed: [keys], namesASystem: [keys] }))).toEqual(
+    FULL,
+  )
+  // A change that runs every system but isn't macOS's own: its smoke set.
+  for (const changed of [['src/backend/audit/log.ts'], ['tests/e2e/action-helpers.ts']]) {
+    const result = pr(changed)
+    expect(result, changed.join(' ')).toMatchObject({ macos: false, platforms: true })
+    expect(macos(result)).toEqual(['smoke'])
+    expect(shards(result, 'windows-latest')).toEqual(FULL)
+    expect(result.said).toContain('macOS runs its smoke set: nothing it changes is macOS’s own')
   }
 })
 
@@ -98,8 +120,9 @@ test('the label macos-full runs everything on macOS, whatever changed', () => {
   expect(asked.macos).toBe(true)
   expect(macos(asked)).toEqual(FULL)
   expect(asked.said).toContain('as its label asks')
-  // A label is a pull request's: a merge's run has none to ask with.
-  expect(macos(plan({ event: 'push', changed: [path], labels: ['macos-full'] }))).toEqual(['smoke'])
+  // And on a pull request that runs every system without changing macOS's own.
+  expect(macos(pr(['src/backend/audit/log.ts']))).toEqual(['smoke'])
+  expect(macos(pr(['src/backend/audit/log.ts'], 'lmv-1-x', ['macos-full']))).toEqual(FULL)
 })
 
 test('a pull request whose changes are alike on every system runs Linux alone, in full', () => {
@@ -248,20 +271,20 @@ test('the integration tests run for anything they see: a pull request of the oth
   expect(pr(['tests/e2e/lists.spec.ts'], 'release-1.23.0').integration).toBe(true)
 })
 
-test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its tests run even for docs', () => {
+test('main’s merge runs every system’s desktop tests in full, macOS’s too; its tests run even for docs', () => {
   for (const changed of [['src/main/menu.ts'], ['README.md']]) {
     const result = plan({ event: 'push', changed })
-    expect(result).toMatchObject({ docs: false, macos: false })
-    expect(macos(result)).toEqual(['smoke'])
-    // (Linux's shards, Windows' four and macOS's smoke set.)
-    expect(result.e2e).toHaveLength(LINUX.length + 4 + 1)
+    expect(result).toMatchObject({ docs: false, macos: true })
+    expect(macos(result)).toEqual(FULL)
+    // (Linux's shards, and Windows' and macOS's four each.)
+    expect(result.e2e).toHaveLength(LINUX.length + 4 + 4)
     // Every merge runs Windows and macOS, whatever it changed.
     expect(result.platforms).toBe(true)
     expect(shards(result, 'windows-latest')).toEqual(FULL)
     expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
     expect(result.said).toContain('Main’s merge')
-    // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows leaves
-    // to Linux the desktop tests alike on every system (macOS runs its smoke set by name).
+    // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows and
+    // macOS leave to Linux the desktop tests alike on every system (the nightly run has them).
     expect(projects(result)).toEqual({
       'ubuntu-latest': 'desktop web',
       'macos-latest': 'desktop',
@@ -269,7 +292,7 @@ test('main’s merge runs Linux and Windows in full and macOS’s smoke set; its
     })
     expect(only(result)).toEqual({
       'ubuntu-latest': '',
-      'macos-latest': '',
+      'macos-latest': 'system',
       'windows-latest': 'system',
     })
   }
@@ -374,17 +397,6 @@ test('a shard of a system’s tests is of the projects CI names: the browser’s
   ]) {
     expect(alike, kept).not.toContain(`tests/e2e/${kept}.spec.ts`)
   }
-})
-
-test('a nightly run on a head that’s run macOS in full already runs nothing more', () => {
-  const again = plan({ event: 'schedule', changed: [], ranAlready: true })
-  expect(again).toMatchObject({ docs: true, macos: false })
-  expect(again.said).toBe(
-    'Main’s nightly run: its head has run macOS in full already, so nothing more runs.',
-  )
-  // Only a nightly run is spared so: anything else runs as it would.
-  expect(plan({ event: 'push', changed: ['src/main/menu.ts'], ranAlready: true }).docs).toBe(false)
-  expect(plan({ event: 'workflow_dispatch', changed: [], ranAlready: true }).macos).toBe(true)
 })
 
 test('the full macOS run borrowed from is one that kept every shard’s coverage, not the smoke set’s', () => {
