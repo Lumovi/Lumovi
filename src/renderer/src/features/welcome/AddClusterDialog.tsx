@@ -14,6 +14,7 @@ import {
   CircleDashed,
   CircleX,
   ClipboardPaste,
+  Cloud,
   FileUp,
   LoaderCircle,
   Pencil,
@@ -23,7 +24,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import type { ClusterCheck, PastedKubeconfig } from '@shared/api'
+import type { AwsCluster, ClusterCheck, PastedKubeconfig } from '@shared/api'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { CopyButton } from '@renderer/components/CopyButton'
@@ -35,6 +36,7 @@ import { hostOf } from '@renderer/lib/format'
 import { clusterPath } from '@renderer/lib/routes'
 import { toast } from '@renderer/state/toasts'
 import { Combo, Swatches } from './ClusterSettingsDialog'
+import { FromAws, NO_AWS, type AwsState } from './FromAws'
 import { DialogIcon, PageDialog } from './PageDialog'
 
 /** How Lumovi names the clusters and users in its own files. */
@@ -42,12 +44,16 @@ const OWN_NAME = /^lumovi-[0-9a-f]{12}$/
 
 /** The largest kubeconfig read (as the main process reads it). */
 const MAX_TEXT = 1024 * 1024
+/** Where the docs say what From AWS needs (the AWS CLI v2, a profile). */
+const AWS_SETUP = 'https://docs.lumovi.dev/clusters/connect#from-aws'
 
 /** How long a credentials step shows its spinner, at least, and between one step and the next. */
 const CREDENTIALS_SHOWN_MS = 300
 const STEP_MS = 80
 
 type Stage = 'input' | 'checking' | 'agree' | 'failed' | 'done'
+/** Where the kubeconfig comes from: pasted, a file, or found with `aws`. */
+type Mode = 'paste' | 'file' | 'aws'
 
 /** A context's check, as shown: the server's first, then (a moment later) the credentials'. */
 interface Checked {
@@ -57,6 +63,8 @@ interface Checked {
 
 /** What a run of the check came to, kept for what follows it. */
 interface Run {
+  /** The kubeconfig checked, as it was then. */
+  text: string
   inspected: PastedKubeconfig
   agreed: string[]
 }
@@ -89,8 +97,15 @@ export function AddClusterDialog({
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
-  const [mode, setMode] = useState<'paste' | 'file'>('paste')
+  const [mode, setMode] = useState<Mode>('paste')
+  // What From AWS found: there again once one of its clusters is added.
+  const [aws, setAws] = useState<AwsState>(NO_AWS)
   const [text, setText] = useState('')
+  // Found with aws (From AWS): the kubeconfig it gave, and its group on the clusters page.
+  // Lumovi's word on it holds only while the text is that kubeconfig: edited, or pasted over,
+  // it's the person's own.
+  const [foundWithAws, setFoundWithAws] = useState<{ group: string; text: string }>()
+  const awsGroup = foundWithAws && foundWithAws.text === text ? foundWithAws.group : undefined
   const [from, setFrom] = useState<string>()
   const [stage, setStage] = useState<Stage>('input')
   const [inspected, setInspected] = useState<PastedKubeconfig>()
@@ -139,8 +154,8 @@ export function AddClusterDialog({
   const keep = async (run: Run, runId: number) => {
     setError(undefined)
     const result = editing
-      ? await api.addedClusters!.edit(editing.path, text, run.agreed)
-      : await api.addedClusters!.add(text, {
+      ? await api.addedClusters!.edit(editing.path, run.text, run.agreed)
+      : await api.addedClusters!.add(run.text, {
           names: Object.fromEntries(
             Object.entries(namesNow.current).filter(([name]) =>
               run.inspected.conflicts.includes(name),
@@ -170,14 +185,14 @@ export function AddClusterDialog({
     })
   }, [added])
 
-  const run = async (agreedNow: string[]) => {
+  const run = async (agreedNow: string[], textNow = text) => {
     const runId = ++runs.current
     setStage('checking')
     setError(undefined)
     setChecks({})
     setReadError(undefined)
     setInspected(undefined)
-    const read = await api.addedClusters!.inspect(text, editing?.path)
+    const read = await api.addedClusters!.inspect(textNow, editing?.path)
     if (!current(runId)) return
     if (!read.ok) {
       setReadError(read.error.message)
@@ -192,13 +207,18 @@ export function AddClusterDialog({
     )
     setNames(renamed)
     namesNow.current = renamed
-    const thisRun: Run = { inspected: found, agreed: agreedNow }
+    const thisRun: Run = { text: textNow, inspected: found, agreed: agreedNow }
 
     // Each context, one after another: its server, then a moment later its credentials.
     const results: ClusterCheck[] = []
     for (const context of found.contexts) {
       setChecking(context.name)
-      const checked = await api.addedClusters!.check(text, context.name, agreedNow, editing?.path)
+      const checked = await api.addedClusters!.check(
+        textNow,
+        context.name,
+        agreedNow,
+        editing?.path,
+      )
       if (!current(runId)) return
       if (!checked.ok) {
         setChecking(undefined)
@@ -259,7 +279,7 @@ export function AddClusterDialog({
     if (keepAnyway) {
       const runId = ++runs.current
       setStage('checking')
-      void keep({ inspected, agreed: now }, runId)
+      void keep({ text, inspected, agreed: now }, runId)
     } else void run(now)
   }
 
@@ -271,7 +291,7 @@ export function AddClusterDialog({
     else {
       const runId = ++runs.current
       setStage('checking')
-      void keep({ inspected, agreed }, runId)
+      void keep({ text, inspected, agreed }, runId)
     }
   }
 
@@ -280,7 +300,23 @@ export function AddClusterDialog({
     runs.current++
     setAnyway(false)
     setStage('input')
-    setMode(from ? 'file' : 'paste')
+    setMode(awsGroup ? 'aws' : from ? 'file' : 'paste')
+  }
+
+  // Added from what aws found: that list again, the one added marked so, to add another.
+  const backToFound = () => {
+    runs.current++
+    setAnyway(false)
+    setAdded(undefined)
+    setInspected(undefined)
+    setChecks({})
+    setNames({})
+    setText('')
+    setFrom(undefined)
+    setFoundWithAws(undefined)
+    setError(undefined)
+    setStage('input')
+    setMode('aws')
   }
 
   const serverFailed = Object.values(checks).some(({ result }) => !result.server.ok)
@@ -307,9 +343,11 @@ export function AddClusterDialog({
           <>
             <span className="ml-auto" />
             {cancel}
-            <Button type="submit" variant="primary" disabled={!text.trim()}>
-              Check it
-            </Button>
+            {mode !== 'aws' && (
+              <Button type="submit" variant="primary" disabled={!text.trim()}>
+                Check it
+              </Button>
+            )}
           </>
         )
       case 'checking':
@@ -375,11 +413,16 @@ export function AddClusterDialog({
         context={added.context}
         line={added.line}
         groups={groups}
+        group={awsGroup}
         checks={checks}
         inspected={inspected}
         names={names}
         editing={!!editing}
-        onDone={(openIt) => onDone(added.context, openIt)}
+        onDone={(openIt) => {
+          // One of those found with aws, closed: back to what was found, to add another.
+          if (!openIt && awsGroup && !editing) backToFound()
+          else onDone(added.context, openIt)
+        }}
       />
     )
   }
@@ -390,6 +433,17 @@ export function AddClusterDialog({
       title={editing ? 'Edit connection' : 'Add a cluster'}
       subtitle="Lumovi keeps it in its own folder. Your kubeconfig stays as it is."
       error={error}
+      errorAction={
+        error?.startsWith('Lumovi needs the aws command') && (
+          <button
+            type="button"
+            className="font-medium underline"
+            onClick={() => void api.app.openExternal(AWS_SETUP)}
+          >
+            How to set it up
+          </button>
+        )
+      }
       onSubmit={() => {
         if (stage === 'agree' && addsAtOnce) {
           setAnyway(true)
@@ -416,10 +470,18 @@ export function AddClusterDialog({
           }}
           from={from}
           onError={setError}
+          aws={aws}
+          onAwsState={(change) => setAws(change)}
+          onAws={(cluster) => {
+            setText(cluster.kubeconfig!)
+            setFrom(cluster.group)
+            setFoundWithAws({ group: cluster.group, text: cluster.kubeconfig! })
+            void run(agreed, cluster.kubeconfig!)
+          }}
         />
       ) : (
         <>
-          <Pasted from={from} inspected={inspected} onEdit={backToInput} />
+          <Pasted from={from} aws={awsGroup} inspected={inspected} onEdit={backToInput} />
           <Steps
             stage={stage}
             inspected={inspected}
@@ -430,7 +492,12 @@ export function AddClusterDialog({
             onName={(name, value) => setNames((now) => ({ ...now, [name]: value }))}
           />
           {stage === 'agree' && inspected && pending && (
-            <Agreement inspected={inspected} kind={pending.kind} addsAtOnce={addsAtOnce} />
+            <Agreement
+              inspected={inspected}
+              kind={pending.kind}
+              addsAtOnce={addsAtOnce}
+              fromAws={!!awsGroup}
+            />
           )}
         </>
       )}
@@ -446,13 +513,21 @@ function Input({
   onText,
   from,
   onError,
+  aws,
+  onAwsState,
+  onAws,
 }: {
-  mode: 'paste' | 'file'
-  onMode: (mode: 'paste' | 'file') => void
+  mode: Mode
+  onMode: (mode: Mode) => void
   text: string
   onText: (text: string, from?: string) => void
   from?: string
   onError: (error?: string) => void
+  /** What From AWS found, and its changes. */
+  aws: AwsState
+  onAwsState: (change: (state: AwsState) => AwsState) => void
+  /** A cluster found with `aws`, to add. */
+  onAws: (cluster: AwsCluster) => void
 }) {
   const [over, setOver] = useState(false)
   const drop = async (event: DragEvent) => {
@@ -480,6 +555,7 @@ function Input({
           [
             ['paste', 'Paste', ClipboardPaste],
             ['file', 'A file', FileUp],
+            ['aws', 'From AWS', Cloud],
           ] as const
         ).map(([value, label, Icon]) => (
           <button
@@ -498,7 +574,9 @@ function Input({
           </button>
         ))}
       </div>
-      {mode === 'paste' ? (
+      {mode === 'aws' ? (
+        <FromAws state={aws} onState={onAwsState} onAdd={onAws} onError={onError} />
+      ) : mode === 'paste' ? (
         <>
           <div className="h-[300px] overflow-hidden rounded-lg border border-line-strong bg-surface focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft [&_.cm-editor]:h-full">
             <CodeEditor
@@ -559,23 +637,28 @@ function Input({
 /** What's being checked: pasted, or from a file, and what's in it. */
 function Pasted({
   from,
+  aws,
   inspected,
   onEdit,
 }: {
   from?: string
+  /** Found with `aws`: its account's line ("AWS · prod (123456789012) · eu-west-1"). */
+  aws?: string
   inspected?: PastedKubeconfig
   onEdit: () => void
 }) {
   const contexts = inspected?.contexts ?? []
   return (
     <div className="mb-4 flex items-center gap-2.5 rounded-lg bg-surface-3 px-3 py-2 text-xs text-ink-2">
-      {from ? (
+      {aws ? (
+        <Cloud className="size-3.5 shrink-0" />
+      ) : from ? (
         <FileUp className="size-3.5 shrink-0" />
       ) : (
         <ClipboardPaste className="size-3.5 shrink-0" />
       )}
       <span className="min-w-0 truncate">
-        {from ? 'From a file' : 'Pasted'}
+        {aws ?? (from ? 'From a file' : 'Pasted')}
         {contexts.length > 0 && (
           <>
             {' '}
@@ -887,11 +970,14 @@ export function Agreement({
   inspected,
   kind,
   addsAtOnce,
+  fromAws,
 }: {
   inspected: PastedKubeconfig
   kind: 'servers' | 'rest'
   /** Allowing it adds it, at once: there's nothing Lumovi can check. */
   addsAtOnce: boolean
+  /** Lumovi wrote it, from what AWS said (From AWS). */
+  fromAws?: boolean
 }) {
   if (kind === 'servers') {
     // Plain HTTP isn't encrypted at all; the others only skip the certificate check.
@@ -949,7 +1035,7 @@ export function Agreement({
       icon={TriangleAlert}
       title={`Signing in ${doing.slice(0, -1).join(', ')}${doing.length > 1 ? ', and ' : ''}${doing.at(-1)}`}
     >
-      {runs && (
+      {runs && !fromAws && (
         <p>
           This kubeconfig gets its credentials from the command below. Lumovi would run it each time
           it connects, as kubectl does.
@@ -966,35 +1052,64 @@ export function Agreement({
           for.
         </p>
       )}
-      <p className="mt-1.5">Allow it only if you trust where the kubeconfig came from.</p>
+      {fromAws ? (
+        <p>
+          Lumovi wrote this kubeconfig from what AWS said. Each time Lumovi connects with it, it
+          runs the command below to sign in, as kubectl would.
+        </p>
+      ) : (
+        <p className="mt-1.5">Allow it only if you trust where the kubeconfig came from.</p>
+      )}
       {inspected.commands.map((command) => {
-        const env = command.env.map(({ name, value }) => `${name}=${value}`)
+        // What's set, as it's set; what's set empty (cleared for it), said under it.
+        const env = command.env
+          .filter(({ value }) => value !== '')
+          .map(({ name, value }) => `${name}=${value}`)
+        const cleared = command.env.filter(({ value }) => value === '').map(({ name }) => name)
         return (
-          <Box
-            key={command.consent}
-            label={[
-              command.shell ? 'The command, run in a shell' : 'The command',
-              command.movedTo && `now for ${command.movedTo}`,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            copy={[...env, command.line].join(' ')}
-          >
-            {env.map((variable) => (
-              <Fragment key={variable}>
-                <span className={cn(WORD, 'text-ink-3')}>
-                  <Visible text={variable} />
-                </span>{' '}
-              </Fragment>
-            ))}
-            {wordsOf(command.line).map((word, index) => (
-              <Fragment key={index}>
-                <span className={WORD}>
-                  <Visible text={word} />
-                </span>{' '}
-              </Fragment>
-            ))}
-          </Box>
+          <Fragment key={command.consent}>
+            <Box
+              label={[
+                command.shell ? 'The command, run in a shell' : 'The command',
+                command.movedTo && `now for ${command.movedTo}`,
+              ]
+                .filter(Boolean)
+                .join(', ')}
+              copy={[
+                ...command.env.map(({ name, value }) => `${name}=${value}`),
+                command.line,
+              ].join(' ')}
+            >
+              {env.map((variable) => (
+                <Fragment key={variable}>
+                  <span className={cn(WORD, 'text-ink-3')}>
+                    <Visible text={variable} />
+                  </span>{' '}
+                </Fragment>
+              ))}
+              {wordsOf(command.line).map((word, index) => (
+                <Fragment key={index}>
+                  <span className={WORD}>
+                    <Visible text={word} />
+                  </span>{' '}
+                </Fragment>
+              ))}
+            </Box>
+            {cleared.length > 0 && (
+              <p className="mt-1.5">
+                Lumovi clears{' '}
+                {cleared.map((name, index) => (
+                  <Fragment key={name}>
+                    {index > 0 && (index === cleared.length - 1 ? ' and ' : ', ')}
+                    <code className="font-mono">
+                      <Visible text={name} />
+                    </code>
+                  </Fragment>
+                ))}{' '}
+                for it{fromAws ? ', so the profile is what signs in' : ''}.
+              </p>
+            )}
+          </Fragment>
         )
       })}
       {inspected.tokenFiles.map((file) => (
@@ -1059,6 +1174,7 @@ function Ready({
   context,
   line,
   groups,
+  group: offered,
   checks,
   inspected,
   names,
@@ -1068,6 +1184,8 @@ function Ready({
   context: string
   line?: string
   groups: string[]
+  /** The group it's offered (its AWS account's, say), where it has none yet. */
+  group?: string
   checks: Record<string, Checked>
   inspected: PastedKubeconfig
   names: Record<string, string>
@@ -1079,7 +1197,7 @@ function Ready({
   const stored = useSettings().data?.clusters?.[context] ?? {}
   const [name, setName] = useState(stored.name ?? '')
   const [color, setColor] = useState(stored.color)
-  const [group, setGroup] = useState(stored.group ?? '')
+  const [group, setGroup] = useState(stored.group ?? offered ?? '')
   const [error, setError] = useState<string>()
   const title = name.trim() || context
 

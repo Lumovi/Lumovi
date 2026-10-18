@@ -597,6 +597,32 @@ export interface CredentialCommand {
   movedTo?: string
 }
 
+/** An EKS cluster `aws` found (Add a cluster → From AWS). */
+export interface AwsCluster {
+  name: string
+  version?: string
+  status?: string
+  /** Its group on the clusters page: "AWS · prod (123456789012) · eu-west-1". */
+  group: string
+  /** Its API server's address, as EKS gave it (to tell one added already). */
+  server?: string
+  /** Its kubeconfig, as `aws eks update-kubeconfig` writes one; or why it can't be added. */
+  kubeconfig?: string
+  unaddable?: string
+}
+
+/** What `aws` found for one profile in one region: its clusters, or why there are none. */
+export interface AwsFound {
+  profile: string
+  region: string
+  /** Its account, once `aws` has said whose it is. */
+  account?: string
+  clusters: AwsCluster[]
+  problem?: string
+  /** Nothing wrong, nothing there: "No EKS clusters in eu-west-1 for prod." */
+  note?: string
+}
+
 /** A kubeconfig pasted or imported, read (nothing run, nothing reached). */
 export interface PastedKubeconfig {
   contexts: {
@@ -1814,6 +1840,13 @@ export interface LumoviApi {
       text: string,
       options: { contexts?: string[]; names?: Record<string, string>; agreed: string[] },
     ): Promise<Result<{ path: string; files: KubeconfigFiles }>>
+    /**
+     * The profiles the person's `aws` CLI knows, and each one's region where it's set: run only
+     * as they ask (From AWS).
+     */
+    awsProfiles(): Promise<Result<{ profiles: string[]; regions: Record<string, string> }>>
+    /** The EKS clusters each profile has in each of its regions, found with `aws` as them. */
+    awsFind(asks: { profile: string; regions: string[] }[]): Promise<Result<AwsFound[]>>
     /** The text of one Lumovi keeps, to edit: its secrets as placeholders. */
     read(path: string): Promise<Result<string>>
     /**
@@ -2113,6 +2146,8 @@ export const IPC = {
   addedCheck: 'added:check',
   addedAdd: 'added:add',
   addedRead: 'added:read',
+  addedAwsProfiles: 'added:aws-profiles',
+  addedAwsFind: 'added:aws-find',
   addedEdit: 'added:edit',
   addedRemove: 'added:remove',
   addedForKubectl: 'added:for-kubectl',

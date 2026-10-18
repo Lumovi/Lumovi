@@ -53,6 +53,7 @@ import { DesktopRepositories } from './helm-repositories'
 import { KubeconfigFiles } from './kubeconfig-files'
 import { KEYS_QUIET_MS, linkIn, Links } from './links'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
+import { AwsClusters } from './aws-clusters'
 import { useConsentKey } from './consent'
 import { refusalOf } from './folder-consents'
 import { runStdio, STDIO } from './mcp-stdio'
@@ -206,6 +207,8 @@ if (stdio) {
         return canceled ? null : (filePaths[0] ?? null)
       },
     })
+    // EKS clusters found with the person's own `aws` (on the login shell's PATH), as they ask.
+    const awsClusters = new AwsClusters({ env: process.env, managed: policy.managed })
     // Once the login shell's PATH and proxy are known: the network set up (the system's
     // certificate authorities trusted, the proxy gone through), and the kubeconfig read again
     // with it, before anything waiting for it connects.
@@ -865,6 +868,7 @@ if (stdio) {
       links,
       kubeconfigFiles,
       addedClusters,
+      awsClusters,
       assistants,
       kube,
       helm,
