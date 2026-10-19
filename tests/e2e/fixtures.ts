@@ -5,7 +5,15 @@
  * renderer processes is written to `.nyc_output/` for `nyc report`.
  */
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { cpus, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -126,6 +134,8 @@ export async function launchApp(
     LUMOVI_PLUGINS_DIR: join(userDataDir, 'plugins'),
     // Never GitHub's sponsor.json: a closed port, so Lumovi's own card (sponsor.spec.ts serves one).
     LUMOVI_SPONSOR_URL: 'http://127.0.0.1:9/',
+    // Where the harness writes why a page or the app went away (harness.cjs).
+    LUMOVI_E2E_EVENTS: join(userDataDir, 'app-events.log'),
     // Keep tests independent of the developer's login shell, and their proxy.
     SHELL: undefined,
     ELECTRON_RENDERER_URL: undefined,
@@ -308,6 +318,11 @@ async function diagnose(
       ),
     ).catch((error: Error) => error.message)
     lines.push(`app ${i}: main answered in ${mainMs}ms ${window}; page ${state}`)
+    // Why its page or itself went away, if either did: as the harness wrote it, the app gone or not.
+    const events = join(launched[i]!.userDataDir, 'app-events.log')
+    lines.push(
+      `app ${i} events: ${existsSync(events) ? readFileSync(events, 'utf8').trim() || 'none' : 'none'}`,
+    )
     // Its terminals: what each pty gave the main process, what the page was handed of it (and
     // how it began), how much of it is drawn, and what the page sent back. (Where a terminal's
     // output stopped, if it did; and whether its shell asked something and was answered.)
