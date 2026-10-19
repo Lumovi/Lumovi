@@ -25,11 +25,31 @@ export function useOpener(): Element | null {
 }
 
 /**
+ * Whether the person has put the keyboard somewhere since a dialog began to close: on what's
+ * neither the page's body nor in a dialog, a field say. (A dialog gives the keyboard back a moment
+ * after it's gone, by which time the keys may be the field's.)
+ */
+export function focusMoved(): boolean {
+  const at = document.activeElement
+  return (
+    at instanceof HTMLElement &&
+    at !== document.body &&
+    at.isConnected &&
+    at.closest('[role="dialog"], [role="alertdialog"]') === null
+  )
+}
+
+/** A dialog's `onCloseAutoFocus`, for one that gives the keyboard back as Radix does. */
+export function keepMovedFocus(event: Event): void {
+  if (focusMoved()) event.preventDefault()
+}
+
+/**
  * A dialog has closed: the keyboard goes back to what it was opened from, or to what's drawn in
- * its place, now or as soon as it is.
+ * its place, now or as soon as it is; unless the person has put it elsewhere since.
  */
 export function focusBack(opener: Element | null): void {
-  if (!(opener instanceof HTMLElement)) return
+  if (!(opener instanceof HTMLElement) || focusMoved()) return
   const key = keyOf(opener)
   const to = opener.isConnected ? opener : key === undefined ? undefined : drawnFor(key)
   if (to) to.focus()

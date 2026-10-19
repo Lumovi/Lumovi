@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, type PointerEvent, type ReactNode } from 'reac
 import { cn } from '@renderer/lib/cn'
 import { useLayout } from '@renderer/lib/layout'
 import { useToasts, type SheetKind } from '@renderer/state/toasts'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 
 /** How far down a sheet is dragged by its grabber before letting go closes it. */
 const DISMISS_DISTANCE = 96
@@ -123,6 +124,8 @@ export function Sheet({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           data-sheet
           aria-describedby={undefined}
           className={cn(

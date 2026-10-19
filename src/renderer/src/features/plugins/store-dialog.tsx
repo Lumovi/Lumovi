@@ -24,6 +24,7 @@ import { SheetGrabber, sheetFrame, sheetFooter, sheetHeader } from '@renderer/co
 import { cn } from '@renderer/lib/cn'
 import { askLines, type AskLine, type KindNames } from './ask-lines'
 import { compared, isEmpty, type Granted } from './granted'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 
 /** Where Lumovi-plugins' releases are compared, tag to tag. */
 const COMPARE = 'https://github.com/Lumovi/Lumovi-plugins/compare'
@@ -319,6 +320,8 @@ export function StoreDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
           data-store-dialog={is.kind}
           onOpenAutoFocus={(event) => {

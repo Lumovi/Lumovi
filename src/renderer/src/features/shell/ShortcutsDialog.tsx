@@ -1,6 +1,7 @@
 import { Dialog } from 'radix-ui'
 import { X } from 'lucide-react'
 import { Kbd } from '@renderer/components/Kbd'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 import { useUi } from '@renderer/state/ui'
 import { useSheet } from './sheet'
 
@@ -13,6 +14,8 @@ export function ShortcutsDialog() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/25 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
           className="fixed top-1/2 left-1/2 z-50 flex max-h-[80vh] w-[720px] max-w-[calc(100vw-48px)] -translate-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface-2 shadow-pop outline-none"
         >

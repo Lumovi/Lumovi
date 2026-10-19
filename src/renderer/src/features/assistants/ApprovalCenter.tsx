@@ -49,6 +49,7 @@ import { useActivity } from '@renderer/state/activity'
 import { toast, type Said } from '@renderer/state/toasts'
 import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 
 type ApprovalsApi = NonNullable<LumoviApi['approvals']>
 
@@ -283,6 +284,8 @@ function ApprovalDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
           onKeyDown={onKeyDown}
           // Nothing's focused at first, so a stray Enter answers nothing.
