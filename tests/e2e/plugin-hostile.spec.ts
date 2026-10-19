@@ -1123,6 +1123,26 @@ test('what a plugin’s code is refused tells it nothing of the cluster, and wri
   writeFileSync(join(folder, 'tinker.js'), ASKS_AROUND)
   const { page } = await launch({ env: { LUMOVI_TEST_INCLUDED_PLUGINS_DIR: folder } })
   await openCluster(page)
+  // Lumovi's own Overview reads Deployments too: a list, the version to watch from, the watch,
+  // and the list again once it's watched. Counted from once those are done, and before the
+  // plugin's page is opened: the watch open, every read of them answered, and none since the last
+  // look. (Counted from earlier, the Overview's last list can land after, as the plugin's would.)
+  const deployments = () =>
+    clusters.demo.requests.filter((r) => r.path === '/apis/apps/v1/deployments')
+  let seen = -1
+  await expect
+    .poll(
+      () => {
+        const all = deployments()
+        const watching = all.some((r) => r.query.watch === '1' && r.ms === undefined)
+        const answered = all.every((r) => r.query.watch === '1' || r.ms !== undefined)
+        const still = all.length === seen
+        seen = all.length
+        return watching && answered && still
+      },
+      { intervals: [500], timeout: 15_000 },
+    )
+    .toBe(true)
   const before = clusters.demo.requests.length
   await go(page, `#/cluster/${CONTEXTS.demo}/plugins/tinker/overview`)
   const said = body(page).locator('h2').first()
@@ -1138,7 +1158,7 @@ test('what a plugin’s code is refused tells it nothing of the cluster, and wri
     clusters.demo.requests
       .slice(before)
       .map((r) => r.path)
-      .filter((path) => /deployments|applications|nodepools|things/.test(path)),
+      .filter((path) => /deployments|applications|nodepools|things|nowhere\.example/.test(path)),
   ).toEqual([])
   // In the history: one entry for the kinds its file doesn't name and one for the paths its
   // file doesn't list, each in Lumovi's words. Nothing the page wrote is in any entry: not a
