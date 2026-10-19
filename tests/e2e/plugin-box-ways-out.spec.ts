@@ -69,20 +69,28 @@ interface Kept {
 type OnPage = { __boxes: Record<string, Kept> }
 
 /**
+ * The test plugin a box is of: each try's its own, so its own process (the two boxes of a pair
+ * are one plugin's). A try can keep its process busy well after its box is closed (port-huge's
+ * copies hold a gigabyte there), and the next try's box, opened into that process on a busy
+ * computer, could go unanswered until Lumovi ended it as silent.
+ */
+const pluginOf = (as: string) => (as === 'served' ? 'ways' : `ways-${as.split('-')[0]}`)
+
+/**
  * Opens a test plugin's box and waits until its worker says it's ready. `bare`: with nothing
  * taken away by the worker's first lines.
  */
 async function open(page: Page, as: string, code: string, bare = false) {
   await page.waitForFunction(() => '__lumoviBox' in window)
   await page.evaluate(
-    ({ as, code, bare }) => {
+    ({ as, plugin, code, bare }) => {
       const w = window as unknown as {
         __lumoviBox: Record<'openBox' | 'openBoxBare', (options: object) => Kept['box']>
         __boxes?: Record<string, Kept>
       }
       const kept = { heard: [] as string[], ended: undefined as unknown }
       const box = w.__lumoviBox[bare ? 'openBoxBare' : 'openBox']({
-        plugin: 'ways',
+        plugin,
         code,
         heard: (text: string) => kept.heard.push(text),
         ended: (end: unknown) => (kept.ended = end),
@@ -91,12 +99,18 @@ async function open(page: Page, as: string, code: string, bare = false) {
       const frame = [...document.querySelectorAll('iframe')].at(-1)
       ;(w.__boxes ??= {})[as] = Object.assign(kept, { box, frame })
     },
-    { as, code, bare },
+    { as, plugin: pluginOf(as), code, bare },
   )
+  // (Or how Lumovi ended it, which no wait outlasts.)
   await expect
-    .poll(() => page.evaluate((as) => (window as unknown as OnPage).__boxes[as]!.heard[0], as), {
-      timeout: 15_000,
-    })
+    .poll(
+      () =>
+        page.evaluate((as) => {
+          const { heard, ended } = (window as unknown as OnPage).__boxes[as]!
+          return heard[0] ?? (ended === undefined ? undefined : `ended: ${JSON.stringify(ended)}`)
+        }, as),
+      { timeout: 15_000 },
+    )
     .toBe('ready')
 }
 
@@ -254,17 +268,17 @@ async function tryGroup(
     await close(page, 'served')
   }
   /** What a try is told of where things are: the catchers', and its box's own address. */
-  const told = (id: string, role?: 'first' | 'second') => ({
+  const told = (as: string, id: string, role?: 'first' | 'second') => ({
     ...catchers.context(id, role, named),
-    box: 'lumovi-plugin://ways/box.html',
+    box: `lumovi-plugin://${pluginOf(as)}/box.html`,
   })
   const tryIt = (as: string, id: string, role?: 'first' | 'second') =>
     inAWorker
-      ? inWorker(page, as, id, told(id, role), {
+      ? inWorker(page, as, id, told(as, id, role), {
           bare: where !== 'worker',
           byItsChild: where === 'child',
         })
-      : onPage(page, app, as, id, told(id, role))
+      : onPage(page, app, as, id, told(as, id, role))
   const kept = keeping(catchers)
   for (const [n, { id }] of ways.entries()) {
     kept.next()
