@@ -48,13 +48,15 @@ export function WelcomePage() {
   ].sort((a, b) => a.localeCompare(b))
 
   // A link's card for a cluster that isn't here sends its Add a cluster here (`?add=cluster`):
-  // opened once, and the address let go of.
+  // opened once, and the address let go of; not before it's known whether Lumovi may add one
+  // (the kubeconfig files read), or the ask would be let go of unanswered.
   const [params, setParams] = useSearchParams()
   const asked = params.get('add') === 'cluster'
   if (asked && canAdd && !adding) setAdding({})
+  const decided = files.data !== undefined || files.isError
   useEffect(() => {
-    if (asked) setParams({}, { replace: true })
-  }, [asked, setParams])
+    if (asked && decided) setParams({}, { replace: true })
+  }, [asked, decided, setParams])
   // ⌘N (or its keys as Settings has them) adds one: where the menu's Create… has the same key
   // (the menu takes it before the page does), it adds a cluster here.
   // (Not past a dialog that's open: editing a connection, say.)
