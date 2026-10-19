@@ -129,3 +129,32 @@ globalThis.__notifications = []
 Notification.prototype.show = function show() {
   globalThis.__notifications.push(this)
 }
+
+// Why a window's page, or the app, went away (LMV-345): each such event, with its reason and
+// exit code, written as it happens to the file the tests name (LUMOVI_E2E_EVENTS), where a failed
+// test's diagnostics read it even when the app is gone.
+if (process.env.LUMOVI_E2E_EVENTS) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { appendFileSync } = require('node:fs')
+  const note = (line) => {
+    try {
+      appendFileSync(process.env.LUMOVI_E2E_EVENTS, `${new Date().toISOString()} ${line}\n`)
+    } catch {
+      // (Nowhere to write it: nothing to say.)
+    }
+  }
+  app.on('render-process-gone', (_event, contents, details) =>
+    note(`page ${contents.id} gone: ${details.reason}, exit code ${details.exitCode}`),
+  )
+  app.on('child-process-gone', (_event, details) =>
+    note(`${details.type} process gone: ${details.reason}, exit code ${details.exitCode}`),
+  )
+  app.on('browser-window-created', (_event, win) => {
+    const id = win.id
+    win.on('close', () => note(`window ${id} closing`))
+    win.on('closed', () => note(`window ${id} closed`))
+    win.on('unresponsive', () => note(`window ${id} unresponsive`))
+  })
+  app.on('before-quit', () => note('quitting'))
+  process.on('exit', (code) => note(`main exits, code ${code}`))
+}
