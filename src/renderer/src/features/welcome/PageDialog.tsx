@@ -9,6 +9,7 @@ import { useEffect, type FormEvent, type ReactNode } from 'react'
 import { IconButton } from '@renderer/components/Button'
 import { cn } from '@renderer/lib/cn'
 import { useToasts } from '@renderer/state/toasts'
+import { focusMoved } from '@renderer/lib/focus-back'
 
 export function PageDialog({
   leading,
@@ -55,7 +56,9 @@ export function PageDialog({
             }
           }}
           // Closed: back to the list's search, where its keys are (what opened it may be gone).
+          // Unless the person has put the keyboard elsewhere since: it stays there.
           onCloseAutoFocus={(event) => {
+            if (focusMoved()) return event.preventDefault()
             const search = document.querySelector<HTMLElement>('[data-hotkey-target="filter"]')
             if (!search) return
             event.preventDefault()

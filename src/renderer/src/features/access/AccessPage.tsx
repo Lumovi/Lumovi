@@ -26,6 +26,7 @@ import { Frame } from './parts'
 import { ProfilesTab } from './ProfilesTab'
 import { RulesTab } from './RulesTab'
 import { useClusters, useMyAccess } from './use-access'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 
 /** What every tab works with: the draft, how to change it, and what's known of the server. */
 export interface TabProps {
@@ -338,6 +339,8 @@ function LeaveDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
           className="fixed top-1/2 left-1/2 z-50 w-[min(420px,calc(100vw-32px))] -translate-1/2 animate-pop-in rounded-2xl border border-line-strong bg-surface p-5 shadow-pop"
         >

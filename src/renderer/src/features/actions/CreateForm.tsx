@@ -70,6 +70,7 @@ import { useSchemaSource } from '@renderer/hooks/schema-source'
 import { useCluster } from '@renderer/state/cluster'
 import { Results } from './CreateDialog'
 import { createCommand, useCreating } from './create-run'
+import { keepMovedFocus } from '@renderer/lib/focus-back'
 
 const KINDS = Object.keys(FORM_KINDS) as FormKindName[]
 
@@ -326,6 +327,8 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px]" />
         <Dialog.Content
+          // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
+          onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
             event.preventDefault()

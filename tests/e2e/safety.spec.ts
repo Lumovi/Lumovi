@@ -132,9 +132,45 @@ test.describe('deleting', () => {
     await page.keyboard.press('Backspace')
     await page.keyboard.press('ControlOrMeta+j')
     await page.getByPlaceholder('Filter services').focus()
+    await expect(page.getByPlaceholder('Filter services')).toBeFocused()
     await page.keyboard.press('ControlOrMeta+Backspace')
     await page.keyboard.press('.')
     await expect(dialog(page)).toHaveCount(0)
+    await expect(page.getByRole('menu')).toHaveCount(0)
+  })
+
+  test('a dialog that goes as the keyboard is put in a field leaves it there', async ({ page }) => {
+    await open(page, 'Services', DEMO.services.grafana)
+    await page.keyboard.press('ControlOrMeta+Backspace')
+    await expect(dialog(page)).toContainText(`Delete ${DEMO.services.grafana}?`)
+    // Escape, and the field takes the keyboard the moment the dialog's gone: before the dialog
+    // gives it back to the panel it was opened from, a moment later.
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          const opened = document.querySelector('[role="dialog"]')!
+          const field = document.querySelector<HTMLElement>('[placeholder="Filter services"]')!
+          const watch = new MutationObserver(() => {
+            if (opened.isConnected) return
+            watch.disconnect()
+            field.focus()
+            done()
+          })
+          watch.observe(document.body, { childList: true, subtree: true })
+          document.activeElement!.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+          )
+        }),
+    )
+    const field = page.getByPlaceholder('Filter services')
+    const before = await field.inputValue()
+    // (Two frames on: the dialog's moment has passed.)
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    )
+    await expect(field).toBeFocused()
+    await page.keyboard.type('graf.')
+    await expect(field).toHaveValue(`${before}graf.`)
     await expect(page.getByRole('menu')).toHaveCount(0)
   })
 })
