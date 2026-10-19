@@ -2,7 +2,7 @@
  * What a Helm rollback's dialog shows of what it changes (src/renderer/src/lib/helm-diff.ts): a
  * Secret's values masked line for line, the values by key alone, and what Helm did after a failure.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { MASK, maskedManifest, undoneBy, valueKeys } from '../../src/renderer/src/lib/helm-diff.ts'
 
 const MANIFEST = `---

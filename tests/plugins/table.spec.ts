@@ -4,7 +4,7 @@
  * every text a `Their` and every token its object; and what the kinds can't say is said by
  * `tableProblem`, counting as a person counts. Plain functions, so nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   handedFields,
   wrongWithFields,

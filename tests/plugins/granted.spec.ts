@@ -3,7 +3,7 @@
  * worked out from what each asks, never from the words, so the store's dialog says exactly what's
  * new and what's gone. And the proposals line, as the Plugins page and the dialog both say it.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { LOGS_LINE, proposesLine } from '../../src/renderer/src/features/plugins/proposes.ts'
 import { compared, grantedOf, isEmpty } from '../../src/renderer/src/features/plugins/granted.ts'
 import { parsePlugin } from '../../src/shared/plugins.ts'

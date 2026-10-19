@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { parse, type Step } from '@shared/jsonpath'
 import { isBuiltinKind, isCustomGroup, apiGroupOf, kindFor } from '@shared/resources'
 import {

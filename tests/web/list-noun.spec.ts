@@ -2,7 +2,7 @@
  * What a list says it's of (src/shared/resources.ts's listNoun): one rule for Lumovi's own lists
  * and a plugin's, so the same list is never said two ways.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { listNoun } from '../../src/shared/resources.ts'
 
 test('a built-in kind’s list is said in lower case, any other as it’s written', () => {

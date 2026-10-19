@@ -10,10 +10,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
 import { startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { rendererMaps, withMaps, type Coverage } from './coverage.ts'
+import { test as base, testTempFolder } from '../temp-folders.ts'
 
 export { expect }
 export { DEMO, DEMO_TOKEN, PEOPLE } from '../mock-cluster/kubeconfig.ts'
@@ -337,9 +338,12 @@ interface Fixtures {
 }
 
 export const test = base.extend<Fixtures, { workerClusters: TestClusters }>({
+  // Each test's temp folder (../temp-folders.ts), made after what the worker keeps for all its
+  // tests, which goes in the worker's.
+  testTemp: async ({ workerTemp, workerClusters: _clusters }, use) =>
+    testTempFolder(workerTemp, use),
   workerClusters: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
+    async ({ workerTemp: _temp }, use) => {
       const dir = mkdtempSync(join(tmpdir(), 'lumovi-clusters-'))
       const clusters = await startTestClusters(dir)
       await use(clusters)

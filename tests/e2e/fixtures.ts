@@ -20,7 +20,6 @@ import { join, resolve } from 'node:path'
 import {
   _electron as electron,
   expect,
-  test as base,
   type ElectronApplication,
   type Locator,
   type Page,
@@ -28,6 +27,7 @@ import {
 } from '@playwright/test'
 import { CONTEXTS, startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { startMockDownloads, type MockDownloads } from '../mock-downloads/server.ts'
+import { test as base, testTempFolder } from '../temp-folders.ts'
 
 export { CONTEXTS, expect }
 export { DEMO, LARGE, SANDBOX, DEMO_TOKEN, MISSING_PLUGIN } from '../mock-cluster/kubeconfig.ts'
@@ -476,9 +476,12 @@ export const test = base.extend<
   Fixtures,
   { workerClusters: TestClusters; workerDownloads: MockDownloads }
 >({
+  // Each test's temp folder (../temp-folders.ts), made after what the worker keeps for all its
+  // tests, which goes in the worker's.
+  testTemp: async ({ workerTemp, workerClusters: _clusters, workerDownloads: _downloads }, use) =>
+    testTempFolder(workerTemp, use),
   workerClusters: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
+    async ({ workerTemp: _temp }, use) => {
       const dir = mkdtempSync(join(tmpdir(), 'lumovi-clusters-'))
       const clusters = await startTestClusters(dir)
       await use(clusters)
@@ -488,8 +491,7 @@ export const test = base.extend<
     { scope: 'worker' },
   ],
   workerDownloads: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
+    async ({ workerTemp: _temp }, use) => {
       const downloads = await startMockDownloads()
       // A packaged app takes no stand-in for Sigstore: what it downloads from the tests' dl.k8s.io
       // is as from a mirror that keeps no signatures (the tests of signatures don't run there).

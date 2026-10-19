@@ -2,7 +2,7 @@
  * A kept tab's window opened again as Lumovi did: whether it waits to be asked for before it's
  * read, which for a cluster that signs in through a program runs that program.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { MovedTab } from '../../src/shared/api.ts'
 import { waitsToBeRead } from '../../src/shared/moved-tab.ts'
 

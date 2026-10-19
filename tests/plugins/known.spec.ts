@@ -16,7 +16,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { mayCarryCode, type PluginFile } from '../../src/shared/plugin-loading.ts'
 import { knownPlugins, readIncluded, type KnownPlugin } from '../../src/shared/plugins-known.ts'
 import { offered } from '../../src/renderer/src/lib/code-pages.ts'

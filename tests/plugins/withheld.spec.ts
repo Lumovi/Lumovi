@@ -5,7 +5,7 @@
  * touch, and that every file's views together say what's withheld of a kind, each only adding.
  * Plain data and plain functions: nothing is built.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { parsePlugin, WITHHOLDS_MOST } from '../../src/shared/plugins.ts'
 import {
   groupsNamed,

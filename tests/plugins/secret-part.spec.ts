@@ -3,7 +3,7 @@
  * its Secret only where Lumovi knows whose page it is and what its code was handed with, since a
  * press's read names both. Without either, no Secret is drawn at all, so nothing can be read.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { secretPart } from '../../src/renderer/src/plugins/secret-part.ts'
 
 const SECRET = {

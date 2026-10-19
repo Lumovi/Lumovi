@@ -5,7 +5,7 @@
  * in for those, and for nothing else. Plain data and a plain function: nothing is built.
  */
 import { readFileSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { released, SINCE_FILE } from '../../scripts/plugin-since.ts'
 import { DECLARED } from '../../src/shared/kit/parts.ts'
 import { PLUGIN_SINCE } from '../../src/shared/plugin-since.ts'

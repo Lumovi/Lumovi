@@ -3,7 +3,7 @@
  * declaration and what's checked against it, and the page a plugin describes. Plain functions,
  * so nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   choice,
   destination,

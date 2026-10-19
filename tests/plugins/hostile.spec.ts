@@ -4,7 +4,7 @@
  * and tokens that were never its own page's. Plain functions: nothing is built or launched. (The
  * box's ways out, and what reaches Lumovi's backend, are tried in the e2e and web specs.)
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { DOOR_LIMITS, DoorPage } from '../../src/shared/plugin-door.ts'
 import { DECLARED } from '../../src/shared/kit/parts.ts'
 import { TABLE_LIMITS } from '../../src/shared/kit/table.ts'

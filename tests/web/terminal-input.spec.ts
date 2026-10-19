@@ -2,7 +2,7 @@
  * What a terminal sends its shell while the shell is still being opened: kept, and sent once
  * it's open. (A shell may ask the terminal something as it starts and wait for the answer.)
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { ShellInput } from '../../src/renderer/src/features/terminal/input.ts'
 
 test('an answer given while the shell is being opened reaches it once it’s open: once, in order', () => {

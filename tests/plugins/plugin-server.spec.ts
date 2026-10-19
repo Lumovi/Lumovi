@@ -5,7 +5,7 @@
  * through the API server's service proxy, and only JSON back. Against a stand-in for the
  * cluster: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { GetQuery, KubeObject, ListQuery, Result } from '../../src/shared/api.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import type { ProxyAnswer } from '../../src/backend/kube/client.ts'

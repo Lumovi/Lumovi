@@ -4,7 +4,7 @@
  * only what Windows uses of them.
  */
 import { EventEmitter } from 'node:events'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { BrowserWindow, WebContents } from 'electron'
 import { Windows } from '../../src/main/windows.ts'
 

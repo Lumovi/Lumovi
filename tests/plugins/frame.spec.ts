@@ -3,7 +3,7 @@
  * held to what it may hold, and what their kinds can't say refused in Lumovi's own words. Plain
  * functions and the door itself: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   wrongWithFields,
   wrongWithPart,

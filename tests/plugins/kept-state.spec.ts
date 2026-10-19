@@ -3,7 +3,7 @@
  * deleted, or its cluster away, each from when it was first found so, and neither once it's read
  * again. Plain data: nothing is drawn.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { keptState } from '../../src/renderer/src/features/terminal/kept-state.ts'
 
 test('a kept object’s cluster away: from when it was first found so, its last view kept; back, as before', () => {

@@ -4,7 +4,7 @@
  * busy word is short too. And what a person is told of an action: the status fields it writes on
  * the object itself, and its question and button as the file writes them.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { asks } from '../../src/shared/plugin-asks.ts'
 import { parsePlugin } from '../../src/shared/plugins.ts'
 

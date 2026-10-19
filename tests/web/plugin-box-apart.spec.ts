@@ -5,7 +5,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { BOX_LIMITS, overProcessor, placed } from '../../src/shared/plugin-box.ts'
 
 const SRC = resolve('src')

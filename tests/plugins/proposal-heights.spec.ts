@@ -3,7 +3,7 @@
  * numbers: the options first, the change never under its floor, the command from its floor, folded
  * where the options would have too little; and nothing laid out where it can't be by the rule.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   COMMAND_MOST,
   OPTIONS_ENOUGH,

@@ -7,7 +7,7 @@
 import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import type { ManagedSettings } from '../../src/shared/api.ts'
 import { InstalledPlugins, type InstalledOptions } from '../../src/main/plugins-installed.ts'

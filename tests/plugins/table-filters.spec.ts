@@ -3,7 +3,7 @@
  * the values its rows have, with how many have each; the rows kept by what's chosen and typed;
  * and what a link to the page starts it with. Plain functions: nothing is drawn.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { DrawnRow } from '../../src/shared/kit/table.ts'
 import {
   keptRows,

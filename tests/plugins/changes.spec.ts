@@ -3,7 +3,7 @@
  * refuses of it, the person's values put in only where the page marked them, each field's words
  * in Lumovi's, a press's token good once and for a moment, and what a plugin may propose at all.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   CHANGE_LIMITS,
   changedFields,

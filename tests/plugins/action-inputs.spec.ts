@@ -4,7 +4,7 @@
  * rows (`bulk`) and how its work ends (`ends`); and how Lumovi fills them in and reads an end
  * (src/renderer/src/lib/plugins.ts). Plain data and plain functions: nothing is drawn.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { parsePlugin } from '../../src/shared/plugins.ts'
 import {
   actionEnded,

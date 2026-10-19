@@ -6,7 +6,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { generate } from 'selfsigned'
 import { clusterFingerprint, linkIn, Links, type LinksDeps } from '../../src/main/links.ts'
 import {

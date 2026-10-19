@@ -4,7 +4,7 @@
  * the logs read as the person, once, never a follow, and the last of them kept within Lumovi's
  * limits; a refusal as a code. Against a stand-in for the cluster: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { PodLogsQuery, Result } from '../../src/shared/api.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import { lastLines, pluginLogs } from '../../src/backend/plugin-logs.ts'

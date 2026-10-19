@@ -4,7 +4,7 @@
  * Lumovi's own two entries. With a clock of the test's own: nothing is built or launched, and ten
  * minutes pass in a moment.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { AuditLog } from '../../src/backend/audit/log.ts'
 import { recorder, type Recorded } from '../../src/backend/audit/recorder.ts'
 import {

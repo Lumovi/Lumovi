@@ -2,7 +2,7 @@
  * A value written into code Lumovi makes as text: it reads back the same, and nothing in it can
  * end the script around it or a line inside it.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { literal } from '../../src/shared/code-literal.ts'
 
 /** The two characters that end a line in a script, though JSON leaves them as they are. */
