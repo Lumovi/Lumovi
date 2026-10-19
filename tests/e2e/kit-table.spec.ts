@@ -646,7 +646,9 @@ test('a status that has said so for days keeps its time whole: the column takes 
 }) => {
   // A table at 1024 beside nothing, its text columns long enough that the status is at its least.
   const folder = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
-  const since = new Date(Date.now() - 123 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const since = new Date(Date.now() - (123 * 24 + 23) * 3_600_000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
   writeFileSync(
     join(folder, 'stuck.yaml'),
     `apiVersion: lumovi.dev/v1beta1
@@ -702,7 +704,7 @@ spec:
     window.location.hash = '#/cluster/demo/plugins/stuck/overview'
   })
   const pill = page.getByRole('grid', { name: 'Syncs' }).locator('[data-health="progressing"]')
-  await expect(pill).toHaveText(/^Syncing123h \d\dm$/)
+  await expect(pill).toHaveText('Syncing123d 23h')
   // Neither its word nor its time runs past the pill.
   expect(
     await pill.evaluate((drawn) =>

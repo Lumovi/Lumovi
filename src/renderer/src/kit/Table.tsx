@@ -143,10 +143,10 @@ const EXTRA: Partial<Record<TableColumn['kind'], number>> = { meter: 40, button:
 const PILL_SET = 'text-xs font-medium'
 const PILL_ROOM = 6 + 14 + 4 + 8
 /**
- * The widest the time after a pill's word draws, in its figures: hours have no end ("123h 05m",
- * a sync stuck for days), so three of them. And the gap before it.
+ * The widest the time after a pill's word draws, in its figures: days have no end ("123d 23h",
+ * a sync stuck for months), so three of them. And the gap before it.
  */
-const PILL_SINCE = '888h 88m'
+const PILL_SINCE = '888d 88h'
 const PILL_SINCE_GAP = 4
 /** The room between a row's columns, and each side of a row. */
 const COLUMN_GAP = 16
