@@ -1,7 +1,6 @@
-import { Eye, EyeOff, History, Lock, ShipWheel, Trash2 } from 'lucide-react'
+import { History, Lock, ShipWheel, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { HelmReleaseDetail } from '@shared/api'
-import { Button } from '@renderer/components/Button'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { useHelmChange } from '@renderer/hooks/helm'
 import { api } from '@renderer/lib/api'
@@ -12,6 +11,7 @@ import { maskedManifest, valueKeys } from '@renderer/lib/helm-diff'
 import { helm } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
+import { SecretsHidden } from './SecretsHidden'
 
 /** Changes to a release Flux manages don't last: Flux puts its own back. */
 export function FluxWarning({ release }: { release: HelmReleaseDetail }) {
@@ -183,19 +183,7 @@ export function RollbackReleaseDialog({
                       <span className="font-medium text-critical-text">−{manifest.removed}</span>{' '}
                       <span className="text-ink-3">lines</span>
                     </span>
-                    {hidesSome && (
-                      <>
-                        {!revealed && <span className="text-ink-3">Secrets’ values hidden</span>}
-                        <Button
-                          variant="ghost"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setRevealed(!revealed)}
-                        >
-                          {revealed ? <EyeOff /> : <Eye />}
-                          {revealed ? 'Hide values' : 'Reveal values'}
-                        </Button>
-                      </>
-                    )}
+                    {hidesSome && <SecretsHidden revealed={revealed} onReveal={setRevealed} />}
                   </div>
                   <DiffView diff={manifest} label="Manifest changes" />
                 </div>

@@ -4,7 +4,7 @@
  * diff worked out on the real text can be shown through it.
  */
 
-import { parse } from 'yaml'
+import { parse, parseDocument, visit } from 'yaml'
 
 /** What a masked value shows. */
 export const MASK = '••••••••'
@@ -15,7 +15,8 @@ export const MASK = '••••••••'
  * of the real text says of a line is said of the masked one. It fails closed: each document is
  * read as YAML (JSON too), and a Secret in it anywhere (a List's item, say) has its values masked
  * line by line only where that's seen to have masked every one of them, read back; otherwise, or
- * where a document can't be read, the whole document is, but for what names it.
+ * where a document can't be read, or holds an alias (a value written elsewhere in it, `&x`, and
+ * named in a Secret's, `*x`), the whole document is, but for what names it.
  */
 export function maskedManifest(manifest: string): string {
   const lines = manifest.split('\n')
@@ -33,6 +34,12 @@ export function maskedManifest(manifest: string): string {
     }
     const secrets = secretsIn(read)
     if (secrets.length === 0) return
+    // (An alias's value is written where its anchor is, which masking a Secret's lines can't
+    // reach, and reading back can't tell from its own.)
+    if (aliased(own.join('\n'))) {
+      lines.splice(start, own.length, ...wholeMasked(own))
+      return
+    }
     const masked = lineMasked(own)
     let back: unknown
     try {
@@ -45,6 +52,18 @@ export function maskedManifest(manifest: string): string {
     lines.splice(start, own.length, ...(whole ? masked : wholeMasked(own)))
   })
   return lines.join('\n')
+}
+
+/** Whether a document names anything by an alias (`*x`, a merge's `<<: *x` too). */
+function aliased(text: string): boolean {
+  let found = false
+  visit(parseDocument(text, { uniqueKeys: false }), {
+    Alias: () => {
+      found = true
+      return visit.BREAK
+    },
+  })
+  return found
 }
 
 /** Every Secret in what a document reads as, however deep (a List's items, say). */

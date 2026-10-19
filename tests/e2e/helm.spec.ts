@@ -393,7 +393,7 @@ test('on Helm 4, undoing a failure is --rollback-on-failure', async ({ page, lum
   expect(asked).not.toContain('--wait')
 })
 
-test('a rollback shows what a Secret changes masked, until its values are asked for', async ({
+test('a release’s manifest, its history and a rollback show a Secret’s values masked alike, until they’re asked for', async ({
   page,
   clusters,
 }) => {
@@ -412,10 +412,58 @@ data:
     manifest: secret('first'),
   })
   addRelease(clusters.demo, 'vault-app', { revision: 2, manifest: secret('second') })
+  const first = Buffer.from('first').toString('base64')
+  const second = Buffer.from('second').toString('base64')
+  // Whether a value is shown, said yes or no: a failure prints no value.
+  const shows = (where: Locator, value: string) =>
+    expect.poll(() => where.evaluate((at, v) => at.textContent!.includes(v), value))
   try {
     await openCluster(page)
     await openHelm(page)
+    // A manifest with no Secret in it has nothing to hide.
+    const storefront = await openRelease(page, HELM.storefront)
+    await storefront.getByRole('tab', { name: 'Manifest' }).click()
+    await expect(yaml(storefront, 'Manifest')).toBeVisible()
+    await expect(storefront.getByRole('button', { name: 'Reveal values' })).toHaveCount(0)
+    await expect(storefront).not.toContainText('Secrets’ values hidden')
+
+    // The Manifest tab: its Secret's values masked, as the YAML tab masks them; asked for, as
+    // they are; and hidden again.
     const release = await openRelease(page, 'vault-app')
+    await release.getByRole('tab', { name: 'Manifest' }).click()
+    const manifest = yaml(release, 'Manifest')
+    await expect(manifest).toContainText('password: ••••••••')
+    await shows(manifest, second).toBe(false)
+    await expect(release).toContainText('Secrets’ values hidden')
+    await release.getByRole('button', { name: 'Reveal values' }).click()
+    await shows(manifest, `password: ${second}`).toBe(true)
+    await expect(release).not.toContainText('Secrets’ values hidden')
+    await release.getByRole('button', { name: 'Hide values' }).click()
+    await shows(manifest, second).toBe(false)
+
+    // Its history, the manifests compared: the change shown, neither value; then both.
+    await release.getByRole('tab', { name: 'History' }).click()
+    await release
+      .getByRole('group', { name: 'Compare' })
+      .getByRole('button', { name: 'manifest' })
+      .click()
+    const differences = release.getByLabel('Differences')
+    await expect(differences).toContainText('password: ••••••••')
+    await shows(differences, first).toBe(false)
+    await shows(differences, second).toBe(false)
+    await release.getByRole('button', { name: 'Reveal values' }).click()
+    await shows(differences, first).toBe(true)
+    await shows(differences, second).toBe(true)
+    await release.getByRole('button', { name: 'Hide values' }).click()
+    await shows(differences, first).toBe(false)
+    // Values compared: no Secrets' to hide.
+    await release
+      .getByRole('group', { name: 'Compare' })
+      .getByRole('button', { name: 'values' })
+      .click()
+    await expect(release.getByRole('button', { name: /^(Reveal|Hide) values$/ })).toHaveCount(0)
+
+    // The rollback's changes.
     await release.getByRole('button', { name: 'Roll back…' }).click()
     const changes = dialog(page).getByRole('region', { name: 'What changes' })
     const diff = changes.getByLabel('Manifest changes')
@@ -423,15 +471,15 @@ data:
     await expect(changes).toContainText('+1 −1 lines')
     await expect(changes).toContainText('Secrets’ values hidden')
     await expect(diff).toContainText('password: ••••••••')
-    await expect(diff).not.toContainText(Buffer.from('first').toString('base64'))
-    await expect(diff).not.toContainText(Buffer.from('second').toString('base64'))
+    await shows(diff, first).toBe(false)
+    await shows(diff, second).toBe(false)
     await expect(changes).toContainText('No values change.')
     // Asked for: as they are; and hidden again.
     await changes.getByRole('button', { name: 'Reveal values' }).click()
-    await expect(diff).toContainText(Buffer.from('first').toString('base64'))
-    await expect(diff).toContainText(Buffer.from('second').toString('base64'))
+    await shows(diff, first).toBe(true)
+    await shows(diff, second).toBe(true)
     await changes.getByRole('button', { name: 'Hide values' }).click()
-    await expect(diff).not.toContainText(Buffer.from('first').toString('base64'))
+    await shows(diff, first).toBe(false)
   } finally {
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v1')
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v2')
