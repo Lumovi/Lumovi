@@ -1,6 +1,6 @@
 import { ArrowUpCircle, ArrowLeft, LoaderCircle, PackagePlus, Search } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { formatElapsed, useTicking } from '@renderer/components/Busy'
+import { useTicking } from '@renderer/components/Busy'
 import { parse } from 'yaml'
 import type {
   ChartSearchResult,
@@ -10,6 +10,7 @@ import type {
   HelmRepositories,
 } from '@shared/api'
 import { age } from '@renderer/lib/format'
+import { formatElapsed } from '@renderer/lib/elapsed'
 import { Button } from '@renderer/components/Button'
 import { CodeEditor } from '@renderer/components/CodeEditor'
 import { DiffView, unifiedDiff } from '@renderer/components/DiffView'

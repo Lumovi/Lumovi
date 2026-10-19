@@ -1,31 +1,9 @@
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { cn } from '@renderer/lib/cn'
+import { formatElapsed, spokenElapsed } from '@renderer/lib/elapsed'
 import { buttonClass } from './Button'
 import { Tooltip } from './Tooltip'
-
-/** A duration as Lumovi says one: 42s, 1m 05s, 12m 30s, 1h 02m. */
-export function formatElapsed(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000))
-  const two = (n: number) => String(n).padStart(2, '0')
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ${two(seconds % 60)}s`
-  return `${Math.floor(minutes / 60)}h ${two(minutes % 60)}m`
-}
-
-/**
- * The same, as it's spoken, in whole minutes: "1 minute", "less than a minute". (A name that
- * changed every second would be said every second to whoever has it in focus: the seconds are on
- * screen and in the tooltip.)
- */
-export function spokenElapsed(ms: number): string {
-  const minutes = Math.max(0, Math.floor(ms / 60_000))
-  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-  const [h, m] = [Math.floor(minutes / 60), minutes % 60]
-  if (h > 0) return [unit(h, 'hour'), m > 0 && unit(m, 'minute')].filter(Boolean).join(' ')
-  return m > 0 ? unit(m, 'minute') : 'less than a minute'
-}
 
 /** The time now, again each second while `on`: for what counts how long something has run. */
 export function useTicking(on: boolean): number {

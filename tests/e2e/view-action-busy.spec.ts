@@ -147,6 +147,24 @@ test('an action at work is busy where it was, with how long once that’s known,
   ).toHaveAttribute('aria-disabled', 'true')
   await page.keyboard.press('Escape')
 
+  // Past a day: in days and hours, written and said, the minutes left out.
+  const long = new Date(Date.now() - (377 * 60 + 53) * 60_000).toISOString()
+  changed(clusters, (widget) => ({
+    ...widget,
+    status: { ...widget.status, polishStarted: long.replace(/\.\d{3}Z$/, 'Z') },
+  }))
+  await expect(busy).toHaveAccessibleName('Polish, busy: polishing, 15 days 17 hours')
+  await expect(busy).toHaveText('Polishing15d 17h')
+  await page.mouse.move(0, 0)
+  await busy.hover()
+  await expect(page.getByRole('tooltip')).toHaveText(
+    'Polishing for 15d 17h. Polish can be pressed again when it’s done.',
+  )
+  await detail.getByRole('button', { name: 'More actions' }).click()
+  const days = page.getByRole('menuitem', { name: 'Polish, busy: polishing, 15 days 17 hours' })
+  await expect(days).toContainText(/Polishing\s*15d 17h/)
+  await page.keyboard.press('Escape')
+
   // Done: offered again.
   changed(clusters, (widget) => {
     delete (widget.spec as Record<string, unknown>).polishing
