@@ -80,6 +80,26 @@ test('beside a row’s panel at 1024, a split is two pages in its pane: what was
   await expect(list).toBeHidden()
   await expect(row).toBeInViewport()
   expect(await sideways(page)).toBe(false)
+  // Its header: the name on a line of its own, its status under it, and its buttons, which haven't
+  // room beside the status, under that, from where it starts, "…" first. Nothing reaches past the
+  // pane.
+  const header = body(page).getByRole('group', { name: 'reports-db' })
+  await header.scrollIntoViewIfNeeded()
+  const [status, more, button] = [
+    await placed(header.locator('[data-health]').first()),
+    await placed(header.getByRole('button', { name: 'More for reports-db' })),
+    await placed(header.getByRole('button', { name: 'Back up now…' })),
+  ]
+  expect(button.y).toBeGreaterThanOrEqual(status.y + status.height)
+  expect(Math.abs(more.x - status.x)).toBeLessThan(2)
+  expect(more.x).toBeLessThan(button.x)
+  expect(
+    await header.evaluate((at) => {
+      let pane = at.parentElement
+      while (pane && getComputedStyle(pane).overflowY !== 'auto') pane = pane.parentElement
+      return pane!.scrollWidth - pane!.clientWidth
+    }),
+  ).toBe(0)
   // Back stays at the pane's top as the page scrolls under it.
   await expect(back).toBeInViewport()
   await row.evaluate((el) => el.closest('.overflow-auto')!.scrollBy(0, 4000))

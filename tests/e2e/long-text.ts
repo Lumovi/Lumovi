@@ -143,14 +143,43 @@ export async function misplaced(page: Page): Promise<string[]> {
       }
     }
     // Sideways: what scrolls down (a page, a panel) and is wider than it is, but for what's made
-    // to scroll (lists, tables, code, logs).
+    // to scroll (lists, tables, code, logs). Where it holds one of those, what's past its edge
+    // says why: one of them, or what holds one, is made so; anything else (a card, a tile, a pick
+    // list) is too wide. Where it holds none, it's too wide whatever is.
     for (const el of document.querySelectorAll<HTMLElement>('*')) {
       const s = style(el)
       if (!['auto', 'scroll'].includes(s.overflowY) || el.clientHeight < 100) continue
       if (el.scrollWidth <= el.clientWidth + 2 || hidden(el)) continue
       const made = '[role="grid"], table, pre, code, .cm-editor, .xterm, [role="log"]'
-      if (el.matches(made) || el.closest(made) || el.querySelector(made)) continue
-      say('scrolls sideways', el, `${el.scrollWidth - el.clientWidth}px too wide`)
+      if (el.matches(made) || el.closest(made)) continue
+      // (Its edge is where what it shows ends: its scroll bar's room isn't for what's in it.)
+      const edge = el.getBoundingClientRect().left + el.clientLeft + el.clientWidth + 2
+      // (What's clipped inside it, a strip of tabs scrolling in itself say, is only as wide as
+      // what clips it.)
+      const reaches = (inside: Element) => {
+        let right = inside.getBoundingClientRect().right
+        for (let e = inside.parentElement; e && e !== el; e = e.parentElement) {
+          if (style(e).overflowX !== 'visible') {
+            right = Math.min(right, e.getBoundingClientRect().right)
+          }
+        }
+        return right
+      }
+      const past = [...el.querySelectorAll<HTMLElement>('*')].find(
+        (inside) =>
+          reaches(inside) > edge &&
+          !inside.closest(made) &&
+          !inside.querySelector(made) &&
+          !inside.closest('.sr-only') &&
+          !hidden(inside),
+      )
+      if (past || !el.querySelector(made)) {
+        say(
+          `scrolls sideways, past: ${past ? describe(past) : '(unattributed)'}`,
+          el,
+          `${el.scrollWidth - el.clientWidth}px`,
+        )
+      }
     }
     // Text over text: two pieces whose shown parts cross by more than an edge.
     pieces.sort((a, b) => a.rect.left - b.rect.left)

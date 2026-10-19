@@ -99,18 +99,19 @@ function widthIn(element: Element): (text: string) => number {
  * How a desktop header lays out its buttons (`labels`, as each is drawn) beside its name: how
  * many show, three at most (two, and "…", where it has more), fewer where they'd leave its name
  * less than its floor, down to the last alone; and whether, with that, the name still hasn't its
- * floor and takes a line of its own, its status and buttons on the next. The status and the
- * buttons are never cut; the rest are behind "…".
+ * floor and takes a line of its own, its status and buttons on the next; and whether the buttons
+ * haven't room beside the status either, and take a line of their own under it, from its start.
+ * The status and the buttons are never cut; the rest are behind "…".
  */
 function fitting(
   header: HTMLElement,
   name: string,
   labels: readonly string[],
-): { shown: number; split: boolean } {
+): { shown: number; split: boolean; under: boolean } {
   const most = labels.length > BUTTONS_SHOWN ? BUTTONS_SHOWN - 1 : labels.length
   const heading = header.querySelector('h2')
   const button = header.querySelector('[data-buttons] button')
-  if (!heading || !button) return { shown: most, split: false }
+  if (!heading || !button) return { shown: most, split: false, under: false }
   const status = header.querySelector('[data-status]')?.getBoundingClientRect().width ?? 0
   const named = widthIn(button)
   const widths = labels.map((label) => named(label) + BUTTON_EDGES)
@@ -130,9 +131,12 @@ function fitting(
   const floor = Math.min(face('0'.repeat(NAME_FLOOR)), face(name))
   // (Less the gaps: one after the name, one after a status, and the buttons' own inset.)
   const beside = header.clientWidth - floor - status - 28
-  if (needs(1) <= beside) return { shown: showing(beside), split: false }
-  // (Under the name: less the gap after a status, and the buttons' inset.)
-  return { shown: showing(header.clientWidth - status - (status ? 18 : 8)), split: true }
+  if (needs(1) <= beside) return { shown: showing(beside), split: false, under: false }
+  // (Under the name: less the gap after a status, and the buttons' inset; or a line of their own,
+  // with no inset.)
+  const room = header.clientWidth - status - (status ? 18 : 8)
+  if (needs(1) <= room) return { shown: showing(room), split: true, under: false }
+  return { shown: showing(header.clientWidth), split: true, under: true }
 }
 
 type Variant = 'primary' | 'secondary' | 'ghost'
@@ -462,7 +466,7 @@ export function PageHeader({
   // How many buttons the desktop's row has room for, measured as it's laid out and whenever its
   // width changes.
   const groupRef = useRef<HTMLDivElement>(null)
-  const [fits, setFits] = useState<{ shown: number; split: boolean }>()
+  const [fits, setFits] = useState<{ shown: number; split: boolean; under: boolean }>()
   // (What it's measured by, as one key: a page drawn anew with the same buttons isn't remeasured.)
   const drawnAs = fitKey(
     repeats ? '' : spelled(header.name.their),
@@ -481,7 +485,9 @@ export function PageHeader({
     const fit = () =>
       setFits((was) => {
         const now = fitting(group, name, labels)
-        return was?.shown === now.shown && was.split === now.split ? was : now
+        return was?.shown === now.shown && was.split === now.split && was.under === now.under
+          ? was
+          : now
       })
     fit()
     const observer = new ResizeObserver(fit)
@@ -574,55 +580,67 @@ export function PageHeader({
     </h2>
   )
   // The status and the buttons are never cut or wrapped: the name gives way, and past its floor,
-  // buttons fold; past that, the name has a line of its own.
-  const rest = (
-    <>
-      {status && <span data-status="">{status}</span>}
-      <div data-buttons="" className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-        {shown.map((button, i) => (
-          <Fragment key={keyOf(button)}>
-            {folded.length > 0 && i === shown.length - 1 && (
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <Button aria-label={`More for ${named}`} className="px-2">
-                    <Ellipsis />
-                  </Button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="end" sideOffset={6} className={menuContent}>
-                    {folded.map((more) => (
-                      <Folded
-                        key={keyOf(more)}
-                        button={more}
-                        held={held}
-                        onPress={() => press(more)}
-                      />
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            )}
-            <Action
-              button={button}
-              held={held}
-              focusKey={focusKeyOf(button)}
-              variant={variant(i)}
-              onPress={() => press(button)}
-            />
-          </Fragment>
-        ))}
-      </div>
-    </>
+  // buttons fold; past that, the name has a line of its own; and past that, the buttons too, under
+  // the status, from where it starts.
+  const statused = status && <span data-status="">{status}</span>
+  const buttonsRow = (
+    <div
+      data-buttons=""
+      className={cn('flex shrink-0 items-center gap-2', !fits?.under && 'ml-auto pl-2')}
+    >
+      {shown.map((button, i) => (
+        <Fragment key={keyOf(button)}>
+          {folded.length > 0 && i === shown.length - 1 && (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <Button aria-label={`More for ${named}`} className="px-2">
+                  <Ellipsis />
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={6} className={menuContent}>
+                  {folded.map((more) => (
+                    <Folded
+                      key={keyOf(more)}
+                      button={more}
+                      held={held}
+                      onPress={() => press(more)}
+                    />
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          )}
+          <Action
+            button={button}
+            held={held}
+            focusKey={focusKeyOf(button)}
+            variant={variant(i)}
+            onPress={() => press(button)}
+          />
+        </Fragment>
+      ))}
+    </div>
   )
-  const row = fits?.split ? (
+  const row = fits?.under ? (
     <>
       <div className="flex h-8 items-center">{heading}</div>
-      <div className="flex h-8 items-center gap-2.5">{rest}</div>
+      {statused && <div className="flex h-8 items-center">{statused}</div>}
+      <div className="flex h-8 items-center">{buttonsRow}</div>
+    </>
+  ) : fits?.split ? (
+    <>
+      <div className="flex h-8 items-center">{heading}</div>
+      <div className="flex h-8 items-center gap-2.5">
+        {statused}
+        {buttonsRow}
+      </div>
     </>
   ) : (
     <div className="flex h-8 items-center gap-2.5">
       {heading}
-      {rest}
+      {statused}
+      {buttonsRow}
     </div>
   )
   return (

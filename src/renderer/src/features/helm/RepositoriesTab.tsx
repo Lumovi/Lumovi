@@ -2,7 +2,7 @@ import { Ellipsis, Library, Lock, Pencil, Plus, RefreshCw, SearchX, Trash2 } fro
 import { DropdownMenu } from 'radix-ui'
 import { useRef, useState, type SyntheticEvent } from 'react'
 import type { HelmRepositories, HelmRepository, KubeObject } from '@shared/api'
-import { Button, IconButton } from '@renderer/components/Button'
+import { IconButton } from '@renderer/components/Button'
 import { EmptyState, ErrorState } from '@renderer/components/States'
 import { StatusDot, StatusPill } from '@renderer/components/Status'
 import { useHelmRepositories } from '@renderer/hooks/helm'
@@ -336,12 +336,10 @@ export function RepositoriesTab() {
             />
           )
         }
-        before={
-          mayChange && (
-            <Button variant="secondary" onClick={() => setAdding(true)}>
-              <Plus /> Add repository
-            </Button>
-          )
+        action={
+          mayChange
+            ? { icon: <Plus />, label: 'Add repository', onPress: () => setAdding(true) }
+            : undefined
         }
         filter={filter}
         noun="repositories"

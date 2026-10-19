@@ -929,6 +929,40 @@ test('a cluster without Helm releases', async ({ page }) => {
   await expect(page.getByText('No Helm releases in this cluster')).toBeVisible()
 })
 
+test('beside a release’s panel at 1024, Install chart is its icon, named by its tooltip, and the page doesn’t scroll sideways, in either theme', async ({
+  launch,
+}) => {
+  for (const theme of ['light', 'dark'] as const) {
+    const { page } = await launch({
+      theme,
+      env: { LUMOVI_E2E_WINDOW: '1024x768' },
+      fullLayout: false,
+    })
+    await openCluster(page)
+    await openHelm(page)
+    const install = page.getByRole('button', { name: 'Install chart' })
+    // With the page to itself, it's named.
+    await expect(install).toHaveText('Install chart')
+    await expect(await openRelease(page, HELM.storefront)).toBeVisible()
+    // Beside the panel, the same button: its icon alone, its name its tooltip.
+    await expect(install).toHaveText('')
+    await install.hover()
+    await expect(page.getByRole('tooltip')).toHaveText('Install chart')
+    await expect
+      .poll(() => page.locator('#content').evaluate((at) => at.scrollWidth - at.clientWidth))
+      .toBe(0)
+    await install.click()
+    await expect(dialog(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog(page)).toHaveCount(0)
+    // The panel closed: named again.
+    await releasePanel(page, HELM.storefront).getByRole('button', { name: 'Close' }).click()
+    await expect(releasePanel(page, HELM.storefront)).toHaveCount(0)
+    await expect(install).toHaveText('Install chart')
+    await page.close()
+  }
+})
+
 /** Writes a chart's files into `root/name`, and gives its path. */
 function writeChart(root: string, name: string, files: Record<string, string>): string {
   for (const [file, text] of Object.entries(files)) {
