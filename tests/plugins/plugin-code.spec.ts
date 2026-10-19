@@ -2,7 +2,7 @@
  * The hand-over: the one answer to whether a page may be handed a plugin's code, and the one call
  * that hands it. Plain functions: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import { mayHandOver, pluginCodes, type HandOverTo } from '../../src/backend/plugin-code.ts'
 import { notHandedLine, notHandedWhy } from '../../src/shared/plugin-hand-over.ts'

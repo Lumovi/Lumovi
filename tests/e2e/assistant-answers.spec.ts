@@ -6,7 +6,7 @@
  * fields); a workload's rollouts with what its images resolved to; and the config
  * find_problems warns of. Nothing is launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { fitted, levelOf, linesOf } from '../../src/backend/mcp/log-lines.ts'
 import {
   digestOf,

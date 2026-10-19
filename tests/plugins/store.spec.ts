@@ -5,7 +5,7 @@
  * Sigstore (tests/mock-downloads/sigstore.ts), with the release workflow's real identity. What
  * the page shows of it is plugin-store.spec.ts's, in the e2e tests.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { PluginStore, type StoreOptions } from '../../src/main/plugin-store.ts'
 import { PLUGINS_REPOSITORY, PLUGINS_SIGNER, type Trust } from '../../src/main/plugins-release.ts'
 import type { TrustRoot } from '../../src/main/kubectl-signature.ts'

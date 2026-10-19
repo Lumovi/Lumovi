@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { AuditLog } from '../../src/backend/audit/log.ts'
 import type { ServerAccess } from '../../src/server/access.ts'
 import {

@@ -3,7 +3,7 @@
  * a part is handed in their place, the one message a press sends a plugin, and the rule that a
  * press is what it does and not what a button said. Plain functions: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   cut,
   destination,

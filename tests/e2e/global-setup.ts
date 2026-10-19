@@ -1,5 +1,6 @@
 import { existsSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { runTempFolder } from '../temp-folders.ts'
 import { COVERAGE_DIR } from './fixtures.ts'
 
 /**
@@ -10,11 +11,14 @@ import { COVERAGE_DIR } from './fixtures.ts'
  * each worker would ask at once, each unpacking over the others, and one would start a binary
  * another still had open to write ("spawn ETXTBSY", on Linux). Asked here, once, before any
  * worker starts.
+ *
+ * And with a temp folder of the run's own, which its end removes (../temp-folders.ts).
  */
-export default function globalSetup(): void {
+export default function globalSetup(): () => void {
   if (!existsSync('out/main/index.js') || !existsSync('out/server/index.js')) {
     throw new Error('No build found. Run `npm run build:coverage` (or `npm run test:e2e`) first.')
   }
   if (!process.env.LUMOVI_E2E_EXECUTABLE) createRequire(import.meta.url)('electron')
   rmSync(COVERAGE_DIR, { recursive: true, force: true })
+  return runTempFolder()
 }

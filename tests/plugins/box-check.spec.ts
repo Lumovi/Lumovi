@@ -6,7 +6,7 @@
  * are. And the control: Lumovi's own request, with a nonce no box is told, which must have
  * arrived as a request and as a socket's upgrade for a check to be judged at all. Plain functions.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   BOX_CHECK_CONTROLS,
   BOX_CHECK_LIMITS,

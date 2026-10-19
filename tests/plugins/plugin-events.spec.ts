@@ -5,7 +5,7 @@
  * warning events by its uid, newest first, each handed as a few fields; a refusal as a code.
  * Against a stand-in for the cluster: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { Recorded } from '../../src/backend/audit/recorder.ts'
 import { pluginEvents } from '../../src/backend/plugin-events.ts'
 import type { GetQuery, KubeObject, ListQuery, Result } from '../../src/shared/api.ts'

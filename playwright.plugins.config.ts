@@ -6,6 +6,7 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: 'tests/plugins',
+  globalSetup: './tests/plugins/global-setup.ts',
   // For the plugins' own imports (@shared/…).
   tsconfig: './tsconfig.test.json',
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],

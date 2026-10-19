@@ -10,7 +10,7 @@
  * changes. Plain data and plain functions: nothing is built or launched.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import prettier from 'prettier'
 import type { Kind, Part, PropsOf } from '../../src/shared/kit/declare.ts'
 import { GRAPH_LIMITS, type GraphProps } from '../../src/shared/kit/graph.ts'

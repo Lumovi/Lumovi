@@ -2,7 +2,7 @@
  * What Lumovi says where a plugin's page ended: a sentence for every way it ends, and a plugin's
  * own words shown as text that can't pass for Lumovi's.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   codePoint,
   inPieces,

@@ -3,7 +3,7 @@
  * cluster sets and their status left out unless asked; and a workload's config paired by where
  * it's referenced. Plain functions: nothing is served.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { KubeObject } from '../../src/shared/api.ts'
 import { comparable, configPairs, configRefs, WITHHELD_MARK } from '../../src/shared/compare.ts'
 

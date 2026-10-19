@@ -4,7 +4,7 @@
  * plugin may have; a refusal as a code. Against a stand-in for the cluster: nothing is built or
  * launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type {
   GetQuery,
   KubeList,

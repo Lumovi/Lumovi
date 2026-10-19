@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import type { Marks } from '../../src/shared/marks.ts'
 import {
   KEPT_UNUSED_MS,

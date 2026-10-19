@@ -5,7 +5,7 @@
  * where it's first; and its filter, keeping the cards above a match. And a plugin's own Table
  * still nests one level. Plain functions, so nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   handedFields,
   wrongWithFields,

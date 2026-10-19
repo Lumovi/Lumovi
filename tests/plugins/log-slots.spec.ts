@@ -2,7 +2,7 @@
  * Which Logs parts stream at once: a page's first four, and a plugin's first eight on all its
  * pages and tabs; the rest wait, the first drawn first. Plain functions: nothing is drawn.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { slotOf } from '../../src/renderer/src/plugins/log-slots.ts'
 import { DOOR_LIMITS } from '../../src/shared/plugin-door.ts'
 

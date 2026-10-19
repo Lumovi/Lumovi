@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { X509Certificate } from '@sigstore/core'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import {
   cacheEntry,
   DOWNLOAD_LIMIT,

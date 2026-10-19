@@ -2,7 +2,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { rendererMaps, withMaps } from './coverage.ts'
 
 const counts = (path: string) => ({ [path]: { s: { 0: 2 }, f: {}, b: {} } })

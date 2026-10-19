@@ -3,7 +3,7 @@
  * PEM certificate blocks alone, nothing of a value or a key passed on, and anyone's words kept
  * short, however a value's written.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { generate } from 'selfsigned'
 import { certificateIn, certificatesOf } from '../../src/backend/kube/certificates.ts'
 

@@ -3,7 +3,7 @@
  * what's an ask, what a plugin's file lets it have, what it's handed of an object, and how many
  * reads a page may keep. Plain functions: nothing is built or launched.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { parse } from '../../src/shared/jsonpath.ts'
 import {
   granted,

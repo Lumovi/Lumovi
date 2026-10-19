@@ -3,7 +3,7 @@
  * Lumovi's own, and it must be one that can sit whole in a script element.
  */
 import { createHash } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { BOX_SCRIPT_SOURCE, scriptSource } from '../../src/backend/plugin-box-script.ts'
 import { BOX_SCRIPT, boxDocument, boxHeaders, sealedDocument } from '../../src/shared/plugin-box.ts'
 import { scriptsIn } from '../e2e/plugin-box/sealed.ts'

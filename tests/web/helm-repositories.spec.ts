@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { gzipSync } from 'node:zlib'
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../temp-folders.ts'
 import { generate } from 'selfsigned'
 import type { HelmRelease, HelmRepository, RepositoryChart } from '../../src/shared/api.ts'
 import {
