@@ -3,4 +3,5 @@
   install uninstalled), and give Helm a timeout, each with Helm's own flag beside it; while it
   waits, the dialog says how long, and closing it doesn't stop Helm (quitting Lumovi asks first).
   Rolling back shows what it changes: the values by key, and the manifest's differences, with
-  Secrets' values masked until revealed.
+  Secrets' values masked until revealed, as they are now in a release's Manifest tab and where
+  its history compares manifests.

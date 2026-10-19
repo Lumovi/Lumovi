@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { HelmReleaseDetail, KubeObject } from '@shared/api'
 import { releaseUpdate } from '@shared/helm-repositories'
 import { Button, IconButton } from '@renderer/components/Button'
@@ -35,6 +35,7 @@ import { cn } from '@renderer/lib/cn'
 import { age, formatDateTime } from '@renderer/lib/format'
 import { statusFor } from '@renderer/lib/health'
 import { coalesce, manifestObjects, releaseStatus, type ManifestObject } from '@renderer/lib/helm'
+import { maskedManifest } from '@renderer/lib/helm-diff'
 import { formatRef, kindPath } from '@renderer/lib/routes'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
@@ -46,6 +47,7 @@ import { useAccessHere } from '../access/use-access'
 import { DeployDialog } from './DeployDialog'
 import { UpdatePill } from './UpdatePill'
 import { RollbackReleaseDialog, UninstallReleaseDialog } from './ReleaseDialogs'
+import { SecretsHidden } from './SecretsHidden'
 
 /** The release named by `?release=namespace/name`, next to the list. */
 export function ReleasePanel() {
@@ -315,7 +317,7 @@ function ReleaseTabs({ release }: { release: HelmReleaseDetail }) {
         {hidden || <ReleaseValues release={release} />}
       </TabContent>
       <TabContent value="manifest" className={cn(content, 'flex flex-col')}>
-        {hidden || <YamlText text={release.revisions[0]!.manifest} label="Manifest" />}
+        {hidden || <ReleaseManifest manifest={release.revisions[0]!.manifest} />}
       </TabContent>
       <TabContent value="history" className={cn(content, 'flex flex-col')}>
         {hidden || <ReleaseHistory release={release} />}
@@ -504,17 +506,48 @@ function ReleaseValues({ release }: { release: HelmReleaseDetail }) {
   )
 }
 
-/** Every revision, and how any two differ. */
+/** Over a manifest that holds a Secret's values, a line of its own with Reveal values. */
+function SecretsBar(props: { revealed: boolean; onReveal: (revealed: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-end gap-2 border-b border-line px-5 py-2">
+      <SecretsHidden {...props} />
+    </div>
+  )
+}
+
+/** What Helm applied, each Secret's values masked until asked, as an object's YAML tab has them. */
+function ReleaseManifest({ manifest }: { manifest: string }) {
+  const [revealed, setRevealed] = useState(false)
+  const masked = useMemo(() => maskedManifest(manifest), [manifest])
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {masked !== manifest && <SecretsBar revealed={revealed} onReveal={setRevealed} />}
+      <YamlText text={revealed ? manifest : masked} label="Manifest" />
+    </div>
+  )
+}
+
+/** Every revision, and how any two differ (their manifests' Secrets' values masked until asked). */
 function ReleaseHistory({ release }: { release: HelmReleaseDetail }) {
   const revisions = release.revisions
   const [to, setTo] = useState(revisions[0]!.revision)
   const [from, setFrom] = useState(revisions[1]?.revision ?? revisions[0]!.revision)
   const [what, setWhat] = useState<'values' | 'manifest'>('values')
+  const [revealed, setRevealed] = useState(false)
   const text = (revision: number) => {
     const r = revisions.find((x) => x.revision === revision)!
     return what === 'values' ? toYaml(r.values) : r.manifest
   }
-  const diff = unifiedDiff(text(from), text(to))
+  const [before, after] = [text(from), text(to)]
+  const masked = useMemo(
+    () =>
+      what === 'manifest'
+        ? { before: maskedManifest(before), after: maskedManifest(after) }
+        : undefined,
+    [what, before, after],
+  )
+  const hidesSome = !!masked && (masked.before !== before || masked.after !== after)
+  const diff = unifiedDiff(before, after, revealed ? undefined : masked)
   const pick = (label: string, value: number, onChange: (n: number) => void) => (
     <label className="flex items-center gap-1.5 text-xs text-ink-2">
       {label}
@@ -576,6 +609,7 @@ function ReleaseHistory({ release }: { release: HelmReleaseDetail }) {
           <span className="text-critical-text">−{diff.removed}</span>
         </span>
       </div>
+      {hidesSome && <SecretsBar revealed={revealed} onReveal={setRevealed} />}
       {diff.added + diff.removed === 0 ? (
         <p className="px-5 py-6 text-[13px] text-ink-3">No differences.</p>
       ) : (

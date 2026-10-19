@@ -63,11 +63,14 @@ test('a Secret’s data, stringData and last-applied annotation are masked, line
   expect(masked).toContain('              value: shown')
 })
 
-/** No value's text anywhere in what's shown, and the same lines, each where it was. */
+/**
+ * No value's text anywhere in what's shown, and the same lines, each where it was. (Said yes or
+ * no, by which: a failure prints no value.)
+ */
 function hidden(manifest: string, values: string[]) {
   const masked = maskedManifest(manifest)
   expect(masked.split('\n')).toHaveLength(manifest.split('\n').length)
-  for (const value of values) expect(masked, value).not.toContain(value)
+  values.forEach((value, i) => expect(masked.includes(value), `value ${i + 1} shown`).toBe(false))
   return masked
 }
 
@@ -151,6 +154,51 @@ stringData:
     ['hunter2', 'https://db.internal'],
   )
   expect(block).toContain('  config.yaml: |')
+})
+
+test('a value aliased into a Secret from elsewhere in its document masks the document whole, but for what names it', () => {
+  // Merged into its data from a map beside it.
+  const merged = hidden(
+    `---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: a
+base: &b
+  k: SECRETVALUE
+data:
+  <<: *b
+`,
+    ['SECRETVALUE'],
+  )
+  expect(merged).toContain('kind: Secret')
+  expect(merged).toContain('  name: a')
+  // Anchored in a label, named in its data.
+  hidden(
+    `---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: a
+  labels:
+    x: &v SECRETVALUE
+data:
+  k: *v
+`,
+    ['SECRETVALUE'],
+  )
+  // A document with no Secret keeps its aliases, as it was.
+  const plain = `---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: c
+  labels:
+    x: &v shown
+data:
+  k: *v
+`
+  expect(maskedManifest(plain)).toBe(plain)
 })
 
 test('a document that can’t be read is masked whole, but for what names it', () => {
