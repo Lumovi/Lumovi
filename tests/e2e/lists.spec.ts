@@ -275,33 +275,45 @@ test('rows have a context menu', async ({ page }) => {
     .toBe(`kubectl describe node/${DEMO.nodes.worker1} --context ${CONTEXTS.demo}`)
 })
 
-test('no list scrolls sideways, at 1024 and 1440, beside the panel or not; its headings’ band hides what scrolls under it', async ({
+test('no list or its bar scrolls sideways, at 1024 and 1440, beside the panel or not; its headings’ band hides what scrolls under it', async ({
   launch,
 }) => {
   test.slow()
+  /** How far what's in a list's bar reaches past its padding: nothing, where the bar holds it. */
+  const past = (bar: Locator) =>
+    bar.evaluate((at) => {
+      const style = getComputedStyle(at)
+      const edge = at.getBoundingClientRect().right - parseFloat(style.paddingRight)
+      const parts = [...at.children].flatMap((line) => [...line.children])
+      return Math.max(0, ...parts.map((part) => part.getBoundingClientRect().right - edge))
+    })
   for (const width of [1024, 1440]) {
     const { page } = await launch({ env: { LUMOVI_E2E_WINDOW: `${width}x900` }, fullLayout: false })
     await openCluster(page)
     const lists: string[] = []
-    for (const resource of RESOURCES) {
+    // Each kind's list, and every workload's, and the Helm releases.
+    for (const list of [...RESOURCES.map((resource) => resource.plural), 'workloads', 'helm']) {
       await page.evaluate(
         ([context, plural]) => {
           window.location.hash = `#/cluster/${context}/${plural}`
         },
-        [CONTEXTS.demo, resource.plural],
+        [CONTEXTS.demo, list],
       )
       const grid = page.getByRole('grid').first()
       await expect(grid.getByRole('row').nth(1)).toBeVisible()
-      lists.push(resource.plural)
+      lists.push(list)
       const sideways = () => grid.evaluate((at) => at.scrollWidth > at.clientWidth)
-      await expect.poll(sideways, { message: `${resource.plural} at ${width}` }).toBe(false)
+      const bar = page.getByRole('group', { name: 'Filters' }).first()
+      await expect.poll(sideways, { message: `${list} at ${width}` }).toBe(false)
+      await expect.poll(() => past(bar), { message: `${list}’s bar at ${width}` }).toBeLessThan(1)
       await grid.getByRole('row').nth(1).click()
       await expect(
         page.getByRole('complementary').filter({ has: page.getByRole('tablist') }),
       ).toBeVisible()
+      await expect.poll(sideways, { message: `${list} at ${width}, beside the panel` }).toBe(false)
       await expect
-        .poll(sideways, { message: `${resource.plural} at ${width}, beside the panel` })
-        .toBe(false)
+        .poll(() => past(bar), { message: `${list}’s bar at ${width}, beside the panel` })
+        .toBeLessThan(1)
     }
     expect(lists).toContain('pods')
     // The headings' band is wholly opaque, with no blur: nothing scrolled under it shows.

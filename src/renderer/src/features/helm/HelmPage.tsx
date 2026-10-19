@@ -4,7 +4,6 @@ import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import type { HelmRelease, KubeObject } from '@shared/api'
 import { releaseUpdate, type ReleaseUpdate } from '@shared/helm-repositories'
-import { Button } from '@renderer/components/Button'
 import { EmptyState, ErrorState, StaleNotice, UnreadNotice } from '@renderer/components/States'
 import { StatusPill } from '@renderer/components/Status'
 import { TabContent, TabList, Tabs } from '@renderer/components/Tabs'
@@ -315,12 +314,10 @@ function ReleasesTab() {
           )
         }
         // A phone reads releases: charts are installed from a larger screen.
-        before={
-          !phone && (
-            <Button variant="secondary" onClick={() => setInstalling(true)}>
-              <PackagePlus /> Install chart
-            </Button>
-          )
+        action={
+          phone
+            ? undefined
+            : { icon: <PackagePlus />, label: 'Install chart', onPress: () => setInstalling(true) }
         }
         filter={filter}
         noun="releases"

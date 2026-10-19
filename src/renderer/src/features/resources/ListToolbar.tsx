@@ -229,13 +229,16 @@ const LEAST = { selector: 160, button: 32, filter: 128, squeezed: 80, views: 96 
 
 /**
  * The bar over a list: how many there are, the saved views' button, a chip per health level,
- * then to the right what the page adds (`before`, which never gives way), a note, the label
- * selector, the filter and what ends it (`after`: the Columns button, which never gives way
- * either). Its fields keep to one row. As it narrows they give way first, from 240 px each, and
- * the views' button with them, its name cut, to 96 px; under 480 px (720 where there are chips)
- * the label selector is a button; and the views' button and the chips, which never shrink, take
- * a row of their own under the first whenever it can't hold them beside everything else at its
- * least, and wrap there: the views first, cut to what the row leaves beside the first chip.
+ * then to the right what the page adds (`before`, which never gives way, and its `action`), a
+ * note, the label selector, the filter and what ends it (`after`: the Columns button, which never
+ * gives way either). Its fields keep to one row. As it narrows they give way first, from 240 px
+ * each, and the views' button with them, its name cut, to 96 px; under 480 px (720 where there
+ * are chips) the label selector is a button; the views' button and the chips, which never
+ * shrink, take a row of their own under the first whenever it can't hold them beside everything
+ * else at its least, and wrap there: the views first, cut to what the row leaves beside the
+ * first chip. Then, where the first row still can't hold it all, the page's action is its icon
+ * alone, its name its tooltip; and then the count leads the second row, as on a phone, and the
+ * fields take the first row's width.
  *
  * (That is measured: wrapping alone would send the fields under the chips, not the chips under
  * the fields.)
@@ -245,6 +248,7 @@ export function ListBar({
   views,
   chips,
   before,
+  action,
   note,
   labels,
   onLabels,
@@ -261,6 +265,8 @@ export function ListBar({
   /** The health chips, when the list has any. */
   chips?: ReactNode
   before?: ReactNode
+  /** What the page does (“Install chart”): named while there's room; then its icon alone. */
+  action?: { icon: ReactNode; label: string; onPress: () => void }
   /** Said in full while there's room; then an icon with it as its tooltip. */
   note?: string
   /** The label selector applied, for lists that take one. */
@@ -281,16 +287,24 @@ export function ListBar({
   const extras = useRef<HTMLSpanElement>(null)
   const ends = useRef<HTMLSpanElement>(null)
   const viewsBox = useRef<HTMLSpanElement>(null)
+  const acted = useRef<HTMLButtonElement>(null)
+  // How wide the action was when it last drew with its name.
+  const actionWhole = useRef(0)
   const [width, setWidth] = useState(Infinity)
   const [stacked, setStacked] = useState(false)
+  // Whether the action is its icon alone, and whether the count leads the second row.
+  const [iconOnly, setIconOnly] = useState(false)
+  const [countUnder, setCountUnder] = useState(false)
   // The least the views' button takes (cut to 96 px, or its whole name where that's shorter),
   // and on the second row the most: what the row leaves beside the first chip.
   const [viewsLeast, setViewsLeast] = useState(0)
   const [viewsMost, setViewsMost] = useState<number>()
   const compact = onLabels !== undefined && width < (chips ? BAR.compact : BAR.narrow)
   // On a narrow page whose chips have their own row, the two fields take the first row's width
-  // from the count, rather than stand at its end with a gap before them.
-  const roomy = useLayout() !== 'wide' && stacked && !compact
+  // from the count, rather than stand at its end with a gap before them; and the whole row, with
+  // the count under them.
+  const wide = useLayout() === 'wide'
+  const roomy = countUnder || (!wide && stacked && !compact)
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -305,9 +319,8 @@ export function ListBar({
     return () => observer.disconnect()
   }, [])
   // Whether the first row holds the chips whole, and the views' button at its least, beside
-  // everything else at its least.
+  // everything else at its least; and if not, whether it holds the action whole, and the count.
   useLayoutEffect(() => {
-    if (!chipRow.current && !views) return setStacked(false)
     const each = [...(chipRow.current?.children ?? [])].map(
       (chip) => (chip as HTMLElement).offsetWidth,
     )
@@ -319,20 +332,39 @@ export function ListBar({
     const least = Math.min(LEAST.views, whole)
     setViewsLeast(least)
     setViewsMost(Math.max(least, width - (each.length > 0 ? each[0]! + GAP : 0)))
-    const parts = [
-      counted.current!.offsetWidth + 4,
-      ...(views ? [least] : []),
-      ...(each.length > 0
-        ? [each.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, each.length - 1)]
-        : []),
-      ...(extras.current ? [extras.current.offsetWidth] : []),
+    // What the page adds, its action named or not.
+    const drawn = acted.current?.offsetWidth ?? 0
+    if (action && !iconOnly) actionWhole.current = drawn
+    // (Its icon alone as it's drawn, where it is: a finger's size where it's used with one.)
+    const named = (whole: boolean) =>
+      action ? (whole ? actionWhole.current : iconOnly ? drawn : LEAST.button) : 0
+    const added = (whole: boolean) =>
+      extras.current ? [extras.current.offsetWidth - drawn + named(whole)] : []
+    const rest = (whole: boolean) => [
+      ...added(whole),
       ...(onLabels ? [compact ? LEAST.button : LEAST.selector] : []),
       after && width < BAR.compact ? LEAST.squeezed : LEAST.filter,
       // (What ends it as wide as it draws: the Columns button, and on Events the switch beside it.)
       ...(after ? [ends.current?.offsetWidth ?? LEAST.button] : []),
     ]
-    setStacked(parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width)
-  }, [width, compact, chips, count, views, before, note, onLabels, after])
+    const over = (parts: number[]) =>
+      parts.reduce((sum, w) => sum + w, 0) + GAP * (parts.length - 1) > width
+    const counting = counted.current!.offsetWidth + 4
+    setStacked(
+      (each.length > 0 || !!views) &&
+        over([
+          counting,
+          ...(views ? [least] : []),
+          ...(each.length > 0
+            ? [each.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, each.length - 1)]
+            : []),
+          ...rest(true),
+        ]),
+    )
+    const icon = !!action && over([counting, ...rest(true)])
+    setIconOnly(icon)
+    setCountUnder(over([counting, ...rest(!icon)]))
+  }, [width, compact, chips, count, views, before, action, iconOnly, note, onLabels, after])
 
   // (On the second row its chips are that row's own, wrapping after the views' button.)
   const chipped = chips ? (
@@ -352,18 +384,40 @@ export function ListBar({
       {views}
     </span>
   ) : null
+  const counter = (
+    <span ref={counted} className={cn(listCount, 'self-center')}>
+      {count}
+    </span>
+  )
   return (
     <div ref={bar} role="group" aria-label="Filters" className={listBar}>
       <div className="flex items-center gap-2">
-        <span ref={counted} className={listCount}>
-          {count}
-        </span>
+        {!countUnder && counter}
         {!stacked && viewed}
         {!stacked && chipped}
-        {!roomy && <div className="flex-1" />}
-        {(before || note) && (
+        {/* (Its gap given back: the room it makes is its width.) */}
+        {!roomy && <div className="-ml-2 flex-1" />}
+        {(before || action || note) && (
           <span ref={extras} className="flex shrink-0 items-center gap-2">
             {before}
+            {action &&
+              (iconOnly ? (
+                <Tooltip content={action.label}>
+                  <Button
+                    ref={acted}
+                    aria-label={action.label}
+                    onClick={action.onPress}
+                    className="w-8 px-0 touch:w-11 touch:px-0"
+                  >
+                    {action.icon}
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Button ref={acted} onClick={action.onPress}>
+                  {action.icon}
+                  {action.label}
+                </Button>
+              ))}
             {note &&
               (width < BAR.compact ? (
                 <Tooltip content={note}>
@@ -411,10 +465,12 @@ export function ListBar({
           </span>
         )}
       </div>
-      {stacked && (
+      {(stacked || countUnder) && (
         <div className="flex flex-wrap gap-2">
-          {viewed}
-          {chipped}
+          {countUnder && counter}
+          {/* (Each drawn once: the count can come down a moment before the chips do.) */}
+          {stacked && viewed}
+          {stacked && chipped}
         </div>
       )}
     </div>
