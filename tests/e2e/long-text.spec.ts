@@ -17,7 +17,7 @@ import { LONG, longCluster } from '../mock-cluster/fixtures/long.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
 import { open } from './action-helpers.ts'
-import { expect, goTo, mockOpenExternal, test } from './fixtures.ts'
+import { expect, goTo, mockOpenExternal, openTab, tabNames, test } from './fixtures.ts'
 import { misplaced } from './long-text.ts'
 
 /** A context named as long as people name them. */
@@ -225,12 +225,11 @@ for (const size of ['wide', 'narrow'] as const) {
           ))
         )
           return
-        const tabs = side.getByRole('tab')
-        for (let i = 0; i < (await tabs.count()); i++) {
-          const name = (await tabs.nth(i).innerText()).trim()
+        // Every tab, those in More too.
+        for (const name of await tabNames(side)) {
           // A shell starts a process in the cluster; its terminal draws itself.
           if (/shell/i.test(name)) continue
-          await tabs.nth(i).click()
+          await openTab(side, name)
           await check(`${where} › panel › ${name}`)
         }
         await page.keyboard.press('Escape')
