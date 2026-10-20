@@ -652,6 +652,29 @@ export function panel(page: Page, kind: string, name: string) {
   return page.getByRole('complementary', { name: `${kind} ${name}` })
 }
 
+/** Every tab of a row, in order: those in it, then More's (whose menu it opens and closes). */
+export async function tabNames(where: Locator): Promise<string[]> {
+  const inRow = await where.getByRole('tab').allInnerTexts()
+  const more = where.getByRole('button', { name: 'More tabs' })
+  if (!(await more.count())) return inRow
+  await more.click()
+  const items = where.page().getByRole('menuitem')
+  await expect(items.first()).toBeVisible()
+  const inMore = await items.allInnerTexts()
+  await where.page().keyboard.press('Escape')
+  await expect(where.page().getByRole('menu')).toHaveCount(0)
+  return [...inRow, ...inMore]
+}
+
+/** Opens a tab of a row, wherever it is: in the row, or in More. */
+export async function openTab(where: Locator, name: string): Promise<void> {
+  const tab = where.getByRole('tab', { name, exact: true })
+  if (await tab.count()) return tab.click()
+  await where.getByRole('button', { name: 'More tabs' }).click()
+  await where.page().getByRole('menuitem', { name, exact: true }).click()
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+}
+
 /** Replaces shell.openExternal in the main process; returns a reader for the URLs it received. */
 export async function mockOpenExternal(app: ElectronApplication): Promise<() => Promise<string[]>> {
   await app.evaluate(({ shell }) => {

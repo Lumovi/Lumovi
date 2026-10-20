@@ -266,16 +266,28 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
   await expect(page.getByRole('menu')).toHaveCount(0)
   await page.keyboard.press('ControlOrMeta+Backspace')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  // Its tabs: neither a shell nor a map.
-  await expect(detail.getByRole('tab')).toHaveText([
-    'Overview',
-    'Pods',
-    'Logs',
-    'Metrics',
-    'Events',
-    'Audit',
-    'YAML',
-  ])
+  // Its tabs: neither a shell nor a map. A phone has no room for all seven: those the row has no
+  // room for are More's, a sheet, in their order; one chosen there is open, in the row, and the
+  // row never runs past the screen.
+  const tabs = ['Overview', 'Pods', 'Logs', 'Metrics', 'Events', 'Audit', 'YAML']
+  const sideways = () =>
+    detail
+      .getByRole('tablist')
+      .evaluate((list) => list.parentElement!.scrollWidth - list.parentElement!.clientWidth)
+  const inRow = await detail.getByRole('tab').allInnerTexts()
+  expect(await sideways()).toBe(0)
+  await detail.getByRole('button', { name: 'More tabs' }).click()
+  const sheet = page.getByRole('dialog', { name: 'More tabs' })
+  const inMore = await sheet.getByRole('button').filter({ hasNotText: /^$/ }).allInnerTexts()
+  expect(inMore.length).toBeGreaterThan(0)
+  expect([...inRow, ...inMore]).toEqual(tabs)
+  await expectFingerSized(page, 'the sheet of More tabs')
+  await sheet.getByRole('button', { name: 'YAML' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(detail.getByRole('tab', { name: 'YAML' })).toHaveAttribute('aria-selected', 'true')
+  // (The row's: YAML's own text scrolls sideways, as code does.)
+  expect(await sideways()).toBe(0)
+  await detail.getByRole('tab', { name: 'Overview' }).click()
   // Scrolled, the top bar says which object this is, and the tabs stay.
   await detail.locator('[data-detail-page]').evaluate((scroller) => scroller.scrollTo(0, 400))
   await expect(detail.locator('header').first().locator('.text-transparent')).toHaveText(name)
@@ -478,7 +490,7 @@ test('logs wrap, and what’s done to them is a finger’s size', async ({ page,
     'true',
   )
   // The rest is in a sheet, the times among it, a check when they're shown.
-  await detail.getByRole('button', { name: 'More' }).click()
+  await detail.getByRole('button', { name: 'More', exact: true }).click()
   const more = page.getByRole('dialog', { name: 'Logs' })
   await expect(more.getByRole('button')).toHaveCount(5)
   for (const name of [

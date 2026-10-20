@@ -17,7 +17,17 @@ import { parsePlugin } from '../../src/shared/plugins.ts'
 import { isCustomGroup } from '../../src/shared/resources.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { dialog, menuAction, toasts, writes } from './action-helpers.ts'
-import { expect, mockOpenExternal, openCluster, panel, row, rows, test } from './fixtures.ts'
+import {
+  expect,
+  mockOpenExternal,
+  openCluster,
+  openTab,
+  panel,
+  row,
+  rows,
+  tabNames,
+  test,
+} from './fixtures.ts'
 
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Resources' })
 
@@ -1219,40 +1229,43 @@ test('related objects: a tab each, and pods with their logs and usage', async ({
   const detail = panel(page, 'Widget', CUSTOM.widget)
   // A view's pods are its first related pods, named as it says, with their logs and usage.
   // Lists whose templates find nothing are left out.
-  await expect(detail.getByRole('tab')).toHaveText([
-    'Overview',
-    'Storefront',
-    'Logs',
-    'Metrics',
-    'On worker-1',
-    'Settings',
-    'Nodes',
-    'Things',
-    'Map',
-    'Events',
-    'Audit',
-    'YAML',
-  ])
-  await detail.getByRole('tab', { name: 'Storefront' }).click()
+  // (Those the panel has no room for are in More, in their order.)
+  await expect
+    .poll(() => tabNames(detail))
+    .toEqual([
+      'Overview',
+      'Storefront',
+      'Logs',
+      'Metrics',
+      'On worker-1',
+      'Settings',
+      'Nodes',
+      'Things',
+      'Map',
+      'Events',
+      'Audit',
+      'YAML',
+    ])
+  await openTab(detail, 'Storefront')
   await expect(detail.getByRole('grid', { name: 'Pods' })).toContainText('storefront-')
-  await detail.getByRole('tab', { name: 'Logs' }).click()
+  await openTab(detail, 'Logs')
   await expect(detail.getByRole('log')).toBeVisible()
-  await detail.getByRole('tab', { name: 'Metrics' }).click()
+  await openTab(detail, 'Metrics')
   await expect(detail.getByRole('region', { name: 'CPU per pod' })).toBeVisible()
 
   // Other related lists have their kind's columns: pods' and nodes' with their usage.
-  await detail.getByRole('tab', { name: 'On worker-1' }).click()
+  await openTab(detail, 'On worker-1')
   await expect(detail.getByRole('grid', { name: 'On worker-1' })).toContainText('Running')
   // A list that can't be read says why, and can be tried again.
   const nodesFault = clusters.demo.fail('/api/v1/nodes', { status: 500 })
-  await detail.getByRole('tab', { name: 'Nodes' }).click()
+  await openTab(detail, 'Nodes')
   await expect(detail.getByRole('button', { name: 'Try again' })).toBeVisible()
   nodesFault()
   await detail.getByRole('button', { name: 'Try again' }).click()
   await expect(detail.getByRole('grid', { name: 'Nodes' }).getByRole('meter')).not.toHaveCount(0)
-  await detail.getByRole('tab', { name: 'Things' }).click()
+  await openTab(detail, 'Things')
   await expect(detail).toContainText('This cluster doesn’t serve Thing.')
-  await detail.getByRole('tab', { name: 'Settings' }).click()
+  await openTab(detail, 'Settings')
   const settings = detail.getByRole('grid', { name: 'Settings' })
   await expect(settings).toBeVisible()
   await expect(detail.getByRole('navigation', { name: 'Pagination' })).toContainText('1–50 of 55')
