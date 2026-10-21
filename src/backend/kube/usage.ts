@@ -12,7 +12,15 @@ import type {
 } from '@shared/api'
 import { KubeRequestError, toKubeError } from './errors'
 import type { KubeService } from './service'
-import { assertIntegerInRange, assertObject, assertQuery, assertString, invalid } from './validate'
+import {
+  assertDnsName,
+  assertIntegerInRange,
+  assertNamespace,
+  assertObject,
+  assertQuery,
+  assertString,
+  invalid,
+} from './validate'
 
 type Matrix = { result: { metric: Record<string, string>; values: [number, string][] }[] }
 type Vector = { result: { metric: Record<string, string>; value: [number, string] }[] }
@@ -86,8 +94,8 @@ export const PROXY_PATH = /^(\/(?!\.\.?(?:\/|$))[\w.~-]+)*$/
 export function assertService(value: unknown): asserts value is MetricsService {
   assertObject(value, 'service')
   const service = value as MetricsService
-  assertString(service.namespace, 'namespace')
-  assertString(service.service, 'service')
+  assertNamespace(service.namespace)
+  assertDnsName(service.service, 'a Service’s name')
   assertString(service.port, 'port')
   if (typeof service.path !== 'string' || !PROXY_PATH.test(service.path)) {
     throw invalid('path must be empty or start with / (like /select/0/prometheus)')

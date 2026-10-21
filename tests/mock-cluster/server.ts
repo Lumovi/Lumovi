@@ -864,7 +864,16 @@ export async function startMockCluster(options: MockClusterOptions): Promise<Moc
         ],
       })
     }
-    if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || name.length > 253) {
+    // (RBAC's objects are named as a path's segment allows, as the API server has them: colons
+    // and all, so "system:controller:…".)
+    if (def.group === 'rbac.authorization.k8s.io') {
+      if (name === '.' || name === '..' || /[/%]/.test(name)) {
+        fail(
+          'metadata.name',
+          `Invalid value: "${name}": may not be '.', '..', or contain '/' or '%'`,
+        )
+      }
+    } else if (!/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name) || name.length > 253) {
       fail(
         'metadata.name',
         `Invalid value: "${name}": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character`,

@@ -9,10 +9,31 @@ import { KubeRequestError, statusError } from './errors'
  * plain HTTP the cluster didn't opt into.
  */
 export function serverUrl(kc: KubeConfig, path: string): URL {
+  const refused = () => new KubeRequestError('invalid', 'That isn’t a name Kubernetes allows.')
+  const route = path.split('?')[0]!
+  // A part of a path that's `.` or `..` is never asked: as a URL it's the list, or what's above
+  // it, where one object was meant. Only a name makes one, and every name is checked first
+  // (validate.ts); this is the wall behind that, for every request alike. Written as `%2e` too,
+  // which a URL, a server or a proxy before it reads as a dot.
+  if (
+    route.split('/').some((part) => {
+      const read = decoded(part)
+      return read === '.' || read === '..'
+    })
+  ) {
+    throw refused()
+  }
   const cluster = kc.getCurrentCluster()!
   // Keep any path prefix on the server URL (e.g. Rancher's /k8s/clusters/<id>). The path
   // always starts with a slash, so it can't name another host (`@elsewhere/…`).
   const url = new URL(`${cluster.server.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`)
+  // And the address, as a URL reads it, is the path as written: nothing in it resolved, turned
+  // (a backslash is a slash to a URL), dropped (a tab, a line break), escaped or cut off (at a
+  // `#`). Whoever built the path, and however, it asks only what it says.
+  const prefix = new URL(cluster.server).pathname.replace(/\/+$/, '')
+  if (url.pathname !== `${prefix}/${route.replace(/^\/+/, '')}` || url.hash !== '') {
+    throw refused()
+  }
   if (url.protocol === 'http:' && !cluster.skipTLSVerify) {
     // Same policy as the official client: unencrypted connections must be opted into.
     throw new KubeRequestError(
@@ -21,6 +42,15 @@ export function serverUrl(kc: KubeConfig, path: string): URL {
     )
   }
   return url
+}
+
+/** A part of a path as a server reads it: its escapes undone, where they're whole. */
+function decoded(part: string): string {
+  try {
+    return decodeURIComponent(part)
+  } catch {
+    return part
+  }
 }
 
 /** Adds credentials to a request, explaining credential plugin failures. */

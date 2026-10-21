@@ -180,9 +180,9 @@ test('rejects malformed requests from the renderer', async ({ page }) => {
     'invalid: Unknown resource kind "../secrets"',
     // The cluster serves Widget.example.com, not a Widget in the core group.
     'not-found: demo doesn’t serve Widget resources.',
-    'invalid: namespace must be a non-empty string',
+    'invalid: That isn’t a namespace Kubernetes allows.',
     'invalid: context must be a non-empty string',
-    'invalid: name must be a non-empty string',
+    'invalid: That isn’t a name Kubernetes allows.',
     'invalid: target must be "nodes" or "pods"',
     'invalid: A new stream needs a new id',
     'invalid: tailLines must be an integer between 1 and 20000',
@@ -583,10 +583,10 @@ test('rejects malformed changes from the renderer', async ({ page, clusters }) =
     ])
   })
   expect(errors).toEqual([
-    'invalid: namespace must be a non-empty string',
+    'invalid: That isn’t a namespace Kubernetes allows.',
     'invalid: Node objects have no namespace',
     'invalid: Expected a query object',
-    'invalid: name must be a non-empty string',
+    'invalid: That isn’t a name Kubernetes allows.',
     'invalid: patchType must be one of merge, strategic, json',
     'invalid: A JSON patch must be a list',
     'invalid: patch must be an object',
@@ -605,8 +605,8 @@ test('rejects malformed changes from the renderer', async ({ page, clusters }) =
     'invalid: verb must be one of get, list, create, update, patch, delete',
     'ok',
     'invalid: kind must be one of Deployment, StatefulSet, DaemonSet',
-    'invalid: namespace must be a non-empty string',
-    'invalid: name must be a non-empty string',
+    'invalid: That isn’t a namespace Kubernetes allows.',
+    'invalid: That isn’t a name Kubernetes allows.',
     expect.stringContaining('Expected a context name and whether it is read-only'),
   ])
   // Dry runs left everything in place.
@@ -786,7 +786,7 @@ test('rejects malformed shell and port-forward requests', async ({ page }) => {
     'invalid: mode must be one of node, pod',
     'invalid: A shell here is in a container or on a node',
     'invalid: A new terminal needs a new id',
-    'invalid: namespace must be a non-empty string',
+    'invalid: That isn’t a namespace Kubernetes allows.',
     'invalid: Your kubeconfig has no context called “no-such-context”.',
     'invalid: kind must be one of Pod, Service',
     'invalid: port must be an integer between 1 and 65535',
