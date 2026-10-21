@@ -35,8 +35,8 @@ import { isRefusal } from '../audit/describe'
 import type { Recorder } from '../audit/recorder'
 import { KubeRequestError, readOnlyRefusal, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
-import { exitOf, prepare, took } from './streams'
-import { assertQuery, assertString, invalid } from './validate'
+import { exitOf, podSocket, prepare, took } from './streams'
+import { assertDnsName, assertNamespace, assertQuery, assertString, invalid } from './validate'
 
 /**
  * Files copied out of a container and into one, as `kubectl cp` does it: `tar` runs in the
@@ -442,8 +442,8 @@ export class FileCopies {
       }
       const r = assertQuery<ContainerRef & { path: string }>(request)
       assertString(r.context, 'context')
-      assertString(r.namespace, 'namespace')
-      assertString(r.pod, 'pod')
+      assertNamespace(r.namespace)
+      assertDnsName(r.pod, 'a pod’s name')
       assertString(r.container, 'container')
       assertString(r.path, 'path')
       let halted!: () => void
@@ -515,6 +515,7 @@ export class FileCopies {
     const said = new Said()
     let settle!: (exit: Exit) => void
     const exit = new Promise<Exit>((resolve) => (settle = resolve))
+    podSocket(kc, r.namespace, r.pod, 'exec')
     const socket = await new Exec(kc).exec(
       r.namespace,
       r.pod,

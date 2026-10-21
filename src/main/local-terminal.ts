@@ -25,7 +25,7 @@ import { spawn, type IPty } from 'node-pty'
 import type { LocalShellRequest, Result, ShellExit } from '@shared/api'
 import { KubeRequestError, toKubeError } from '@backend/kube/errors'
 import { quoted, type KubeConfigStore } from '@backend/kube/kubeconfig'
-import { assertQuery, assertString, invalid } from '@backend/kube/validate'
+import { assertNamespace, assertQuery, assertString, invalid } from '@backend/kube/validate'
 import type { MatchingKubectl } from './kubectl'
 
 declare const LUMOVI_TEST_BUILD: boolean
@@ -339,7 +339,7 @@ export class LocalTerminals {
       }
       const r = assertQuery<LocalShellRequest>(request)
       assertString(r.context, 'context')
-      if (r.namespace !== undefined) assertString(r.namespace, 'namespace')
+      if (r.namespace !== undefined) assertNamespace(r.namespace)
       await this.deps.envReady
       const { env } = this.deps
       const context = this.deps.store.load().contexts.find((c) => c.name === r.context)

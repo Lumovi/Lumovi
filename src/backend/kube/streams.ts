@@ -26,7 +26,16 @@ import { authorize, kubeRequest, serverUrl } from './client'
 import { KubeRequestError, toKubeError, type ReadOnlyCheck } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
 import { createNodeShell, deleteNodeShell, nodeShellCommand, waitForNodeShell } from './node-shell'
-import { assertIntegerInRange, assertOneOf, assertQuery, assertString, invalid } from './validate'
+import {
+  assertDnsName,
+  assertIntegerInRange,
+  assertName,
+  assertNamespace,
+  assertOneOf,
+  assertQuery,
+  assertString,
+  invalid,
+} from './validate'
 
 /** Starts bash when the container has it, and sh otherwise, like `kubectl debug` users do by hand. */
 const SHELL = ['sh', '-c', 'command -v bash >/dev/null 2>&1 && exec bash || exec sh']
@@ -105,6 +114,17 @@ function shellRecord(r: Audited, input?: boolean) {
 export async function prepare(kc: KubeConfig): Promise<void> {
   serverUrl(kc, '/')
   await authorize(kc, {})
+}
+
+/**
+ * A pod's path as the WebSocket client makes it (its parts as they are, not escaped): its
+ * namespace and name held to Kubernetes' rules, whoever named them (a pod a port forward found
+ * is the cluster's answer), and the path to what every request's is, before it's asked.
+ */
+export function podSocket(kc: KubeConfig, namespace: string, pod: string, what: string): void {
+  assertNamespace(namespace)
+  assertDnsName(pod, 'a pod’s name')
+  serverUrl(kc, `/api/v1/namespaces/${namespace}/pods/${pod}/${what}`)
 }
 
 /** Terminal output that the exec client can also read the terminal's size from. */
@@ -208,11 +228,11 @@ export class Terminals {
       const r = assertQuery<ShellRequest>(request)
       assertString(r.context, 'context')
       if (r.target === 'container' || r.target === 'attach') {
-        assertString(r.namespace, 'namespace')
-        assertString(r.pod, 'pod')
+        assertNamespace(r.namespace)
+        assertDnsName(r.pod, 'a pod’s name')
         assertString(r.container, 'container')
       } else if (r.target === 'node') {
-        assertString(r.node, 'node')
+        assertDnsName(r.node, 'a node’s name')
         assertOneOf(r.mode, 'mode', ['node', 'pod'] as const)
       } else {
         throw invalid('A shell here is in a container or on a node')
@@ -430,6 +450,7 @@ export class Terminals {
         this.emit.exit(id, ended)
       })
     }
+    podSocket(kc, where.namespace, where.pod, 'exec')
     const socket = await new Exec(kc)
       .exec(
         where.namespace,
@@ -508,6 +529,7 @@ export class Terminals {
       this.emit.exit(id, exit)
     }
     // (A terminal's output is one stream: with a TTY, the API server takes no stderr.)
+    podSocket(kc, r.namespace, r.pod, 'attach')
     const socket = await new Attach(kc).attach(
       r.namespace,
       r.pod,
@@ -594,9 +616,9 @@ export class Forwards {
     try {
       const r = assertQuery<PortForwardRequest>(request)
       assertString(r.context, 'context')
-      assertString(r.namespace, 'namespace')
+      assertNamespace(r.namespace)
       assertOneOf(r.kind, 'kind', FORWARD_KINDS)
-      assertString(r.name, 'name')
+      assertName(r.name)
       assertIntegerInRange(r.port, 'port', 1, 65_535)
       if (r.localPort !== undefined) assertIntegerInRange(r.localPort, 'localPort', 1, 65_535)
       asked = r
@@ -739,6 +761,7 @@ export class Forwards {
       this.#notify()
     })
     try {
+      podSocket(kc, forward.namespace, forward.pod, 'portforward')
       const ws = (await new Forwarder(kc).portForward(
         forward.namespace,
         forward.pod,

@@ -63,13 +63,17 @@ import type { ClusterConfigs } from './kubeconfig'
 import { Limiter } from './limiter'
 import { schemaOf, type DocumentCache } from './schemas'
 import {
+  assertDnsName,
   assertIntegerInRange,
   assertKind,
+  assertName,
+  assertNamespace,
   assertObject,
   assertOneOf,
   assertQuery,
   assertString,
   invalid,
+  optionalNamespace,
   optionalString,
 } from './validate'
 
@@ -168,6 +172,8 @@ interface PodMetric {
  */
 /** What a read of a Secret by key may say, and nothing more. */
 const SECRET_VALUES_FIELDS = new Set(['context', 'namespace', 'name', 'keys'])
+/** What a read of one object says where the cluster answered with something else. */
+const NOT_THE_OBJECT = 'The cluster answered with something other than the object asked for.'
 /** An object's name, as Kubernetes allows one: lowercase letters, digits, hyphens and dots. */
 const KUBERNETES_NAME = /^[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?$/
 /** A Secret's key, as Kubernetes allows one. */
@@ -353,7 +359,7 @@ export class KubeService {
       const q = assertQuery<ListQuery>(query)
       assertString(q.context, 'context')
       assertKind(q.kind)
-      optionalString(q.namespace, 'namespace')
+      optionalNamespace(q.namespace)
       optionalString(q.labelSelector, 'labelSelector')
       optionalString(q.fieldSelector, 'fieldSelector')
       const resource = await this.#resource(q.context, q.kind)
@@ -403,7 +409,7 @@ export class KubeService {
       const q = assertQuery<SearchQuery>(query)
       assertString(q.context, 'context')
       assertKind(q.kind)
-      optionalString(q.namespace, 'namespace')
+      optionalNamespace(q.namespace)
       optionalString(q.labelSelector, 'labelSelector')
       const resource = await this.#resource(q.context, q.kind)
       const path = resourcePath(resource, q.namespace)
@@ -455,7 +461,7 @@ export class KubeService {
     const q = assertQuery<ListQuery>(query)
     assertString(q.context, 'context')
     assertKind(q.kind)
-    optionalString(q.namespace, 'namespace')
+    optionalNamespace(q.namespace)
     optionalString(q.labelSelector, 'labelSelector')
     optionalString(q.fieldSelector, 'fieldSelector')
     if (this.store.watches?.(q.context) === false) {
@@ -555,10 +561,12 @@ export class KubeService {
       const q = assertQuery<GetQuery>(query)
       assertString(q.context, 'context')
       assertKind(q.kind)
-      assertString(q.name, 'name')
-      optionalString(q.namespace, 'namespace')
+      assertName(q.name)
+      optionalNamespace(q.namespace)
       if (q.subresource !== undefined) assertOneOf(q.subresource, 'subresource', ['scale'])
       const resource = await this.#resource(q.context, q.kind)
+      // One object of a kind that's in a namespace is read in its own, never across them all.
+      if (resource.namespaced) assertNamespace(q.namespace)
       const shown =
         this.guard && resource.kind === 'Secret'
           ? await this.#secretsShown(q.context, q.namespace!)
@@ -566,7 +574,15 @@ export class KubeService {
       const path = resourcePath(resource, q.namespace, q.name)
       const subresource = q.subresource ? `/${q.subresource}` : ''
       const hidden = await this.#withheldOf(resource)
-      const object = slim(await this.#getJson<KubeObject>(q.context, `${path}${subresource}`))
+      const object = slim(
+        theOne(
+          await this.#getJson<unknown>(q.context, `${path}${subresource}`),
+          resource,
+          q.subresource === 'scale' ? 'Scale' : resource.apiKind,
+          q.name,
+          q.namespace,
+        ),
+      )
       return withhold(shown === 'values' ? object : withoutValues(object), hidden)
     })
   }
@@ -698,13 +714,14 @@ export class KubeService {
     return this.#run(async () => {
       const q = assertQuery<CertificatesQuery>(query)
       assertString(q.context, 'context')
-      assertString(q.namespace, 'namespace')
-      assertString(q.name, 'name')
+      assertNamespace(q.namespace)
+      assertName(q.name)
       const resource = await this.#resource(q.context, 'Secret')
       const shown = this.guard ? await this.#secretsShown(q.context, q.namespace) : 'values'
       if (shown !== 'values') return []
       const path = resourcePath(resource, q.namespace, q.name)
-      return certificatesOf(await this.#getJson<KubeObject>(q.context, path))
+      const answer = await this.#getJson<unknown>(q.context, path)
+      return certificatesOf(theOne(answer, resource, 'Secret', q.name, q.namespace))
     })
   }
 
@@ -724,7 +741,7 @@ export class KubeService {
   metrics(query: unknown): Promise<Result<MetricsSnapshot>> {
     return this.#run(async () => {
       const q = assertQuery<MetricsQuery>(query)
-      optionalString(q.namespace, 'namespace')
+      optionalNamespace(q.namespace)
       try {
         if (q.target === 'nodes') {
           const list = await this.#getJson<{ items: NodeMetric[] }>(
@@ -758,10 +775,10 @@ export class KubeService {
       assertString(r.context, 'context')
       assertKind(r.kind)
       const resource = await this.#resource(r.context, r.kind)
-      if (resource.namespaced) assertString(r.namespace, 'namespace')
+      if (resource.namespaced) assertNamespace(r.namespace)
       else if (r.namespace !== undefined) throw invalid(`${r.kind} objects have no namespace`)
       const change = assertQuery<Change>(r.change)
-      if (change.action !== 'create') assertString(r.name, 'name')
+      if (change.action !== 'create') assertName(r.name)
       // An object that holds withheld fields isn't written whole: what's sent would write them
       // back, or blank them.
       const hidden = await this.#withheldOf(resource)
@@ -794,6 +811,15 @@ export class KubeService {
       if (readOnly) throw readOnlyRefusal(r.context, readOnly)
       const dryRun = r.dryRun === true ? '?dryRun=All' : ''
       const path = resourcePath(resource, r.namespace, r.name)
+      // What it answers is the object changed: of its kind (a Scale, of its scale), by its name.
+      const answers = {
+        kind:
+          change.action === 'patch' && change.subresource === 'scale' ? 'Scale' : resource.apiKind,
+        name:
+          change.action === 'create'
+            ? (change as { object?: KubeObject }).object?.metadata?.name
+            : r.name,
+      }
       const send = async (target: string, options: Omit<RequestOptions, 'timeoutMs'>) => {
         let answer: string
         try {
@@ -804,7 +830,9 @@ export class KubeService {
           const { code, status } = toKubeError(error)
           throw new KubeRequestError(code, WITHHELD_FAILED[code] ?? WITHHELD_FAILED.other, status)
         }
-        const object = slim(JSON.parse(answer) as KubeObject)
+        const object = slim(
+          theOne(JSON.parse(answer), resource, answers.kind, answers.name, r.namespace),
+        )
         return withhold(secrets === 'values' ? object : withoutValues(object), hidden)
       }
 
@@ -930,11 +958,15 @@ export class KubeService {
     return this.#run(async () => {
       const q = assertQuery<HistoryQuery>(query)
       assertOneOf(q.kind, 'kind', ROLLOUT_KINDS)
-      assertString(q.namespace, 'namespace')
-      assertString(q.name, 'name')
-      const owner = await this.#getJson<KubeObject>(
-        q.context,
-        resourcePath(resourceByKind(q.kind), q.namespace, q.name),
+      assertNamespace(q.namespace)
+      assertName(q.name)
+      const resource = resourceByKind(q.kind)
+      const owner = theOne(
+        await this.#getJson<unknown>(q.context, resourcePath(resource, q.namespace, q.name)),
+        resource,
+        q.kind,
+        q.name,
+        q.namespace,
       )
       const ns = `/apis/apps/v1/namespaces/${encodeURIComponent(q.namespace)}`
       const owned = (item: KubeObject) =>
@@ -1012,8 +1044,8 @@ export class KubeService {
           const c = assertQuery<AccessCheck>(check)
           assertOneOf(c.verb, 'verb', VERBS)
           assertKind(c.kind)
-          optionalString(c.namespace, 'namespace')
-          optionalString(c.name, 'name')
+          optionalNamespace(c.namespace)
+          if (c.name !== undefined) assertName(c.name)
           optionalString(c.subresource, 'subresource')
           const resource = await this.#resource(context, c.kind)
           const review = JSON.parse(
@@ -1060,6 +1092,8 @@ export class KubeService {
   /** A container's logs as they are, as `kubectl logs` shows them (for MCP's tools, which check it). */
   podLogs(q: PodLogsQuery): Promise<Result<string>> {
     return this.#run(async () => {
+      assertNamespace(q.namespace)
+      assertDnsName(q.pod, 'a pod’s name')
       await this.guard?.require(q.context, 'logs', 'on', q.namespace, 'read logs')
       const params = new URLSearchParams({
         tailLines: String(q.tailLines),
@@ -1087,6 +1121,8 @@ export class KubeService {
   }): Promise<Result<ProxyAnswer>> {
     return this.#run(async () => {
       assertString(q.context, 'context')
+      assertNamespace(q.namespace)
+      assertDnsName(q.service, 'a Service’s name')
       await this.envReady
       const kc = this.store.forContext(q.context)
       const proxy = `/api/v1/namespaces/${encodeURIComponent(q.namespace)}/services/${encodeURIComponent(q.service)}:${encodeURIComponent(String(q.port))}/proxy${q.path}`
@@ -1132,6 +1168,29 @@ export class KubeService {
 function atVersion(resource: ResourceDefinition, object: KubeObject): ResourceDefinition {
   const version = object.apiVersion?.split('/').at(-1)
   return version ? { ...resource, version } : resource
+}
+
+/**
+ * The one object asked for, or nothing of what came is used: what's held back of it is held back
+ * of one object, never of a list or of another. Of `kind`, named `name` (none where the cluster
+ * names it, as a create by `generateName`), in `namespace` where its kind has one.
+ */
+function theOne(
+  answer: unknown,
+  resource: ResourceDefinition,
+  kind: string,
+  name: string | undefined,
+  namespace: string | undefined,
+): KubeObject {
+  const object = answer as Partial<KubeObject> | null
+  if (
+    object?.kind !== kind ||
+    (name !== undefined && object.metadata?.name !== name) ||
+    (resource.namespaced && object.metadata?.namespace !== namespace)
+  ) {
+    throw new KubeRequestError('server', NOT_THE_OBJECT)
+  }
+  return object as KubeObject
 }
 
 /** Drops server-side bookkeeping that is large and never shown. */

@@ -1517,17 +1517,34 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   await page.evaluate(() =>
     window.lumovi!.app.setReadOnly('a\u007fb\ud800c', true).catch(() => undefined),
   )
-  // A name thousands of characters long, each written as six (the summary, the command and the
-  // error all say it).
-  await page.evaluate(() =>
-    window.lumovi!.kube.change({
-      context: 'demo',
-      kind: 'ConfigMap',
-      name: '\u0001'.repeat(4000),
-      namespace: 'shop',
-      change: { action: 'delete' },
+  // The longest name Kubernetes takes, and the cluster's refusal of it thousands of characters
+  // long, each written as six (the summary and the command say the name, the error the refusal).
+  // (A name that isn't one is refused as it comes, and nothing of it is recorded.)
+  const longest = `${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`
+  const refusingLong = clusters.demo.fail(`/api/v1/namespaces/shop/configmaps/${longest}`, {
+    status: 422,
+    body: JSON.stringify({
+      kind: 'Status',
+      apiVersion: 'v1',
+      status: 'Failure',
+      reason: 'Invalid',
+      code: 422,
+      message: '\u0001'.repeat(4000),
     }),
+    contentType: 'application/json',
+  })
+  await page.evaluate(
+    (name) =>
+      window.lumovi!.kube.change({
+        context: 'demo',
+        kind: 'ConfigMap',
+        name,
+        namespace: 'shop',
+        change: { action: 'delete' },
+      }),
+    longest,
   )
+  refusingLong()
   // A change to more of an object than its details hold: as many as fit, and that some didn't.
   const data = Object.fromEntries(
     Array.from({ length: 40 }, (_, i) => [`${String(i).padStart(2, '0')}${'k'.repeat(600)}`, 'v']),
@@ -1582,9 +1599,10 @@ test('whatever an event is about, it stays a line, and hashes as jq has it', asy
   const odd = events.find((e) => e.action === 'read-only.changed')!
   expect(odd.cluster).toBe('a\u007fb\ufffdc')
   expect(odd.outcome).toBe('refused')
-  const huge = events.find((e) => e.action === 'resource.delete')!
+  const huge = events.find((e) => e.target?.name === longest)!
   expect(huge.summary.length).toBeLessThanOrEqual(1000)
-  expect(huge.details).toEqual({ truncated: true })
+  expect(huge.error).toBe('\u0001'.repeat(4000))
+  expect(lines[events.indexOf(huge)]).toContain('\\u0001'.repeat(4000))
   for (const [i, event] of events.entries()) {
     expect(Buffer.byteLength(lines[i]!)).toBeLessThanOrEqual(64 * 1024)
     expect(hashOf(event)).toBe(event.hash)

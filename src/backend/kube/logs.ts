@@ -14,7 +14,14 @@ import { kubeStream } from './client'
 import { knownVia, type PluginLookup, type Via } from './plugin-via'
 import { KubeRequestError, toKubeError } from './errors'
 import type { ClusterConfigs } from './kubeconfig'
-import { assertIntegerInRange, assertQuery, assertString, invalid } from './validate'
+import {
+  assertDnsName,
+  assertIntegerInRange,
+  assertNamespace,
+  assertQuery,
+  assertString,
+  invalid,
+} from './validate'
 
 /** Lines are sent to the page at most this often, per stream. */
 const BATCH_MS = 100
@@ -60,8 +67,8 @@ export class LogStreams {
       }
       const r = assertQuery<LogStreamRequest>(request)
       assertString(r.context, 'context')
-      assertString(r.namespace, 'namespace')
-      assertString(r.pod, 'pod')
+      assertNamespace(r.namespace)
+      assertDnsName(r.pod, 'a pod’s name')
       assertString(r.container, 'container')
       const params = new URLSearchParams({ container: r.container, timestamps: 'true' })
       if (r.tailLines !== undefined) {
