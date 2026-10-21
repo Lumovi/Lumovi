@@ -27,7 +27,7 @@ import {
 } from '@playwright/test'
 import { CONTEXTS, startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { startMockDownloads, type MockDownloads } from '../mock-downloads/server.ts'
-import { test as base, testTempFolder } from '../temp-folders.ts'
+import { endedWhole, test as base, testTempFolder } from '../temp-folders.ts'
 
 export { CONTEXTS, expect }
 export { DEMO, LARGE, SANDBOX, DEMO_TOKEN, MISSING_PLUGIN } from '../mock-cluster/kubeconfig.ts'
@@ -228,7 +228,8 @@ export async function launchApp(
       const quit = await within('quitting', 15_000, () => app.close().catch(() => undefined))
       if (!quit) {
         console.warn(`The app didn’t quit: it had ${running}. It’s stopped.`)
-        app.process().kill('SIGKILL')
+        // With all it started, which would keep its user data open, and its test's folder there.
+        await endedWhole(app.process(), userDataDir)
       }
     },
   }
