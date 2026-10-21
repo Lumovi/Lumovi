@@ -49,7 +49,7 @@ export const PLUGIN_SINCE = {
      * A view's `withholds`: fields of its kinds Lumovi never shows nor hands over. An older Lumovi
      * refuses the file (it's a view's key it doesn't know), so it never shows them either.
      */
-    withholds: 'next',
+    withholds: '1.23.0',
   },
   /** What a view's action can say beyond what it first took. */
   action: {

@@ -203,8 +203,15 @@ export function withholding(
     const mark = await filesMark(directory, env, reading)
     if (read?.mark === mark && read.installed === fromStore) return read.withholding
     const files = await readFiles(directory, env, reading)
+    // (The tests' stand-ins are in the place of Lumovi's own of their names, as they are for the
+    // page: what one withholds is what its test proves, not the one it stands in for.)
+    const standIns = new Set(
+      LUMOVI_TEST_BUILD ? (files.included ?? []).map((file) => file.name) : [],
+    )
     const all: { name: string; text: string; error?: string }[] = [
-      ...Object.entries(SHIPPED).map(([name, text]) => ({ name, text })),
+      ...Object.entries(SHIPPED)
+        .filter(([name]) => !standIns.has(name))
+        .map(([name, text]) => ({ name, text })),
       ...(LUMOVI_TEST_BUILD ? (files.included ?? []) : []),
       ...Object.entries(fromStore ?? {}).map(([name, text]) => ({ name, text })),
       ...files.files,

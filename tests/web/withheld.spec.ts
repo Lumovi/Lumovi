@@ -2,7 +2,9 @@
  * Fields a plugin's view withholds, on a server: what its folder's file withholds of Trivy's
  * reports reaches neither the page nor its YAML tab, nor an assistant, and isn't written back.
  * The file isn't the one in use for the kind (trivy-operator, which Lumovi comes with, is): what
- * it withholds holds all the same.
+ * it withholds holds all the same. (The trivy-operator in use is a stand-in that withholds
+ * nothing, in the place of the one Lumovi comes with, which withholds the match itself: so it's
+ * the folder's file alone that does here.)
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -27,6 +29,23 @@ spec:
       withholds: [{ path: report.secrets.match, why: ${WHY} }]
 `
 
+/** A stand-in for trivy-operator, as Lumovi's own: Trivy's view of its reports, withholding nothing. */
+const TRIVY = `apiVersion: lumovi.dev/v1beta1
+kind: Plugin
+metadata: { name: trivy-operator }
+spec:
+  version: 9.0.0
+  needs: { lumovi: 1.0.0 }
+  groups: [aquasecurity.github.io]
+  label: Trivy
+  kinds: [{ group: aquasecurity.github.io, kind: ExposedSecretReport }]
+  views:
+    - name: trivy-exposed-secret-reports
+      kinds: [{ group: aquasecurity.github.io, kind: ExposedSecretReport }]
+      columns:
+        - { name: Critical, path: .report.summary.criticalCount, type: number }
+`
+
 test('on a server, a field its folder’s file withholds reaches neither the page, its YAML tab nor an assistant, and isn’t written back', async ({
   page,
   serve,
@@ -35,7 +54,11 @@ test('on a server, a field its folder’s file withholds reaches neither the pag
   scanned(clusters.demo)
   const folder = mkdtempSync(join(tmpdir(), 'lumovi-plugins-'))
   writeFileSync(join(folder, 'my-scans.yaml'), SCANS)
-  const served = await serve({ env: { LUMOVI_PLUGINS_DIR: folder } })
+  const included = mkdtempSync(join(tmpdir(), 'lumovi-included-'))
+  writeFileSync(join(included, 'trivy-operator.yaml'), TRIVY)
+  const served = await serve({
+    env: { LUMOVI_PLUGINS_DIR: folder, LUMOVI_TEST_INCLUDED_PLUGINS_DIR: included },
+  })
   await signIn(page, `${served.url}cluster/demo/r/${KIND}?namespaces=shop`, DEMO_TOKEN)
 
   // What the page is handed: the findings, without the match.

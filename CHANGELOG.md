@@ -8,6 +8,230 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.23.0] - 2026-10-21
+
+1.23.0 has a security fix: every object's name and namespace is checked before the cluster is
+asked, and an answer that isn't the object asked for is refused (under Security below).
+
+It also adds a Search page, a Settings screen with keyboard shortcuts of your own, several
+clusters in one list, a Map of the whole cluster, Helm repositories with a chart browser and
+Update available, Compare with…, certificates in Secrets, quotas that show how full they are,
+links to what you're looking at, tabs that move to a window of their own, and adding EKS clusters
+from AWS. On a server, people's groups follow the sign-in provider, and someone it disables is
+signed out. A plugin's file can withhold fields Lumovi then never shows, and a plugin's tables
+download as CSV. It's built with Lumovi-plugins 1.5.2.
+
+### Added
+
+- **Move to a new window.** A tab below moves into a window of its own from its tab's menu: the
+  tab alone, filling the window, under a band that names it, over the window it came from. A
+  terminal's shell goes on running there, with what it showed; one that has ended stays below.
+  A kept object on its Shell moves on its overview, since another window would start another
+  shell. **Put back below** returns it to the window it came from, else to the one in front on its
+  cluster; with no other window, its own becomes a window of Lumovi's pages with the tab below.
+  Closing the window closes the tab, ending a terminal's shell. After a quit, it opens again where
+  it was, a terminal ended and its shell started only when asked; one on a cluster that signs in
+  through a program waits for **Read it now**.
+- On Windows, a terminal whose PowerShell has shown nothing after 5 seconds says it's still
+  starting, and that a profile or a virus scan can slow it down; the line gives way to PowerShell
+  once it draws, and what was typed meanwhile still reaches it.
+- Links to what you're looking at. **Copy link** in an object's More actions, and **Copy link to
+  this view** in a page's menu, copy a `lumovi://` link. Where the same cluster is in someone's
+  kubeconfig, under any name, it opens the same object or view in their desktop app. A link only
+  shows: it never carries a credential, never opens a shell, an attach or a port forward, and
+  changes nothing. Every link asks first, naming the cluster as your kubeconfig calls it, and one
+  to a cluster you don't have says so, with Add a cluster. An organization can turn links off with
+  the policy key `"links": "off"`.
+- **Certificates in Secrets.** A Secret's panel shows what each certificate in it says: who it's
+  for, the names it covers, its issuer, when it's valid, and its chain, flagged where it, or a
+  certificate in its chain, has expired, isn't valid yet, or expires within 14 days; the flag is
+  at the panel's top too. A bundle of roots is only counted, and the private key is never shown.
+  The Secrets list has an Expires column, with chips for those not valid and those expiring soon.
+  Where access shows a Secret's keys only, none of it shows.
+- **Helm: wait, undo, timeout, and what a rollback changes.** Installing a chart and upgrading a
+  release can wait until what Helm made is ready, undo it if it fails (an upgrade rolled back, an
+  install uninstalled), and give Helm a timeout, each with Helm's own flag beside it; while it
+  waits, the dialog says how long, and closing it doesn't stop Helm (quitting Lumovi asks first).
+  Rolling back shows what it changes: the values by key, and the manifest's differences, with
+  Secrets' values masked until revealed, as they are now in a release's Manifest tab and where
+  its history compares manifests.
+- **Fields a plugin withholds.** A view in a plugin's file can name fields of its own kinds that
+  Lumovi never shows or hands on (`withholds`), like the line around a secret a scanner found.
+  They're taken out before anything leaves Lumovi's backend: lists and their CSV, an object's YAML
+  and its copy, its Map and Audit tabs, a plugin's code, and AI assistants' tools. The YAML tab
+  says which fields are withheld, and whose file withholds them. Such an object isn't edited whole
+  in Lumovi, nor patched where a change would touch them: use kubectl. Every plugin file Lumovi
+  has counts, whether or not its plugin is shown or allowed, and while a file doesn't read, the
+  custom kinds of its groups aren't shown at all, since it may withhold fields of them.
+- **Compare with…**, in an object's More actions and the command palette, sets an object beside
+  another of its kind, from another namespace or another cluster, and shows what differs, its
+  status included. What the cluster sets itself (uids, versions, times, addresses) is left out
+  until you ask for it. A workload's ConfigMaps and Secrets are compared with it, paired by where
+  it refers to them. Each side is read with your own access on its cluster: Secrets' values stay
+  masked until revealed, and where either side shows a Secret's keys only, only keys are compared.
+  Nothing signs in by itself: a cluster that signs in through a program is read only when you open
+  it.
+- **Helm: repositories, a chart browser, and Update available.** The Helm page has tabs:
+  Releases, Charts and Repositories. Repositories are added there (HTTP, or an OCI registry with
+  the charts to look for), tested, edited and removed; Lumovi keeps them itself, not in Helm's own
+  list, and reads them every 30 minutes and when the page opens. A sign-in is sent only over
+  https, only to its repository, and is kept in the system's keychain on the desktop (none is kept
+  without one) or sealed on a server, where only Lumovi's admins add repositories. Helm never sees
+  it: Lumovi fetches the chart, checks it against the digest its repository lists, and hands Helm
+  the file. Charts lists what's in them, with each chart's versions and Install. A release Lumovi
+  installed from a repository, or whose chart matches the one repository that has it, says
+  "Update available" when there's a newer version there, and Upgrade opens with it.
+- **Several clusters in one list.** On the Clusters page, **Several clusters** puts a box on each
+  row, and a group's **Open together** opens its clusters at once; on a server, the Fleet page
+  offers the same. Their Workloads, Pods, Nodes and Events are listed together, with a Cluster
+  column, each cluster read with your own access on it. One that doesn't answer within 10 seconds
+  says so on its chip, with Retry, while the others are listed, and one whose refresh fails keeps
+  its last rows and says so. An action, the panel and a new terminal are each on one cluster and
+  name it, and rows ticked on two clusters aren't acted on together. A cluster that signs in
+  through a program is read only when you open it. The clusters opened together last are offered
+  again at the top of the Clusters page and in the command palette.
+- **Quotas show how full they are.** Resource Quotas and Limit Ranges have lists of their own,
+  under Configuration. A quota's row shows its fullest resource, with a meter and how full; its
+  Overview, a meter for each resource it limits. From 90% it's Nearly full, and at its limit Full,
+  each with an icon as well as a colour. A namespace's Overview lists its quotas and limit ranges,
+  a quota from 90% is in Needs attention, and a Deployment whose pods a quota keeps from being made
+  says so, with the quota to open.
+- **A plugin's tables download as CSV**, as Lumovi's own lists do. **Download CSV**, in a table's
+  heading or its card's (at the list bar's end where the table is its page's list), saves every
+  row the table's filters leave, in its order, each column as a spreadsheet reads it, with the same
+  guard against cells a spreadsheet would run as formulas. Lumovi writes the file from what it
+  shows, so it never holds a field a plugin's file withholds, and the plugin doesn't learn it was
+  saved.
+- **Settings.** A Settings screen (the sidebar's gear or the palette; on the desktop, also ⌘,
+  or Ctrl+, and the app menu's Settings…), each setting applied at once, in every window, and
+  kept:
+  theme and accent (Blue, Cyan, Violet, Graphite), density and text size (the View menu's zoom,
+  one setting); the time zone and clock every date is said in; the terminal's font, size and
+  copy on select, and on the desktop the shell it starts; and which namespace a cluster opens in.
+  On a server they're kept per person, on every device they sign in from. What an organization
+  sets (the desktop's policy file, a server's `LUMOVI_SETTINGS`) is shown locked.
+- **Search the cluster.** A Search page (in the sidebar, ⌘⇧F or Ctrl+Shift+F, and from the palette)
+  finds objects of the kinds you may list, by part of their name or by their labels (`app=web`,
+  `tier!=db`, `team=*`, `!canary`), in the namespaces picked, grouped by kind, each with its status.
+  Only names, namespaces, labels and ages are read, never what objects hold. A kind too large to
+  read whole says how much was searched, and a label search asks it again for just those labels. The
+  palette shows matching objects as you type. Searches can be saved, and the first nine run with ⌥⇧1
+  to ⌥⇧9 (Ctrl+Shift on Windows, Alt+Shift on Linux).
+- **Add a cluster from AWS.** Add a cluster has a third way in, From AWS. When you choose Find
+  clusters, and only then, Lumovi runs your own `aws` CLI, as you, to list your profiles and the EKS
+  clusters each one has in the regions you give. One you add signs in with `aws eks get-token` as
+  its profile, a command you agree to first, and goes in a group named for its account and region.
+  Lumovi reads nothing of `~/.aws` itself and keeps no credential.
+- **Map, the whole cluster in one picture.** Where an object's Map tab shows how that one object
+  is connected, Map under Workloads (or G then Y) draws everything in the namespaces picked: what
+  routes traffic, the services, the workloads, their pods and the ConfigMaps, Secrets and claims
+  they use, with lines between them, in a band per namespace, node or app. Each card says how it
+  is in words, each band counts what's failing or warning, and Find dims what doesn't match. On a
+  large cluster or a narrow window, a workload counts its pods and what's healthy folds away. It
+  can also be shown as a list, which is what a phone shows.
+- **Keyboard shortcuts in Settings.** You can change a command's keys, put one back or reset them
+  all, and the menus, the palette, the ? sheet and tooltips show yours. Keys another command has
+  are asked about before they're taken. The system's own keys, a terminal's and the keys built
+  into lists are refused, with the reason. On a server they're kept per person. An organization
+  can set a command's keys and lock that command (`settings.shortcuts` in the policy file, or
+  `LUMOVI_SETTINGS` on a server).
+
+### Fixed
+
+- On the events timeline, a mark's card no longer shows another object's or another event's
+  details after a zoom, or as rows and events come in before it: it stays with its own event, and
+  a zoom lets it go.
+- On the events timeline, a short bar's count no longer covers the mark after it. Where a mark
+  follows too close, the count goes before the bar's first mark instead, or, with no room on either
+  side, only its card says it.
+- The Events page's List and Timeline switch is no longer cut off in a narrow window or beside a
+  row's panel: the toolbar puts its chips on a second row first, and the filter keeps room to type
+  in.
+- A plugin's list beside a row's panel keeps its filter clear of its chips: where they don't fit
+  beside it, the chips take a row of their own under it, as in Lumovi's own lists, and its filter
+  says "Filter" alone where the bar is narrow.
+- A plugin's table keeps each status whole: beside a row's panel, its other columns give way
+  before a status is cut, and pointing anywhere on a row says its cut cells whole, as the keyboard
+  does.
+- A plugin's change dialog draws its switches as Lumovi's own, so one that's off no longer looks
+  on: Argo CD's Sync showed Prune, Dry run and Apply only as on while they were off.
+- Lists no longer scroll sideways, at any window width, with the panel open or not. Where there's
+  no room, the least important columns give way first; then a status narrows to its icon, in its
+  colour, with its word in a tooltip; then the other columns give way; and last the name narrows,
+  cut in the middle so the pods of one ReplicaSet stay told apart. In Events, Message stays, Type
+  narrows to its icon, and Reason gives way. Headings no longer show the rows scrolling under them,
+  and a page's address sorted by a column the list doesn't have, or can't sort by, drops that
+  order. The bar over a list keeps to its pane too: where it's narrow, beside the panel say, a
+  page's own button, such as Install chart, narrows to its icon, with its name in a tooltip, and
+  then the count moves to the line under, before the chips. A plugin's page header puts its
+  buttons under its status where they don't fit beside it.
+- **The AI assistants page lists only the assistants connected now.** One that disconnected as the
+  page opened, or while it was asking how things stood, could stay listed until something else
+  changed. Your AI permissions, a server's assistants and the port forwards list keep up the same
+  way.
+- **Microsoft Entra ID: someone in more than 200 groups signs in with their groups.** Their ID
+  token then lists none, only that there are too many to list: Lumovi reads them from Microsoft
+  Graph, as them, with User.Read (add it to `LUMOVI_OIDC_SCOPES`), at sign-in and at each renewal.
+  Those are the security groups they're in; Microsoft 365 groups don't come through. Where Graph
+  can't be read, they sign in with no groups, and the Account menu says so. A national cloud's
+  Graph is set with `LUMOVI_OIDC_GRAPH_URL`.
+- **Adding a cluster to a fleet says what's wrong.** Where it said "The server doesn't answer", it
+  names the problem, with what to do: a client certificate or key that isn't one, or a server
+  certificate that's for another name (with the names it gives), isn't signed by the CA given, has
+  expired or isn't valid yet. "The server doesn't answer" is left for a server that can't be reached
+  in time. Removing a cluster that isn't there, a name that isn't text and an empty group get plain
+  answers too.
+- **A kubeconfig user that signs in with `auth-provider: oidc` stays signed in.** Once its ID
+  token had expired, Lumovi couldn't get credentials for the cluster. Now it renews the token from
+  the issuer with the refresh token, as kubectl does. In the desktop app, it writes the new tokens
+  back to the kubeconfig the user came from, as kubectl writes them, under kubectl's lock. Only
+  that user's `id-token` and `refresh-token` change, and comments and everything else stay as they
+  were. Where the file can't be written, Lumovi keeps the tokens until it quits, and says so. When
+  a renewal fails, the cluster says why Lumovi couldn't sign in. A server keeps renewed tokens in
+  memory only and never writes its kubeconfig.
+- **No view breaks on an object that leaves out a field the API doesn't require.** An autoscaler
+  without metrics, an event about no object in particular, a node that hasn't reported yet or a
+  service without a selector could stop its list, its detail or its Map tab with "couldn't be
+  displayed", or the whole window with "Something went wrong". Lists, details, maps, the Overview
+  and the actions now cope with whatever the API leaves optional.
+- **A dialog that closes leaves the keyboard where you put it.** One that went a moment after you'd
+  moved on, into a list's filter say, gave the keyboard back to what had opened it, so what you
+  typed next went there instead. Now it gives the keyboard back only if it's still in the dialog.
+- **A link's Add a cluster opens Add a cluster.** On the card for a link to a cluster Lumovi
+  doesn't know, Add a cluster could land on the start screen without its dialog, when the start
+  screen hadn't yet read the kubeconfig files. Now it opens as soon as it may.
+- **The Overview draws for an account that may read less.** One that may not list nodes, as
+  Kubernetes' own `view` role can't, saw the whole Overview fail with "nodes is forbidden". Now the
+  rest of the page draws, and the node parts (Nodes ready, CPU, Memory and Nodes) say the account
+  isn't allowed to list nodes. Where node metrics can't be read, because the account may not read
+  them or the read fails, CPU and Memory no longer stay "Measuring…": they show what's requested
+  and say why there's no live usage. With only one cluster, an Overview that fails no longer offers
+  "Choose another cluster".
+- How long something has run reads in days past a day: "15d 17h", not "377h 53m", in a status's
+  count, a busy button and its menus, and "15 days 17 hours" to a screen reader.
+- A row of tabs, like an object's, no longer runs past its edge, where a pod's YAML was cut to "YA"
+  at 1024 wide. The tabs that fit stay in their order, and the rest are in More at the row's end, a
+  menu (a sheet on a phone). The open tab always has a place in the row. From the keyboard, More is
+  the row's last stop: → past the last tab, or End, then ↓, Enter or Space opens it.
+
+### Security
+
+- **Single sign-on: groups follow the provider, and someone it disables is signed out.** Given a
+  refresh token (offline_access, for most providers), Lumovi now keeps it, sealed, whether or not
+  it passes people's own tokens on, asks the provider again before each ID token expires, and
+  revokes it at sign-out where the provider can. Someone's groups are then as the provider says
+  now, from their next request. A provider that won't renew a sign-in (the person was disabled or
+  removed) ends the session at once; one that renews it without a new ID token doesn't say their
+  groups again, so the session ends when the last ID token expires; one that can't be reached is
+  asked again, and the session ends when the token it last gave expires. A change to someone's
+  groups is in the audit log.
+- **One object's name and namespace are checked before the cluster is asked.** Every call that
+  takes an object's name or a namespace now refuses one Kubernetes wouldn't accept, in Lumovi's
+  own words (a pod's, a node's or a Service's is a DNS name), and a read of one object of a kind
+  that's in a namespace needs its namespace. No request is sent with a `.` or `..` path segment,
+  written plainly or escaped, or with an address that reads differently from its path, and a read
+  or change of one object whose answer isn't that object is refused.
+
 ## [1.22.1] - 2026-10-15
 
 1.22.1 makes the pages Lumovi's plugins draw look and work like Lumovi's own: a page that is one
@@ -1316,7 +1540,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...v1.23.0
 [1.22.1]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/Lumovi/Lumovi/compare/v1.20.0...v1.21.0
