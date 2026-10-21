@@ -210,18 +210,34 @@ test('at the narrowest, beside what’s newer, where a plugin came from breaks b
   expect(await page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(1024)
   await expect(row(page, 'Toys')).toContainText('Comes with Lumovi')
   const lines = table(page).getByText('Comes with Lumovi')
-  // A word cut in two takes two lines. (Counted by the lines its boxes are on, not the boxes:
-  // macOS can give a word on one line a second box, empty or on that same line.)
+  // Measured in the font it's drawn in: until that's in, another stands in, with words of other
+  // widths, and other boxes.
+  await expect
+    .poll(() =>
+      lines.first().evaluate((line) => {
+        const { fontSize, fontFamily } = getComputedStyle(line)
+        return document.fonts.check(`${fontSize} ${fontFamily}`, line.textContent!)
+      }),
+    )
+    .toBe(true)
+  // A word cut in two takes two lines: boxes more than half a line apart. (Not the boxes, nor
+  // their tops to the pixel: macOS can give a word on one line a second box, empty or on that
+  // same line a fraction of a pixel lower.)
   const cut = await lines.evaluateAll((each) =>
     each.flatMap((line) => {
       const text = line.firstChild!
+      const style = getComputedStyle(line)
+      // (A line's height, as drawn: 1.2 of its font where it's left to the font.)
+      const half = (parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2) / 2
       return [...text.textContent!.matchAll(/\S+/g)]
         .filter((word) => {
           const range = document.createRange()
           range.setStart(text, word.index)
           range.setEnd(text, word.index + word[0].length)
-          const boxes = [...range.getClientRects()].filter((box) => box.width > 0)
-          return new Set(boxes.map((box) => Math.round(box.top))).size > 1
+          const tops = [...range.getClientRects()]
+            .filter((box) => box.width > 0)
+            .map((box) => box.top)
+          return Math.max(...tops) - Math.min(...tops) > half
         })
         .map((word) => word[0])
     }),
