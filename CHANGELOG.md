@@ -10,15 +10,15 @@ Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gath
 
 ## [1.23.0] - 2026-10-21
 
-1.23.0 has a security fix: every object's name and namespace is checked before the cluster is
-asked, and an answer that isn't the object asked for is refused (under Security below).
+1.23.0 has two security fixes, under Security below: every object's name and namespace is
+checked before the cluster is asked, and an answer that isn't the object asked for is refused; and
+on a server, people's groups follow the sign-in provider, and someone it disables is signed out.
 
 It also adds a Search page, a Settings screen with keyboard shortcuts of your own, several
 clusters in one list, a Map of the whole cluster, Helm repositories with a chart browser and
 Update available, Compare with…, certificates in Secrets, quotas that show how full they are,
 links to what you're looking at, tabs that move to a window of their own, and adding EKS clusters
-from AWS. On a server, people's groups follow the sign-in provider, and someone it disables is
-signed out. A plugin's file can withhold fields Lumovi then never shows, and a plugin's tables
+from AWS. A plugin's file can withhold fields Lumovi then never shows, and a plugin's tables
 download as CSV. It's built with Lumovi-plugins 1.5.2.
 
 ### Added
@@ -225,12 +225,36 @@ download as CSV. It's built with Lumovi-plugins 1.5.2.
   groups again, so the session ends when the last ID token expires; one that can't be reached is
   asked again, and the session ends when the token it last gave expires. A change to someone's
   groups is in the audit log.
-- **One object's name and namespace are checked before the cluster is asked.** Every call that
-  takes an object's name or a namespace now refuses one Kubernetes wouldn't accept, in Lumovi's
-  own words (a pod's, a node's or a Service's is a DNS name), and a read of one object of a kind
-  that's in a namespace needs its namespace. No request is sent with a `.` or `..` path segment,
-  written plainly or escaped, or with an address that reads differently from its path, and a read
-  or change of one object whose answer isn't that object is refused.
+- **A name that isn't one could reach more than one object, or another one.** Asked for an object
+  by a name like "." or "..", which no object can have, or for a pod by a name with a backslash,
+  Lumovi could send the cluster an address that reaches more than that object, or something else.
+
+  - **Reads, on a server (1.6.0 to 1.22.1).** A read of one object could bring back every object of
+    its kind in the namespace, handed back as if it were the one. Where your
+    [access](https://docs.lumovi.dev/server/access) shows someone only a Secret's keys, the Secrets
+    in that list came with their values.
+  - **Shells, attaching and file copies, on a server (1.6.0 to 1.22.1).** A pod's name with a
+    backslash could open a shell in a container, attach to one, or copy files to or from one, in
+    another namespace than the one Lumovi's access checked.
+  - **Deletes, on the desktop and on a server.** A delete by such a name could delete every object
+    of its kind in the namespace (or, for a kind outside namespaces, like nodes, every one), or the
+    namespace itself. Lumovi's own pages never asked for such a name: it took an assistant's delete
+    or a plugin's proposed change, approved in a dialog that named "." or "..".
+
+  Each went to the cluster as the person signed in, so never past what the cluster lets them do.
+  What they got past were Lumovi's own rules: where someone sees only a Secret's keys, and where
+  they may open shells. The reads and deletes have been seen against a test cluster, not yet
+  against a real API server.
+
+  Lumovi now refuses a name or namespace Kubernetes wouldn't accept, holds a pod's, a node's and a
+  Service's name to Kubernetes' stricter rule, never sends an address that steps with "." or ".."
+  or reads differently from what was written, and refuses an answer that isn't the object it asked
+  for.
+
+  The [audit log](https://docs.lumovi.dev/audit/overview) recorded each of these by what was asked,
+  like "Read Secret .", never by what it reached. Where a read was by someone shown only keys,
+  change the values of the Secrets in that namespace. Where a shell, attach or copy was on a pod
+  whose name has a backslash, it went to another namespace.
 
 ## [1.22.1] - 2026-10-15
 
