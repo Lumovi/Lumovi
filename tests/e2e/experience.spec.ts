@@ -411,12 +411,13 @@ test('errors Lumovi didn’t expect still explain themselves', async ({ lumovi }
 })
 
 /**
- * Scrolls a log to its first line, as a reader would, until it stays there: a log that's
- * following its newest lines keeps the end in view until the scroll's event says otherwise.
+ * Scrolls a log to its first line as a reader does, with the wheel, until it stays there: a log
+ * that's following its newest lines keeps the end in view until the reader scrolls up.
  */
 async function scrollToTop(log: Locator): Promise<void> {
+  await log.hover()
   await expect(async () => {
-    await log.evaluate((element) => element.scrollTo({ top: 0 }))
+    await log.page().mouse.wheel(0, -1_000_000)
     await holds(
       async () => (await log.evaluate((element) => element.scrollTop)) === 0,
       100,

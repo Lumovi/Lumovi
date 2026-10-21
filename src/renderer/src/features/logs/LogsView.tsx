@@ -139,6 +139,10 @@ export const MAX_STREAMS = 30
 const LINE_HEIGHT = 20
 /** How close to the bottom still counts as "at the end" for auto-scrolling. */
 const STICKY_DISTANCE = 32
+/** How long after the reader's wheel, touch or key a scroll of the log is still theirs. */
+const READER_MS = 800
+/** Keys that scroll up what has the focus (or was last clicked), with Shift for the space bar. */
+const SCROLL_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home', ' '])
 /** Pods' colors, in the charts' order; the ninth and later are gray. */
 const POD_COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `var(--series-${n})`)
 const OTHER_COLOR = 'var(--series-other)'
@@ -423,6 +427,33 @@ function Logs({
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Where the log was scrolled to last, to tell the reader scrolling up from lines arriving. */
   const lastTop = useRef(0)
+  /**
+   * When the reader last moved the log themselves (a wheel, a touch, a key, stepping to a match),
+   * and whether their pointer is down on it (its scroll bar, a selection). Only their own scroll
+   * up stops following: the log moving for anything else, as its length changes with a search, a
+   * filter or a level, never does.
+   */
+  const readerAt = useRef(-Infinity)
+  const pressing = useRef(false)
+  const theirs = () => pressing.current || performance.now() - readerAt.current < READER_MS
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '')) {
+        return
+      }
+      if (SCROLL_UP_KEYS.has(event.key)) readerAt.current = performance.now()
+    }
+    const released = () => (pressing.current = false)
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('pointerup', released, true)
+    window.addEventListener('pointercancel', released, true)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('pointerup', released, true)
+      window.removeEventListener('pointercancel', released, true)
+    }
+  }, [])
 
   const multiple = sorted.length > 1
   const short = shortNames(sorted.map((pod) => pod.metadata.name))
@@ -531,6 +562,8 @@ function Logs({
       : { current: at ?? -1, total }
   const step = (by: 1 | -1) => {
     if (total === 0) return
+    // (The log goes to the match: the reader's own move.)
+    readerAt.current = performance.now()
     setCurrent(at === undefined ? (by === 1 ? 0 : total - 1) : (at + by + total) % total)
   }
   /** Where a line's matches are marked, the current one among them. */
@@ -553,16 +586,26 @@ function Logs({
     overscan: 30,
   })
 
+  /**
+   * Following, the end is held: new lines arrive in view. While the reader is at the end, until
+   * they scroll up (not while a match is current: the view would run off from under it).
+   */
+  const holding = follow && atEnd && at === undefined
+  const toEnd = (el: HTMLElement) => {
+    el.scrollTop = el.scrollHeight
+    lastTop.current = el.scrollTop
+  }
   useEffect(() => {
-    // Follow new lines only while the reader is at the end; scrolling up pauses it.
     // Anything that changes the height (lines, searching, wrapping) keeps the end in view.
-    // (Not while a match is current: the view would run off from under it.)
-    const el = scrollRef.current
-    if (follow && atEnd && el && at === undefined) {
-      el.scrollTop = el.scrollHeight
-      lastTop.current = el.scrollTop
-    }
+    if (holding && scrollRef.current) toEnd(scrollRef.current)
   })
+  /** Follow as the button has it: on is the end held, and pressed while it isn't, it's held again. */
+  const setFollowing = (on: boolean) => {
+    setFollow(on)
+    if (!on) return
+    setAtEnd(true)
+    setCurrent(undefined)
+  }
   useEffect(() => {
     if (currentLine !== undefined) virtualizer.scrollToIndex(currentLine, { align: 'center' })
   }, [at, currentLine, virtualizer])
@@ -624,12 +667,18 @@ function Logs({
           ref={scrollRef}
           role="log"
           aria-label={`Logs for ${container === ALL ? 'all containers' : container}`}
+          onWheel={() => (readerAt.current = performance.now())}
+          onTouchMove={() => (readerAt.current = performance.now())}
+          onPointerDown={() => (pressing.current = true)}
           onScroll={(event) => {
             const el = event.currentTarget
             const up = el.scrollTop < lastTop.current
             lastTop.current = el.scrollTop
             if (el.scrollHeight - el.scrollTop - el.clientHeight < STICKY_DISTANCE) setAtEnd(true)
-            else if (up) setAtEnd(false)
+            else if (up && theirs()) setAtEnd(false)
+            // Moved, but not by the reader (the lines shorter or longer, a scroll position read
+            // as they changed): the end stays held.
+            else if (holding && !theirs()) toEnd(el)
           }}
           className={cn(
             'min-h-0 flex-1 overflow-auto bg-surface-2/60 py-2 font-mono text-[12px] leading-5 selectable',
@@ -754,7 +803,7 @@ function Logs({
               onStep={step}
               onFocusChange={setFieldFocus}
             />
-            <Toggle label="Follow" pressed={follow} onChange={setFollow}>
+            <Toggle label="Follow" pressed={holding} onChange={setFollowing}>
               <Play />
             </Toggle>
             <button
@@ -839,7 +888,7 @@ function Logs({
             trouble={trouble}
             onStep={step}
           />
-          <Toggle label="Follow" pressed={follow} onChange={setFollow}>
+          <Toggle label="Follow" pressed={holding} onChange={setFollowing}>
             <Play />
           </Toggle>
           <Toggle label="Previous container" pressed={previous} onChange={setPrevious}>
