@@ -218,6 +218,94 @@ test('pods come and go, and streams pick up where they left off', async ({ page,
   await expect(detail.getByRole('alert')).toContainText('previous terminated container')
 })
 
+test('following holds the newest line in view until the reader scrolls up, whatever narrows the lines and brings them back', async ({
+  page,
+  clusters,
+}) => {
+  await openCluster(page)
+  const detail = await workloadLogs(page)
+  const log = detail.getByRole('log', { name: 'Logs for app' })
+  const chips = detail.getByRole('group', { name: 'Show lines from' })
+  const search = detail.getByLabel('Search logs')
+  const follow = detail.getByRole('button', { name: 'Follow' })
+  await expect(follow).toHaveAttribute('aria-pressed', 'true')
+  // Lines enough that the log scrolls, many times over.
+  clusters.demo.appendLogs(
+    'shop',
+    PODS[1]!,
+    'app',
+    Array.from({ length: 300 }, (_, i) => `filler ${i}`),
+  )
+  await expect.poll(() => log.evaluate((el) => el.scrollHeight > 4 * el.clientHeight)).toBe(true)
+  const atEnd = () => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 32)
+  /** The newest line is in view, and the end stays held, as Follow says. */
+  const held = async (newest: string) => {
+    await expect(log.getByText(newest, { exact: true })).toBeInViewport()
+    await holds(atEnd, 500, 'the end stays in view')
+    await expect(follow).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  // Each way of narrowing the lines, again and again: brought back, the newest line shows.
+  const errors = chips.getByRole('button', { name: /^Errors/ })
+  const pod = chips.getByRole('button', { name: new RegExp(`^${short(PODS[0]!)}`) })
+  for (let round = 0; round < 5; round++) {
+    // A search that one line matches, cleared.
+    clusters.demo.appendLogs('shop', PODS[0]!, 'app', [`sought ${round}`])
+    await search.fill(`sought ${round}`)
+    await expect(log.locator('[data-level]')).toHaveCount(1)
+    clusters.demo.appendLogs('shop', PODS[0]!, 'app', [`after the search ${round}`])
+    await search.fill('')
+    await held(`after the search ${round}`)
+    // Errors alone, then every level again.
+    await errors.click()
+    await expect(errors).toHaveAttribute('aria-pressed', 'true')
+    clusters.demo.appendLogs('shop', PODS[0]!, 'app', [`after the level ${round}`])
+    await errors.click()
+    await expect(errors).toHaveAttribute('aria-pressed', 'false')
+    await held(`after the level ${round}`)
+    // A pod's lines left out, then brought back.
+    await pod.click()
+    await expect(log).not.toContainText(`after the level ${round}`)
+    clusters.demo.appendLogs('shop', PODS[0]!, 'app', [`after the pod ${round}`])
+    await pod.click()
+    await held(`after the pod ${round}`)
+  }
+
+  // The log moved by anything but the reader (here, a script): the end is held all the same.
+  await log.evaluate((el) => (el.scrollTop = 0))
+  await expect.poll(atEnd).toBe(true)
+  await held('after the pod 4')
+
+  // The reader scrolling up stops following, and Follow says so; new lines don't move the log.
+  await log.hover()
+  await page.mouse.wheel(0, -2000)
+  await expect(follow).toHaveAttribute('aria-pressed', 'false')
+  await expect(detail.getByRole('button', { name: 'Jump to latest' })).toBeVisible()
+  // (Where the wheel's scroll comes to rest: it eases there over a few frames.)
+  let top = -1
+  await expect
+    .poll(
+      async () => {
+        const now = await log.evaluate((el) => el.scrollTop)
+        const still = now === top
+        top = now
+        return still
+      },
+      { intervals: [100] },
+    )
+    .toBe(true)
+  clusters.demo.appendLogs('shop', PODS[0]!, 'app', ['while the reader is away'])
+  await holds(
+    async () => (await log.evaluate((el) => el.scrollTop)) === top,
+    500,
+    'the log stays where the reader left it',
+  )
+  // Pressed again, it follows from the end.
+  await follow.click()
+  await held('while the reader is away')
+  await expect(detail.getByRole('button', { name: 'Jump to latest' })).toHaveCount(0)
+})
+
 test('logs of services and empty workloads, and of many pods at once', async ({
   page,
   clusters,
