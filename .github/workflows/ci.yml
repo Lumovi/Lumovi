@@ -472,17 +472,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux's packages, as the release packs them (release.yml): each architecture's on a
+          # computer of its own, as terminals' node-pty is native. (`elf`: `file`'s name for it.)
           - os: ubuntu-latest
-            only: --x64
+            only: --linux --x64
+            elf: x86-64
             executable: release/linux-unpacked/lumovi
-          # Built on the architecture it's for: terminals' node-pty is native.
           - os: ubuntu-24.04-arm
-            only: --arm64
+            only: --linux --arm64
+            elf: ARM aarch64
             executable: release/linux-arm64-unpacked/lumovi
           # macOS 26, for the Xcode that compiles the Liquid Glass icon (build/Lumovi.icon).
           - os: macos-26
+            only: --dir
             executable: release/mac-arm64/Lumovi.app/Contents/MacOS/Lumovi
           - os: windows-latest
+            only: --dir
             executable: release/win-unpacked/Lumovi.exe
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -516,9 +521,12 @@ jobs:
       - name: Helm, in the bill of materials
         if: matrix.os == 'ubuntu-latest'
         run: node scripts/helm-modules.ts --check
+      - name: Install rpm tooling
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm cpio
       # Playwright drives the app through the Node.js inspector, which release builds turn off.
       # (In bash: PowerShell would split the -c.… argument.)
-      - run: npx electron-builder --dir ${{ matrix.only }} -c.electronFuses.enableNodeCliInspectArguments=true
+      - run: npx electron-builder ${{ matrix.only }} --publish never -c.electronFuses.enableNodeCliInspectArguments=true
         shell: bash
       - if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -537,13 +545,87 @@ jobs:
           else
             npx playwright test "${specs[@]}"
           fi
+      # Each Linux package is this architecture's alone, with terminals' node-pty for it (as `file`
+      # reads it), and the AppImage and the .deb, installed, start: the main process loads
+      # node-pty as it does.
+      - name: Linux's packages, for this architecture
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ELF: ${{ matrix.elf }}
+        run: |
+          shopt -s nullglob
+          appimages=(release/*.AppImage) debs=(release/*.deb) rpms=(release/*.rpm)
+          /bin/ls release
+          if [ "${#appimages[@]} ${#debs[@]} ${#rpms[@]}" != '1 1 1' ]; then
+            echo "::error::One AppImage, .deb and .rpm, for $ELF alone, expected."
+            exit 1
+          fi
+          appimage=$PWD/${appimages[0]} deb=$PWD/${debs[0]} rpm=$PWD/${rpms[0]}
+          PTY=resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node
+          for package in "$appimage" "$deb" "$rpm"; do
+            dir=$RUNNER_TEMP/unpacked/$(basename "$package")
+            mkdir -p "$dir"
+            case $package in
+              *.AppImage) (cd "$dir" && "$package" --appimage-extract > /dev/null) ;;
+              *.deb) dpkg-deb -x "$package" "$dir" ;;
+              *.rpm) rpm2cpio "$package" | (cd "$dir" && cpio -idm --quiet) ;;
+            esac
+            mapfile -t ptys < <(find "$dir" -path "*/$PTY")
+            if [ "${#ptys[@]}" -ne 1 ]; then
+              echo "::error::$(basename "$package") has ${#ptys[@]} of node-pty's pty.node, not one."
+              exit 1
+            fi
+            what=$(file -b "${ptys[0]}")
+            echo "$(basename "$package"): ${ptys[0]#"$dir"/}: $what"
+            if [[ "$what" != *", $ELF,"* ]]; then
+              echo "::error::$(basename "$package")'s node-pty isn't for $ELF: $what"
+              exit 1
+            fi
+            # (Where the .deb installs it.)
+            if [ "$package" = "$deb" ]; then installed=${ptys[0]#"$dir"}; fi
+          done
+          # Started as it's run, with a profile of its own, until a process maps node-pty's
+          # pty.node from where it's run (`pty`, a pattern): which must be the app's main process.
+          starts() {
+            local name=$1 pty=$2 loaded='' command='' pid=''
+            shift 2
+            local log=$RUNNER_TEMP/started-$RANDOM.log
+            XDG_CONFIG_HOME=$(mktemp -d) setsid xvfb-run --auto-servernum "$@" > "$log" 2>&1 &
+            local started=$!
+            for _ in $(seq 120); do
+              loaded=$(grep -l "$pty" /proc/[0-9]*/maps 2> /dev/null | head -1 || true)
+              if [ -n "$loaded" ] || ! kill -0 "$started" 2> /dev/null; then break; fi
+              sleep 0.5
+            done
+            if [ -n "$loaded" ]; then
+              pid=$(cut -d/ -f3 <<<"$loaded")
+              command=$(tr '\0' ' ' < "/proc/$pid/cmdline" || true)
+            fi
+            kill -TERM -- "-$started" 2> /dev/null || true
+            if [ -z "$command" ]; then
+              cat "$log"
+              echo "::error::The $name didn't load node-pty in its first minute."
+              exit 1
+            fi
+            echo "The $name: node-pty loaded by $pid, $command"
+            # (Chromium's other processes say which they are: --type=renderer and the like.)
+            if [[ "$command" == *--type=* ]]; then
+              echo "::error::The $name's node-pty was loaded by $pid, which isn't its main process."
+              exit 1
+            fi
+          }
+          # The AppImage's own runtime and AppRun: with no FUSE here, taken out of the archive as
+          # it starts.
+          starts AppImage "/appimage_extracted_[^/]*/$PTY" "$appimage" --appimage-extract-and-run
+          sudo apt-get install -y "$deb"
+          starts 'installed .deb' "$installed" "${installed%/"$PTY"}/lumovi"
       # lumovi:// links on Linux: the .desktop entry hands one over after `--` (past it, Chromium
       # reads no switch), and as the one %U.
       - name: Links, in the .desktop entry
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          npx electron-builder --linux deb --x64 --publish never --prepackaged release/linux-unpacked
           deb=$(ls release/*.deb | head -1)
           entry=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO --wildcards '*/applications/*.desktop')
           exec=$(grep '^Exec=' <<<"$entry")
