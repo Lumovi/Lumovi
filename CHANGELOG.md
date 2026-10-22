@@ -8,6 +8,32 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.23.1] - 2026-10-22
+
+1.23.1 makes Lumovi for Linux start again. From 1.18.0 to 1.23.0, three to five of each version's
+six Linux downloads were packed with the other architecture's terminals, and stopped as they
+started: which ones is under Fixed below. It also keeps a log you're following at its newest line.
+
+### Fixed
+
+- **A log you're following keeps its newest line in view.** Once a search, a level or a pod had
+  narrowed the lines, showing them all again could leave the log at its top while new lines arrived
+  unseen. Now only you stop following, by scrolling up or stepping to a match, and the Follow button
+  shows as off whenever the newest line isn't held in view; press it to go back to the end.
+- **Lumovi for Linux starts again.** From 1.18.0 to 1.23.0, the downloads listed below stopped as
+  they started, with "Failed to load native module: pty.node": each was packed with the other
+  architecture's terminals. Every Linux download of 1.23.1 is packed with its own: the AppImage,
+  .deb and .rpm, for x86_64 and for ARM. A copy that didn't start can't update itself, so
+  download 1.23.1 from [GitHub](https://github.com/Lumovi/Lumovi/releases) and install it over
+  it.
+  - 1.23.0: the x86_64 AppImage, .deb and .rpm, and the ARM AppImage and .rpm.
+  - 1.22.1: the x86_64 AppImage, .deb and .rpm, and the ARM AppImage.
+  - 1.22.0: the x86_64 AppImage and .deb, and the ARM AppImage, .deb and .rpm.
+  - 1.21.0: the x86_64 AppImage, .deb and .rpm.
+  - 1.20.0: the x86_64 AppImage and .deb, and the ARM AppImage, .deb and .rpm.
+  - 1.19.0: the x86_64 AppImage, and the ARM AppImage, .deb and .rpm.
+  - 1.18.0: the x86_64 AppImage, .deb and .rpm, and the ARM AppImage.
+
 ## [1.23.0] - 2026-10-21
 
 1.23.0 has two security fixes, under Security below: every object's name and namespace is
@@ -254,7 +280,8 @@ download as CSV. It's built with Lumovi-plugins 1.5.2.
   The [audit log](https://docs.lumovi.dev/audit/overview) recorded each of these by what was asked,
   like "Read Secret .", never by what it reached. Where a read was by someone shown only keys,
   change the values of the Secrets in that namespace. Where a shell, attach or copy was on a pod
-  whose name has a backslash, it went to another namespace.
+  whose name has a backslash, it went to another namespace: the one that name leads to, read with
+  each backslash as a /.
 
 ## [1.22.1] - 2026-10-15
 
@@ -1564,7 +1591,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.1...HEAD
+[1.23.1]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...v1.23.0
 [1.22.1]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/Lumovi/Lumovi/compare/v1.21.0...v1.22.0
