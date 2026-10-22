@@ -142,13 +142,9 @@ linux:
   # node-pty as built here, for this architecture (each is built on its own: see release.yml).
   files:
     - '!node_modules/node-pty/prebuilds/**'
-  target:
-    - target: AppImage
-      arch: [x64, arm64]
-    - target: deb
-      arch: [x64, arm64]
-    - target: rpm
-      arch: [x64, arm64]
+  # For the architecture asked for (--x64, --arm64), or this computer's, and no other: one named
+  # here would be packed with this computer's node-pty (scripts/after-pack.mjs refuses it).
+  target: [AppImage, deb, rpm]
 
 publish:
   provider: github
