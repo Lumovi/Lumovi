@@ -15,12 +15,13 @@ import { X509Certificate } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
-import type { Duplex } from 'node:stream'
+import { pipeline, Readable, type Duplex } from 'node:stream'
 import { lookup } from 'node:dns/promises'
 import { BlockList, isIP } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import tls from 'node:tls'
+import zlib from 'node:zlib'
 import type { Cluster } from '@kubernetes/client-node'
 import { proxyRefused, proxyRefusal, TLS_ERROR, tlsReason } from './kube/errors'
 
@@ -329,6 +330,9 @@ for (const [network, prefix] of [
   ['169.254.0.0', 16], // Link-local: cloud metadata endpoints
   ['172.16.0.0', 12], // Private
   ['192.168.0.0', 16], // Private
+  ['192.0.0.0', 24], // Protocol assignments
+  ['198.18.0.0', 15], // Benchmarking
+  ['240.0.0.0', 4], // Reserved, and broadcast
 ] as const) {
   PRIVATE.addSubnet(network, prefix, 'ipv4')
 }
@@ -337,8 +341,105 @@ for (const [network, prefix] of [
   ['::1', 128], // Loopback
   ['fc00::', 7], // Unique local
   ['fe80::', 10], // Link-local
+  // NAT64's local-use prefix: a translation inside someone's network, its IPv4 address in bits
+  // that depend on the length they chose (RFC 8215, 6052), so never one to read.
+  ['64:ff9b:1::', 48],
 ] as const) {
   PRIVATE.addSubnet(network, prefix, 'ipv6')
+}
+/**
+ * IPv6 addresses that carry an IPv4 address, which they reach: NAT64's well-known prefix (an IPv6
+ * cluster's way out to IPv4, behind DNS64), in their last 32 bits; and 6to4's, in the 32 bits
+ * after 2002.
+ */
+const NAT64 = new BlockList()
+NAT64.addSubnet('64:ff9b::', 96, 'ipv6')
+const SIX_TO_FOUR = new BlockList()
+SIX_TO_FOUR.addSubnet('2002::', 16, 'ipv6')
+
+/** An IPv6 address's eight groups, each a number. */
+function groupsOf(address: string): number[] {
+  // An IPv4 address written at its end (::ffff:1.2.3.4) is its last two groups.
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address)
+  const written = dotted
+    ? `${address.slice(0, dotted.index)}${((+dotted[1]! << 8) | +dotted[2]!).toString(16)}:${((+dotted[3]! << 8) | +dotted[4]!).toString(16)}`
+    : address
+  const [head, rest] = written.split('::') as [string, string | undefined]
+  const given = (part: string | undefined) => (part ? part.split(':') : [])
+  const groups =
+    rest === undefined
+      ? given(head)
+      : [
+          ...given(head),
+          ...Array<string>(8 - given(head).length - given(rest).length).fill('0'),
+          ...given(rest),
+        ]
+  return groups.map((group) => parseInt(group || '0', 16))
+}
+
+/** Two groups of an IPv6 address as the IPv4 address they hold. */
+const ipv4In = ([high, low]: number[]) =>
+  [high! >> 8, high! & 0xff, low! >> 8, low! & 0xff].join('.')
+
+/** The IPv4 address an IPv6 address carries, where it carries one. */
+function carried(address: string): string | undefined {
+  if (NAT64.check(address, 'ipv6')) return ipv4In(groupsOf(address).slice(6))
+  if (SIX_TO_FOUR.check(address, 'ipv6')) return ipv4In(groupsOf(address).slice(1, 3))
+  return undefined
+}
+
+/**
+ * Whether this is a test build (`npm run build:coverage`, which nothing ships): a release build
+ * is built with it false, which leaves the stand-ins below out of it.
+ */
+declare const LUMOVI_TEST_BUILD: boolean
+/** (Undefined where src/ runs unbuilt, in the tests' own process: no stand-ins there.) */
+const TEST_BUILD = typeof LUMOVI_TEST_BUILD !== 'undefined' && LUMOVI_TEST_BUILD
+
+/** An address a name resolves to. */
+interface Resolved {
+  address: string
+  family: number
+}
+
+/** Whether an address is in a private network. */
+function isPrivate({ address, family }: Resolved): boolean {
+  // (In a test build, the addresses LUMOVI_TEST_PUBLIC_ADDRESSES names count as public: the
+  // tests' stand-in servers are all on this computer.)
+  if (TEST_BUILD && (process.env.LUMOVI_TEST_PUBLIC_ADDRESSES ?? '').split(',').includes(address)) {
+    return false
+  }
+  const ipv4 = family === 6 ? carried(address) : undefined
+  if (ipv4 !== undefined) return PRIVATE.check(ipv4, 'ipv4')
+  return PRIVATE.check(address, family === 6 ? 'ipv6' : 'ipv4')
+}
+
+/** How many times each name has been resolved, in a test build: its answers go in turn. */
+const answered = new Map<string, number>()
+
+/**
+ * Where a host is now: its address, or every address its name resolves to. In a test build, a
+ * name LUMOVI_TEST_HOSTS (a JSON file) lists resolves to its answers in turn, the last for good,
+ * as a name whose answers change would.
+ */
+async function resolved(host: string): Promise<Resolved[]> {
+  if (isIP(host)) return [{ address: host, family: isIP(host) }]
+  if (TEST_BUILD && process.env.LUMOVI_TEST_HOSTS) {
+    const hosts = JSON.parse(readFileSync(process.env.LUMOVI_TEST_HOSTS, 'utf8')) as Record<
+      string,
+      string[][]
+    >
+    const answers = Object.hasOwn(hosts, host) ? hosts[host] : undefined
+    if (answers?.length) {
+      const turn = answered.get(host) ?? 0
+      answered.set(host, turn + 1)
+      return answers[Math.min(turn, answers.length - 1)]!.map((address) => ({
+        address,
+        family: isIP(address),
+      }))
+    }
+  }
+  return lookup(host, { all: true, verbatim: true })
 }
 
 /**
@@ -347,10 +448,105 @@ for (const [network, prefix] of [
  */
 export async function privateHost(url: string): Promise<string | undefined> {
   const host = new URL(url).hostname.replace(/^\[(.*)\]$/, '$1')
-  const addresses = isIP(host)
-    ? [{ address: host, family: isIP(host) }]
-    : await lookup(host, { all: true }).catch(() => [])
-  return addresses.some(({ address, family }) => PRIVATE.check(address, `ipv${family}` as 'ipv4'))
-    ? host
-    : undefined
+  const addresses = await resolved(host).catch(() => [])
+  return addresses.some(isPrivate) ? host : undefined
+}
+
+/**
+ * Fetches a URL where its host is now, and only if that's a public address (LMV-356): what a
+ * server fetches for someone, from inside the cluster's network. The name is resolved once, every
+ * address it gives is checked, and the connection goes to those addresses alone (the name kept
+ * for the certificate and the Host header), so a name can't answer one address to the check and
+ * another to the connection. A redirect is never followed: it's the caller's to check and follow.
+ *
+ * Through a proxy, the proxy resolves the name: there the check is of Lumovi's own resolving,
+ * and where the connection goes is the proxy's.
+ */
+export async function fetchPublic(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  refusal: (host: string) => string = (host) =>
+    `Lumovi doesn’t connect to ${host}: it’s in a private network.`,
+): Promise<Response> {
+  // (It sends what it's given in `init` alone: a Request's method, headers and body, or a body,
+  // would go without a word otherwise.)
+  if (input instanceof Request || (init.body !== undefined && init.body !== null)) {
+    throw new TypeError('fetchPublic sends a GET (or HEAD) to a URL, with headers alone.')
+  }
+  const url = new URL(input)
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new TypeError(`Lumovi only fetches over https and http, not ${url.protocol}`)
+  }
+  const host = url.hostname.replace(/^\[(.*)\]$/, '$1')
+  if (proxyFor(url.href, process.env)) {
+    if (await privateHost(url.href)) throw new Error(refusal(host))
+    return fetch(url, { ...init, redirect: 'manual' })
+  }
+  const addresses = await resolved(host)
+  if (addresses.length === 0 || addresses.some(isPrivate)) throw new Error(refusal(host))
+  return requested(url, addresses, init)
+}
+
+/** A request to `url`, connected to `addresses` alone, answered as fetch answers. */
+function requested(url: URL, addresses: Resolved[], init: RequestInit): Promise<Response> {
+  return new Promise((done, failed) => {
+    const request = (url.protocol === 'https:' ? https : http).request(
+      url,
+      {
+        method: init.method ?? 'GET',
+        headers: Object.fromEntries(new Headers(init.headers)),
+        // A connection of its own: never one an agent kept, nor its proxy.
+        agent: false,
+        lookup: (_name, options, answer) => {
+          const family = options.family
+          const fitting = addresses.filter(
+            (a) => !family || family === a.family || family === `IPv${a.family}`,
+          )
+          if (fitting.length === 0) {
+            answer(
+              Object.assign(new Error(`No address of ${url.hostname} fits.`), {
+                code: 'ENOTFOUND',
+              }),
+              '',
+              0,
+            )
+          } else if (options.all) {
+            ;(answer as unknown as (error: null, all: Resolved[]) => void)(null, fitting)
+          } else {
+            answer(null, fitting[0]!.address, fitting[0]!.family)
+          }
+        },
+        ...(init.signal ? { signal: init.signal } : {}),
+      },
+      (response) => {
+        const headers = new Headers()
+        for (let i = 0; i + 1 < response.rawHeaders.length; i += 2) {
+          headers.append(response.rawHeaders[i]!, response.rawHeaders[i + 1]!)
+        }
+        const status = response.statusCode ?? 0
+        const empty = [204, 205, 304].includes(status) || request.method === 'HEAD'
+        if (empty) response.resume()
+        // Decoded as fetch decodes it: a file kept compressed (Content-Encoding) is read as it is.
+        const coding = (response.headers['content-encoding'] ?? '').trim().toLowerCase()
+        const decoder =
+          coding === 'gzip' || coding === 'x-gzip'
+            ? zlib.createGunzip()
+            : coding === 'deflate'
+              ? zlib.createInflate()
+              : coding === 'br'
+                ? zlib.createBrotliDecompress()
+                : undefined
+        const body = decoder ? pipeline(response, decoder, () => undefined) : response
+        done(
+          new Response(empty ? null : (Readable.toWeb(body) as ReadableStream<Uint8Array>), {
+            status,
+            statusText: response.statusMessage ?? '',
+            headers,
+          }),
+        )
+      },
+    )
+    request.once('error', failed)
+    request.end()
+  })
 }

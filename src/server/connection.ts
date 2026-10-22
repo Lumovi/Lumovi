@@ -52,7 +52,7 @@ import type { AddedClusters } from './fleet/added'
 import type { ServerRepositories } from './helm-repositories'
 import type { PeopleMarks } from './marks'
 import type { PeoplePreferences } from './preferences'
-import { checkChartUrl } from './network'
+import { checkChartUrl, fetchChart } from './network'
 import { ChartRepositories, recordOf } from '@backend/helm/repositories'
 import { log } from './log'
 import type { PluginCodeStore } from './plugin-code'
@@ -418,6 +418,7 @@ export class PageConnection {
         keeper: repositories,
         reads: repositories.reads,
         checkUrl: config.allowPrivateCharts ? undefined : checkChartUrl,
+        ...(config.allowPrivateCharts ? {} : { fetch: fetchChart }),
         person: {
           // Only its admins: and where it names none, nobody.
           mayChange: () => access.administered && access.isAdmin(identity.user),
