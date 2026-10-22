@@ -10,16 +10,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
   endedWhole,
+  naming,
   processes,
   removeFolder,
   testTempFolder,
   tempFolderIs,
 } from '../temp-folders.ts'
 import { expect, test } from './fixtures.ts'
-
-/** The processes whose command line names `path`. */
-const naming = (path: string) =>
-  processes().filter(({ commandLine }) => commandLine.toLowerCase().includes(path.toLowerCase()))
 
 test('a process ended outright goes with all it started, and so does whatever names its folder', async ({
   testTemp,
