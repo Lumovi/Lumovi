@@ -274,9 +274,14 @@ test('a detail is a page: which cluster, two actions at most, and its tabs', asy
     detail
       .getByRole('tablist')
       .evaluate((list) => list.parentElement!.scrollWidth - list.parentElement!.clientWidth)
+  // (The row is fitted again when the fonts come in, which can be after the page is: read once
+  // they're in, and More is there.)
+  await page.evaluate(() => document.fonts.ready.then(() => undefined))
+  const more = detail.getByRole('button', { name: 'More tabs' })
+  await expect(more).toBeVisible()
   const inRow = await detail.getByRole('tab').allInnerTexts()
   expect(await sideways()).toBe(0)
-  await detail.getByRole('button', { name: 'More tabs' }).click()
+  await more.click()
   const sheet = page.getByRole('dialog', { name: 'More tabs' })
   const inMore = await sheet.getByRole('button').filter({ hasNotText: /^$/ }).allInnerTexts()
   expect(inMore.length).toBeGreaterThan(0)

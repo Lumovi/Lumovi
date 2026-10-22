@@ -60,7 +60,7 @@ export function processes(): { id: number; commandLine: string }[] {
 }
 
 /** The processes whose command line names `path` (a browser names its profile there). */
-const naming = (path: string) =>
+export const naming = (path: string) =>
   processes().filter(({ commandLine }) => commandLine.toLowerCase().includes(path.toLowerCase()))
 
 /** Those, by their program and id: what may still have something in `dir` open. */
