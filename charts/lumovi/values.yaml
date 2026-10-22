@@ -233,7 +233,8 @@ nodeShell:
 
 helm:
   # Lumovi fetches charts only from public addresses unless this allows private ones
-  # (a ChartMuseum or Harbor in your network).
+  # (a ChartMuseum or Harbor in your network). It connects to the address it checked; through
+  # a proxy (HTTPS_PROXY), the proxy resolves each name, so where it connects is the proxy's.
   allowPrivateCharts: false
   # Where Lumovi searches for charts.
   artifactHubUrl: https://artifacthub.io

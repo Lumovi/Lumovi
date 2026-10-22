@@ -138,11 +138,12 @@ test('charts come from repositories and registries the server may reach', async 
     )
   }
 
-  // Public addresses are fine; ones that don't resolve are helm's to report.
+  // A name that doesn't resolve: Lumovi fetches each chart itself here (chart-fetches.spec.ts),
+  // and says so.
   await chart.fill('https://charts.invalid/podinfo-6.7.0.tgz')
   await repositoryUrl.fill('')
   await defaults.click()
-  await expect(install.getByLabel('Values')).toContainText('replicaCount: 1')
+  await expect(install.getByRole('alert').last()).toHaveText(/^Couldn’t reach charts\.invalid: /)
 
   // An administrator can allow private addresses.
   const allowed = await serve()

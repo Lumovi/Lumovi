@@ -359,24 +359,87 @@ export class ChartRepositories {
       repository.kind === 'oci'
         ? await this.#registryChart(repository, signIn, chart, version)
         : await this.#repositoryChart(repository, signIn, chart, version)
-    // A chart that unpacks to more than Helm would take, or isn't a gzip at all, goes no further.
-    try {
-      gunzipSync(body, { maxOutputLength: MOST_UNPACKED })
-    } catch {
-      throw invalid(
-        `The chart Lumovi fetched isn’t one Helm can read: it isn’t a packaged chart, or it unpacks to more than ${MOST_UNPACKED / 1024 / 1024} MB.`,
+    return chartFile(chart, version, body)
+  }
+
+  /**
+   * A chart given by where it is, not from a repository Lumovi keeps: a chart in a repository's
+   * index (its URL), in an oci:// registry, or at a URL. For a server, where Lumovi fetches every
+   * chart itself (so no name is resolved but by Lumovi, and each hop is checked), and hands Helm
+   * the file: checked against the digest its index or registry lists (a URL's has none). Without a
+   * version, the newest that isn't a pre-release, as Helm would choose.
+   */
+  async fetchGiven(given: {
+    chart: string
+    repository?: string
+    version?: string
+  }): Promise<{ file: string; done: () => Promise<void> }> {
+    if (
+      given.version !== undefined &&
+      (!/^[\w.+-]+$/.test(given.version) || given.version.startsWith('-'))
+    ) {
+      throw invalid('That isn’t a chart’s version.')
+    }
+    if (given.repository !== undefined) {
+      const repository = givenRepository('http', given.repository)
+      if (!CHART_NAME.test(given.chart)) throw invalid('That isn’t a chart’s name.')
+      const listed = (await this.#index(repository, undefined)).find(
+        (c) => c.chart.name === given.chart,
       )
+      if (!listed) {
+        throw new KubeRequestError(
+          'not-found',
+          `${repository.name} has no chart named ${given.chart}.`,
+        )
+      }
+      const version = given.version ?? newest(listed.chart.versions.map((v) => v.version))
+      if (version === undefined) {
+        throw new KubeRequestError(
+          'not-found',
+          `${repository.name} lists no release of ${given.chart}.`,
+        )
+      }
+      const body = await this.#listedChart(repository, undefined, listed, given.chart, version)
+      return chartFile(given.chart, version, body)
     }
-    const directory = await mkdtemp(join(tmpdir(), 'lumovi-chart-'))
-    const done = () => rm(directory, { recursive: true, force: true })
-    try {
-      const file = join(directory, `${chart}-${version}.tgz`)
-      await writeFile(file, body, { mode: 0o600 })
-      return { file, done }
-    } catch (error) {
-      await done()
-      throw error
+    if (/^oci:\/\//i.test(given.chart)) {
+      const at = given.chart.replace(/\/+$/, '')
+      const slash = at.lastIndexOf('/')
+      const chart = at.slice(slash + 1)
+      if (slash <= 'oci://'.length || !CHART_NAME.test(chart)) {
+        throw invalid('An oci:// chart is its registry’s host, its path and the chart’s name.')
+      }
+      const registry = new Registry(registryAt(at), undefined, (url, options) =>
+        this.#fetch(url, options),
+      )
+      const version = given.version ?? newest(await registry.versions(chart))
+      if (version === undefined) throw new Error(`Couldn’t read ${chart}: it has no versions.`)
+      const body = await registryChart(
+        registry,
+        new URL(at.replace(/^oci:/i, 'https:')).host,
+        chart,
+        version,
+      )
+      return chartFile(chart, version, body)
     }
+    const url = new URL(given.chart)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw invalid('Choose a chart from a repository, an oci:// registry or a URL.')
+    }
+    const { body } = await this.#fetch(url.href, { most: MOST_FETCHED })
+    return chartFile('chart', given.version ?? 'given', body)
+  }
+
+  /**
+   * The versions a repository's index lists of a chart, newest first: given by its URL, and read
+   * as fetchGiven reads it.
+   */
+  async versionsGiven(repository: string, chart: string): Promise<string[]> {
+    const given = givenRepository('http', repository)
+    const listed = (await this.#index(given, undefined)).find((c) => c.chart.name === chart)
+    if (!listed)
+      throw new KubeRequestError('not-found', `${repository} has no chart named ${chart}.`)
+    return listed.chart.versions.map((v) => v.version)
   }
 
   /** The person may change the list, or they're told who may. */
@@ -635,6 +698,17 @@ export class ChartRepositories {
     if (!listed?.files.get(version)) {
       listed = (await this.#index(repository, signIn)).find((c) => c.chart.name === chart)
     }
+    return this.#listedChart(repository, signIn, listed, chart, version)
+  }
+
+  /** A version of a chart an index lists: fetched from where it says, checked against its digest. */
+  async #listedChart(
+    repository: KeptRepository,
+    signIn: SignIn | undefined,
+    listed: Listed | undefined,
+    chart: string,
+    version: string,
+  ): Promise<Buffer> {
     const file = listed?.files.get(version)
     if (!file) {
       throw new KubeRequestError('not-found', `${repository.name} has no ${chart} ${version}.`)
@@ -659,17 +733,10 @@ export class ChartRepositories {
     signIn: SignIn | undefined,
     chart: string,
   ): Promise<Listed> {
-    const registry = new Registry(repository, chart, signIn, (url, options) =>
+    const registry = new Registry(registryOf(repository, chart), signIn, (url, options) =>
       this.#fetch(url, options),
     )
-    const { body } = await registry.get(`tags/list`, 'application/json')
-    const tags = (JSON.parse(body.toString('utf8')) as { tags?: unknown }).tags
-    // Helm writes a version's + as _ in a tag (a tag can't hold +).
-    const versions = (Array.isArray(tags) ? tags : [])
-      .filter((t): t is string => typeof t === 'string')
-      .map((t) => t.replace(/_/g, '+'))
-      .filter((v) => compareChartVersions(v, '0.0.0') >= 0 || /^v?\d+\.\d+\.\d+-/.test(v))
-      .sort((a, b) => compareChartVersions(b, a))
+    const versions = await registry.versions(chart)
     if (versions.length === 0) throw new Error(`Couldn’t read ${chart}: it has no versions.`)
     let config: IndexVersion = { version: versions[0]! }
     try {
@@ -712,19 +779,10 @@ export class ChartRepositories {
         `Lumovi doesn’t look for ${chart} in ${repository.name}.`,
       )
     }
-    const registry = new Registry(repository, chart, signIn, (url, options) =>
+    const registry = new Registry(registryOf(repository, chart), signIn, (url, options) =>
       this.#fetch(url, options),
     )
-    const manifest = await registry.manifest(version)
-    const layer = manifest.layers?.find((l) => l.mediaType === HELM_CHART_LAYER)
-    if (!layer?.digest)
-      throw invalid(`${chart} ${version} in ${repository.name} isn’t a Helm chart.`)
-    if (typeof layer.size === 'number' && layer.size > MOST_FETCHED) {
-      throw invalid(
-        `${chart} ${version} is larger than Lumovi fetches (${MOST_FETCHED / 1024 / 1024} MB).`,
-      )
-    }
-    return registry.blob(layer.digest, MOST_FETCHED)
+    return registryChart(registry, repository.name, chart, version)
   }
 
   /**
@@ -867,14 +925,29 @@ class Registry {
   #token?: string
 
   constructor(
-    repository: KeptRepository,
-    chart: string,
+    where: RegistryChart,
     private readonly signIn: SignIn | undefined,
     private readonly fetchUrl: (url: string, options: FetchOptions) => Promise<Fetched>,
   ) {
-    const address = addressOf('oci', repository.url) as { url: URL }
-    this.#base = `${address.url.origin}/v2`
-    this.#name = `${address.url.pathname.replace(/^\/+|\/+$/g, '')}/${chart}`
+    this.#base = `${where.origin}/v2`
+    this.#name = where.name
+  }
+
+  /** Its tags, as versions, newest first: those that are versions at all. */
+  async versions(chart: string): Promise<string[]> {
+    const { body } = await this.get(`tags/list`, 'application/json')
+    let tags: unknown
+    try {
+      tags = (JSON.parse(body.toString('utf8')) as { tags?: unknown }).tags
+    } catch {
+      throw new Error(`Couldn’t read ${chart}’s versions.`)
+    }
+    // Helm writes a version's + as _ in a tag (a tag can't hold +).
+    return (Array.isArray(tags) ? tags : [])
+      .filter((t): t is string => typeof t === 'string')
+      .map((t) => t.replace(/_/g, '+'))
+      .filter((v) => compareChartVersions(v, '0.0.0') >= 0 || /^v?\d+\.\d+\.\d+-/.test(v))
+      .sort((a, b) => compareChartVersions(b, a))
   }
 
   async get(path: string, accept: string, most = MOST_FETCHED): Promise<Fetched> {
@@ -971,6 +1044,91 @@ class Registry {
     const token = typeof answer.token === 'string' ? answer.token : answer.access_token
     if (typeof token !== 'string' || !token) throw new FetchError(401, 'Unauthorized', null)
     return token
+  }
+}
+
+/** A chart in a registry: the registry's origin, and the chart's name there (its path). */
+interface RegistryChart {
+  origin: string
+  name: string
+}
+
+/** Where a chart in a registry Lumovi keeps is. */
+function registryOf(repository: KeptRepository, chart: string): RegistryChart {
+  const address = addressOf('oci', repository.url) as { url: URL }
+  return {
+    origin: address.url.origin,
+    name: `${address.url.pathname.replace(/^\/+|\/+$/g, '')}/${chart}`,
+  }
+}
+
+/** Where an oci:// chart's reference says it is: no sign-in, query or fragment in it. */
+function registryAt(reference: string): RegistryChart {
+  let url: URL
+  try {
+    url = new URL(reference.replace(/^oci:/i, 'https:'))
+  } catch {
+    throw invalid('An oci:// chart is its registry’s host, its path and the chart’s name.')
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw invalid('An oci:// chart has no sign-in, ? or # in it.')
+  }
+  return { origin: url.origin, name: url.pathname.replace(/^\/+|\/+$/g, '') }
+}
+
+/** A repository given by its URL alone: as one Lumovi keeps, with no sign-in. */
+function givenRepository(kind: KeptRepository['kind'], url: string): KeptRepository {
+  const address = addressOf(kind, url)
+  if ('problem' in address) throw invalid(address.problem)
+  return { id: '', name: address.url.host, kind, url: url.trim().replace(/\/+$/, ''), charts: [] }
+}
+
+/** The newest of versions (newest first) that isn't a pre-release, as Helm chooses one. */
+const newest = (versions: string[]) => versions.find((v) => !/^v?\d+\.\d+\.\d+-/.test(v))
+
+/** A chart in a registry: its manifest checked against its digest, and its layer against its own. */
+async function registryChart(
+  registry: Registry,
+  where: string,
+  chart: string,
+  version: string,
+): Promise<Buffer> {
+  const manifest = await registry.manifest(version)
+  const layer = manifest.layers?.find((l) => l.mediaType === HELM_CHART_LAYER)
+  if (!layer?.digest) throw invalid(`${chart} ${version} in ${where} isn’t a Helm chart.`)
+  if (typeof layer.size === 'number' && layer.size > MOST_FETCHED) {
+    throw invalid(
+      `${chart} ${version} is larger than Lumovi fetches (${MOST_FETCHED / 1024 / 1024} MB).`,
+    )
+  }
+  return registry.blob(layer.digest, MOST_FETCHED)
+}
+
+/**
+ * A chart as a file in a folder of its own, for Helm, which `done` removes (on every path). One
+ * that unpacks to more than Helm would take, or isn't a gzip at all, goes no further.
+ */
+async function chartFile(
+  chart: string,
+  version: string,
+  body: Buffer,
+): Promise<{ file: string; done: () => Promise<void> }> {
+  try {
+    gunzipSync(body, { maxOutputLength: MOST_UNPACKED })
+  } catch {
+    throw invalid(
+      `The chart Lumovi fetched isn’t one Helm can read: it isn’t a packaged chart, or it unpacks to more than ${MOST_UNPACKED / 1024 / 1024} MB.`,
+    )
+  }
+  const directory = await mkdtemp(join(tmpdir(), 'lumovi-chart-'))
+  const done = () => rm(directory, { recursive: true, force: true })
+  try {
+    const file = join(directory, `${chart}-${version}.tgz`)
+    await writeFile(file, body, { mode: 0o600 })
+    return { file, done }
+  } catch (error) {
+    await done()
+    throw error
   }
 }
 

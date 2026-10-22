@@ -99,6 +99,8 @@ export class HelmService {
   readonly #target: (context: string) => Promise<HelmTarget>
   readonly #localCharts: boolean
   readonly #checkUrl: (url: string) => Promise<void>
+  /** Whether it checks where charts come from: then Lumovi fetches each, never helm. */
+  readonly #checks: boolean
   readonly #guard?: AccessGuard
   readonly #shipped: string
   /** The chart repositories and registries Lumovi keeps. */
@@ -115,6 +117,7 @@ export class HelmService {
     this.#target = options.target ?? kubeContext
     this.#localCharts = options.localCharts
     this.#checkUrl = options.checkUrl ?? (async () => undefined)
+    this.#checks = options.checkUrl !== undefined
     this.#guard = options.guard
     this.#shipped = options.command ?? 'helm'
     this.repositories = options.repositories
@@ -273,7 +276,9 @@ export class HelmService {
           chart = [fetched.file]
           label = ['--labels', `${REPOSITORY_LABEL}=${r.source.saved}`]
         } else {
-          chart = await this.#sourceArgs(r.source)
+          const given = await this.#sourceArgs(r.source)
+          fetchedDone = given.done
+          chart = given.args
           // Another chart in place of one from a repository Lumovi keeps: no longer from there.
           // (Only where it was labelled so: a helm older than 3.13 has no --labels. Where its
           // record can't be read, helm says what's wrong; a label left is never trusted alone.)
@@ -388,7 +393,12 @@ export class HelmService {
     return this.#result(async () => {
       const s = assertQuery<ChartSource>(source)
       if (s.saved === undefined) {
-        return this.#helm(['show', 'values', ...(await this.#sourceArgs(source))])
+        const given = await this.#sourceArgs(source)
+        try {
+          return await this.#helm(['show', 'values', ...given.args])
+        } finally {
+          await given.done?.()
+        }
       }
       const fetched = await this.#savedChart(s)
       try {
@@ -414,6 +424,7 @@ export class HelmService {
       assertUrl(repository, 'repository')
       assertString(chart, 'chart')
       await this.#checkUrl(repository)
+      if (this.#checks) return this.repositories.versionsGiven(repository, chart)
       const index = parse(await fetchText(`${repository.replace(/\/+$/, '')}/index.yaml`)) as {
         entries?: Record<string, { version: string }[]>
       }
@@ -520,8 +531,12 @@ export class HelmService {
     })
   }
 
-  /** What helm takes to find a chart: never an option in disguise, nor a file a server has. */
-  async #sourceArgs(source: unknown): Promise<string[]> {
+  /**
+   * What helm takes to find a chart: never an option in disguise, nor a file a server has. Where
+   * a server checks where charts come from, Lumovi fetches the chart itself and helm takes the
+   * file (which `done` removes), so helm never resolves a name of its own (LMV-356).
+   */
+  async #sourceArgs(source: unknown): Promise<{ args: string[]; done?: () => Promise<void> }> {
     const s = assertQuery<ChartSource>(source)
     assertString(s.chart, 'chart')
     if (s.chart.startsWith('-')) throw invalid('chart can’t start with a dash')
@@ -539,11 +554,21 @@ export class HelmService {
     }
     if (s.repository) await this.#checkUrl(s.repository)
     else if (remote) await this.#checkUrl(s.chart.replace(/^oci:/, 'https:'))
-    return [
-      this.#localCharts ? expandHome(s.chart) : s.chart,
-      ...(s.repository ? ['--repo', s.repository] : []),
-      ...(s.version ? ['--version', s.version] : []),
-    ]
+    if (this.#checks) {
+      const fetched = await this.repositories.fetchGiven({
+        chart: s.chart,
+        ...(s.repository ? { repository: s.repository } : {}),
+        ...(s.version ? { version: s.version } : {}),
+      })
+      return { args: [fetched.file], done: fetched.done }
+    }
+    return {
+      args: [
+        this.#localCharts ? expandHome(s.chart) : s.chart,
+        ...(s.repository ? ['--repo', s.repository] : []),
+        ...(s.version ? ['--version', s.version] : []),
+      ],
+    }
   }
 
   /** Runs `task` with the flags (and environment) that point helm at `context`. */
