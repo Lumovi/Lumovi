@@ -1036,6 +1036,8 @@ const days = (dir: string) =>
     .sort()
 
 test('a history that was changed shows where, and how', async ({ page, context, serve }) => {
+  // (Nine servers, one after another: on Windows each takes 5–9 s to start and stop.)
+  test.slow(process.platform === 'win32')
   const dir = mkdtempSync(join(tmpdir(), 'lumovi-audit-'))
   const env = { LUMOVI_AUTH: 'proxy', LUMOVI_AUDIT_DIR: dir, LUMOVI_AUDITORS: 'auditors' }
   await as(context, 'alice@example.com', 'auditors')
