@@ -9,7 +9,10 @@ import { kindsIn, problemsIn } from './yaml-schema'
 
 const schemas = new Map<string, Known>()
 
+// (Only what the page that made it sends, through the worker's own port: a message with no origin.
+// Any other is dropped.)
 addEventListener('message', (event: MessageEvent<CheckAsk>) => {
+  if (event.origin !== '') return
   const { id, text, known } = event.data
   for (const [key, each] of Object.entries(known)) schemas.set(key, each)
   const answer: CheckAnswer = {
