@@ -825,13 +825,14 @@ jobs:
           LUMOVI_E2E_BROWSERS: all
         # What's drawn differently, a plugin's sealed box, which each engine seals itself, what a
         # Secret shown on a plugin's page sends back to its code (nothing), Lumovi's own check
-        # of a box in the person's browser, and what a box's asks of Lumovi's API carry there.
+        # of a box in the person's browser, what a box's asks of Lumovi's API carry there, and
+        # what a page's workers answer.
         run: >-
           npx playwright test --project=web
           tests/web/create.spec.ts tests/web/plugin-box.spec.ts
           tests/web/plugin-secret-page.spec.ts tests/web/box-check.spec.ts
-          tests/web/plugin-hostile.spec.ts
-          --grep "typed while hidden|a plugin’s box in|a Secret on a plugin’s page in|a box’s asks of Lumovi’s own API in"
+          tests/web/plugin-hostile.spec.ts tests/web/worker-messages.spec.ts
+          --grep "typed while hidden|a plugin’s box in|a Secret on a plugin’s page in|a box’s asks of Lumovi’s own API in|a page’s workers answer"
 
   # One check for the main branch's ruleset to require: whether every job above passed (theirs
   # are many, and change with the matrix).

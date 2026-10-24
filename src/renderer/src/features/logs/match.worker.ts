@@ -21,7 +21,10 @@ export interface MatchAnswer {
   matched: Matched[]
 }
 
-self.onmessage = ({ data }: MessageEvent<MatchRequest>) => {
+// (Only what the page that made it sends, through the worker's own port: a message with no origin.
+// Any other is dropped.)
+self.onmessage = ({ data, origin }: MessageEvent<MatchRequest>) => {
+  if (origin !== '') return
   const matcher = matcherOf(data.search)
   const answer: MatchAnswer = {
     id: data.id,

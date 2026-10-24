@@ -20,7 +20,10 @@ export interface CountAnswer {
   errors: Uint32Array
 }
 
-self.onmessage = ({ data }: MessageEvent<CountRequest>) => {
+// (Only what the page that made it sends, through the worker's own port: a message with no origin.
+// Any other is dropped.)
+self.onmessage = ({ data, origin }: MessageEvent<CountRequest>) => {
+  if (origin !== '') return
   const { id, ats, levels, start, step, bars } = data
   const all = new Uint32Array(bars)
   const warnings = new Uint32Array(bars)
