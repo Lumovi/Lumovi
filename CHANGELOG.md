@@ -8,6 +8,22 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.23.2] - 2026-10-24
+
+1.23.2 has one security fix, for Lumovi on a server, under Security below: where a server fetches
+charts from public addresses alone, it now connects only to the addresses it checked, and fetches
+every chart itself. A chart from a repository whose index lists no digest is refused there.
+
+### Security
+
+- **A server connects only to the address it checked when it fetches a chart.** Where it fetches
+  charts from public addresses alone (unless LUMOVI_ALLOW_PRIVATE_CHARTS allows private ones),
+  Lumovi now resolves each name once, checks every address it gives, and connects to those alone,
+  for a repository's index and charts, a registry's, a chart at a URL and a chart's icon, and each
+  redirect's. It fetches every chart itself, from a repository, a registry or a URL, and hands Helm
+  the file. A chart from a repository whose index lists no digest is refused there, since Lumovi
+  can't check what it fetched. Through a proxy, the proxy resolves the name.
+
 ## [1.23.1] - 2026-10-22
 
 1.23.1 makes Lumovi for Linux start again. From 1.18.0 to 1.23.0, three to five of each version's
@@ -1591,7 +1607,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.1...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.2...HEAD
+[1.23.2]: https://github.com/Lumovi/Lumovi/compare/v1.23.1...v1.23.2
 [1.23.1]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...v1.23.0
 [1.22.1]: https://github.com/Lumovi/Lumovi/compare/v1.22.0...v1.22.1
