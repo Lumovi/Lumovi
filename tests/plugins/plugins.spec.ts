@@ -17,6 +17,7 @@ import {
   LUMOVIS_COMMANDS,
   LUMOVIS_PAGES,
   LUMOVIS_TABS,
+  linkLabels,
   namedKinds,
   parsePlugin,
   PLACEHOLDER,
@@ -979,6 +980,116 @@ test('a view can say what its objects manage: labels and annotations of the mana
   for (const key of ['EXAMPLE.com/name', 'example.com./name', '/name', 'example.com/']) {
     expect(under(key), key).toContain('should be a label’s or an annotation’s key')
   }
+})
+
+test('a view’s link can be listed where it leads, found there by the labels its kind and name are', () => {
+  const plugin = (link: string, kind = '{ group: example.com, kind: Report }') =>
+    parsePlugin(
+      [
+        'apiVersion: lumovi.dev/v1beta1',
+        'kind: Plugin',
+        'metadata: { name: probe }',
+        'spec:',
+        '  version: 1.0.0',
+        '  needs: { lumovi: 1.0.0 }',
+        '  groups: [example.com]',
+        ...(kind.includes('ComponentStatus') ? ['  shows: [{ kind: ComponentStatus }]'] : []),
+        '  views:',
+        `    - kinds: [${kind}]`,
+        `      links: [${link}]`,
+      ].join('\n'),
+      'probe.yaml',
+      { lumovisOwn: [] },
+    )
+  const KIND = 'kind: "{{ .metadata.labels[\'example.com/kind\'] }}"'
+  const NAME = 'objectName: "{{ .metadata.labels[\'example.com/name\'] }}"'
+  const fine = plugin(`{ name: Of, ${KIND}, ${NAME}, listedThere: true }`)
+  expect(fine.problems).toEqual([])
+  const [link] = fine.plugin!.views[0]!.links!
+  expect(link!.listedThere).toBe(true)
+  expect(linkLabels(link!)).toEqual({
+    name: 'example.com/name',
+    kind: { label: 'example.com/kind' },
+  })
+  // What the Plugins page says it reads.
+  expect(asks(fine.plugin!).listed).toEqual(['Report.example.com'])
+  expect(asks(plugin(`{ name: Of, ${KIND}, ${NAME} }`).plugin!).listed).toEqual([])
+  // A kind written out, and a label written as a field.
+  expect(linkLabels({ kind: 'Deployment', objectName: '{{ .metadata.labels.app }}' })).toEqual({
+    name: 'app',
+    kind: { written: 'Deployment' },
+  })
+  // Anything else isn't found by a label: a fallback, more text, another field, a label's map.
+  for (const objectName of [
+    '{{ .metadata.labels[\'example.com/name\'] ?? "x" }}',
+    "{{ .metadata.labels['example.com/name'] ?? .metadata.name }}",
+    "web-{{ .metadata.labels['example.com/name'] }}",
+    '{{ .metadata.name }}',
+    '{{ .metadata.annotations.name }}',
+    '{{ .metadata.labels }}',
+    '{{ .spec.labels.name }}',
+    "{{ .metadata.labels['a'].b }}",
+    'web',
+  ]) {
+    expect(linkLabels({ kind: 'Deployment', objectName }), objectName).toBeUndefined()
+  }
+  expect(
+    linkLabels({ kind: '{{ .spec.kind }}', objectName: '{{ .metadata.labels.app }}' }),
+  ).toBeUndefined()
+
+  const said = (...args: Parameters<typeof plugin>) => plugin(...args).problems.join('\n')
+  const at = 'probe.yaml: spec.views[0].links[0]'
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, listedThere: yes }`)).toContain(
+    `${at}.listedThere: should be`,
+  )
+  expect(said(`{ name: Of, kind: Pod, objectName: '{{ .spec.pod }}', listedThere: true }`)).toBe(
+    `${at}: is listed where it leads, which finds it by its labels: its objectName should be a label, like {{ .metadata.labels['trivy-operator.resource.name'] }}`,
+  )
+  expect(said(`{ name: Of, kind: '{{ .spec.kind }}', ${NAME}, listedThere: true }`)).toBe(
+    `${at}: is listed where it leads, which finds it by its labels: its kind should be a label, like {{ .metadata.labels['trivy-operator.resource.kind'] }}, or written out`,
+  )
+  expect(
+    said(`{ name: Of, ${KIND}, ${NAME}, namespace: '{{ .spec.namespace }}', listedThere: true }`),
+  ).toBe(
+    `${at}: is listed where it leads, which finds it in the namespace of what it names: it can’t name another`,
+  )
+  // What it's about, said only where it's listed.
+  const ABOUT = 'about: "the {{ .metadata.labels[\'example.com/container\'] }} container"'
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true, ${ABOUT} }`)).toBe('')
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, ${ABOUT} }`)).toBe(
+    `${at}: says what it’s about where it’s listed, and it isn’t: give it listedThere: true`,
+  )
+  expect(
+    said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true, about: '{{ spec.x }}' }`),
+  ).toContain(`${at}.about:`)
+  // A selector is built of the keys: only a label's key is one, for the name and a label kind.
+  for (const key of ['a,b', '!x', '', 'k'.repeat(64)]) {
+    const label = `{{ .metadata.labels['${key}'] }}`
+    const problem = said(`{ name: Of, ${KIND}, objectName: "${label}", listedThere: true }`)
+    expect(
+      problem.startsWith(`${at}: is listed where it leads, which finds it by its labels: "`),
+      problem,
+    ).toBe(true)
+    expect(
+      problem.endsWith('" should be a label’s key, like trivy-operator.resource.name'),
+      problem,
+    ).toBe(true)
+    expect(said(`{ name: Of, kind: "${label}", ${NAME}, listedThere: true }`), key).toContain(
+      'should be a label’s key, like trivy-operator.resource.name',
+    )
+    expect(linkLabels({ kind: 'Pod', objectName: label }), key).toBeUndefined()
+  }
+  // (Said where it isn't listed, a link's namespace is as it was.)
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, namespace: '{{ .spec.namespace }}' }`)).toBe('')
+  // What points is a tool's object, of a kind named: Lumovi lists that kind to find them.
+  expect(
+    said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true }`, '{ kind: ComponentStatus }'),
+  ).toBe(
+    `${at}.listedThere: a view of Kubernetes’ own kind only shows it, so its links aren’t listed where they lead`,
+  )
+  expect(
+    said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true }`, "{ group: example.com, kind: '*' }"),
+  ).toBe(`${at}.listedThere: its kinds should be named, not every kind of a group`)
 })
 
 test('whatever a folder holds: what’s in use doesn’t clash, and what isn’t would still lose to it', () => {

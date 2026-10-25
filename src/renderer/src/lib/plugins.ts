@@ -20,6 +20,7 @@ import {
   ONLY_PLACEHOLDER,
   PLACEHOLDER,
   clashes,
+  linkLabels,
   namedKinds,
   parsePlugin,
   type Condition,
@@ -38,6 +39,7 @@ import { harmsIn, quieted } from '@shared/plugin-changes'
 import { apiGroupOf, apiKindOf, type ResourceKind } from '@shared/resources'
 import { offersPages } from './code-pages'
 import type { Status } from './health'
+import type { Listed } from './pointing'
 
 export * from '@shared/plugins'
 
@@ -151,6 +153,21 @@ export function managingKinds(): { kind: ResourceKind; view: View }[] {
   return [...kinds].flatMap((kind) => {
     const view = viewFor(kind)
     return view?.manages ? [{ kind, view }] : []
+  })
+}
+
+/**
+ * The links listed where they lead, of the views in use: each with its view's kind, and the labels
+ * it's found by.
+ */
+export function listedLinks(): Listed[] {
+  const kinds = new Set([...local.keys(), ...shipped.keys()])
+  return [...kinds].flatMap((kind) => {
+    const view = viewFor(kind)
+    return (view?.links ?? []).flatMap((link) => {
+      const labels = link.listedThere ? linkLabels(link) : undefined
+      return view && labels ? [{ kind, view, link, labels }] : []
+    })
   })
 }
 
@@ -282,6 +299,15 @@ export function render(
   inputs: InputValues = {},
 ): string {
   return filled(template, object, now, inputs).text
+}
+
+/**
+ * A template filled in from `object` where every placeholder finds something: nothing where one
+ * doesn't (never "the  container"), or it comes to nothing but spaces.
+ */
+export function renderWhole(template: string, object: unknown): string | undefined {
+  const { text, whole } = filled(template, object, Date.now(), {})
+  return whole && text.trim() !== '' ? text : undefined
 }
 
 /**

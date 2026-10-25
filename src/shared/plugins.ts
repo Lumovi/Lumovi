@@ -120,6 +120,62 @@ export interface ViewLink {
   objectName: string
   /** The object's own namespace unless set (and none for cluster-wide kinds). */
   namespace?: string
+  /**
+   * Listed where it leads too: in the detail of the object it names, among the objects that point
+   * there, each with its view's status. Found by labels: the link's name is a label, and its kind
+   * a label or written out (see `linkLabels`).
+   */
+  listedThere?: boolean
+  /**
+   * A template: what the object is of, said beside its kind where it's listed ("the api
+   * container"). Its kind alone where a placeholder finds nothing.
+   */
+  about?: string
+}
+
+/** How a link that's listed where it leads is found from there: by its labels. */
+export interface LinkLabels {
+  /** The label its object's name is. */
+  name: string
+  /** The label its kind is, or the kind it names, written out. */
+  kind: { label: string } | { written: ResourceKind }
+}
+
+/**
+ * The label a template is, and nothing more: `{{ .metadata.labels['trivy-operator.resource.name'] }}`
+ * is `trivy-operator.resource.name`. (A fallback would find what the label doesn't say.)
+ */
+function labelOf(template: string): string | undefined {
+  const only = ONLY_PLACEHOLDER.exec(template)
+  const [, path, literal, fallback] = (only && EXPRESSION.exec(only[1]!)) || []
+  if (!path || literal !== undefined || fallback !== undefined) return undefined
+  try {
+    const steps = parse(path)
+    const [metadata, labels, key] = steps as [Step?, Step?, Step?]
+    return steps.length === 3 &&
+      metadata &&
+      'key' in metadata &&
+      metadata.key === 'metadata' &&
+      labels &&
+      'key' in labels &&
+      labels.key === 'labels' &&
+      key &&
+      'key' in key
+      ? key.key
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The labels a link is found by from where it leads; nothing, where it can't be found that way. */
+export function linkLabels(link: Pick<ViewLink, 'kind' | 'objectName'>): LinkLabels | undefined {
+  const name = labelOf(link.objectName)
+  const label = labelOf(link.kind)
+  // (A selector is built of them: only a label's key, as Kubernetes has it, is one.)
+  if (name === undefined || !QUALIFIED_KEY.test(name)) return undefined
+  if (label !== undefined) return QUALIFIED_KEY.test(label) ? { name, kind: { label } } : undefined
+  return link.kind.includes('{{') ? undefined : { name, kind: { written: link.kind } }
 }
 
 /** Objects of another kind that belong to an object, listed in a tab of its own. */
@@ -867,6 +923,33 @@ function managesProblem(entry: Record<string, unknown>): string | undefined {
     : 'should name its manager: a template of one of the manager’s fields, like {{ .metadata.name }}'
 }
 
+/**
+ * What's wrong with a link that's listed where it leads (`listedThere`): Lumovi finds it from there
+ * by its labels, in the namespace of what it names, so it has to be found that way.
+ */
+function listedProblem(link: Record<string, unknown>): string | undefined {
+  if (link.listedThere !== true) {
+    return link.about === undefined
+      ? undefined
+      : 'says what it’s about where it’s listed, and it isn’t: give it listedThere: true'
+  }
+  if (link.namespace !== undefined) {
+    return 'is listed where it leads, which finds it in the namespace of what it names: it can’t name another'
+  }
+  const { kind, objectName } = link as { kind: string; objectName: string }
+  const name = labelOf(objectName)
+  if (name === undefined) {
+    return `is listed where it leads, which finds it by its labels: its objectName should be a label, like {{ .metadata.labels['trivy-operator.resource.name'] }}`
+  }
+  const wrong = [name, labelOf(kind)].find((key) => key !== undefined && !QUALIFIED_KEY.test(key))
+  if (wrong !== undefined) {
+    return `is listed where it leads, which finds it by its labels: ${quoted(wrong)} should be a label’s key, like trivy-operator.resource.name`
+  }
+  return linkLabels({ kind, objectName })
+    ? undefined
+    : `is listed where it leads, which finds it by its labels: its kind should be a label, like {{ .metadata.labels['trivy-operator.resource.kind'] }}, or written out`
+}
+
 const VIEW_SHAPE: Shape = {
   fields: {
     kinds: { shape: kindsShape, required: true },
@@ -890,7 +973,10 @@ const VIEW_SHAPE: Shape = {
           kind: { shape: 'template', required: true },
           objectName: { shape: 'template', required: true },
           namespace: 'template',
+          listedThere: 'boolean',
+          about: 'template',
         },
+        refine: listedProblem,
       },
     },
     related: {
@@ -2357,6 +2443,7 @@ function fenceProblems(
     kinds: NamedKind[]
     actions?: { create?: Record<string, unknown> }[]
     manages?: ViewManages[]
+    links?: { listedThere?: boolean }[]
   }[],
   lumovisOwn: readonly ResourceKind[],
 ): string[] {
@@ -2443,6 +2530,20 @@ function fenceProblems(
         `spec.views[${i}].manages: its managers’ kinds should be named, not every kind of a group`,
       )
     }
+    // What points at an object is a tool's object, of a kind named, as a manager is: Lumovi lists
+    // that kind, from where it points, to find them.
+    view.links?.forEach((link, l) => {
+      if (link.listedThere !== true) return
+      if (view.kinds.some((kind) => !resolved(kind).tools)) {
+        problems.push(
+          `spec.views[${i}].links[${l}].listedThere: a view of Kubernetes’ own kind only shows it, so its links aren’t listed where they lead`,
+        )
+      } else if (view.kinds.some((kind) => kind.kind === '*')) {
+        problems.push(
+          `spec.views[${i}].links[${l}].listedThere: its kinds should be named, not every kind of a group`,
+        )
+      }
+    })
     // What Lumovi says manages an object is said by its tool's own labels and annotations: a
     // key under the group of the managers' own kind (or a name under it), never Kubernetes'.
     const own = [...new Set(view.kinds.map((kind) => resolved(kind).group))]
@@ -2633,7 +2734,11 @@ function readPlugin(
         (groups ?? []) as string[],
         (shows ?? []) as NamedKind[],
         place.kinds as NamedKind[] | undefined,
-        items as { kinds: NamedKind[]; actions?: { create?: Record<string, unknown> }[] }[],
+        items as {
+          kinds: NamedKind[]
+          actions?: { create?: Record<string, unknown> }[]
+          links?: { listedThere?: boolean }[]
+        }[],
         lumovisOwn,
       ).map((problem) => `${source}: ${problem}`),
     )

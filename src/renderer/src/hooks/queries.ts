@@ -252,11 +252,12 @@ export function useListTotals(kind: ResourceKind, options: ListOptions) {
   return useListQuery(kind, options, selectTotals).data
 }
 
-export function useObject(kind: ResourceKind, name: string, namespace?: string) {
+export function useObject(kind: ResourceKind, name: string, namespace?: string, enabled = true) {
   const { context } = useCluster()
   return useQuery<KubeObject>({
     queryKey: ['object', context, kind, namespace, name],
     queryFn: () => unwrap(api.kube.get({ context, kind, name, namespace })),
+    enabled,
     refetchInterval: (query) =>
       watched(query.queryHash) && query.state.status !== 'error' ? WATCHED_POLL_MS : POLL_INTERVAL,
   })

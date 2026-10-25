@@ -115,6 +115,44 @@ export function report(name: string, secrets: unknown[]): KubeObject {
   } as unknown as KubeObject
 }
 
+/**
+ * The CRD of another of Trivy's namespaced reports (`VulnerabilityReport`, say), its report
+ * preserved as Trivy writes it.
+ */
+export function reportCrd(kind: string): KubeObject {
+  const plural = `${kind.toLowerCase()}s`
+  return {
+    apiVersion: 'apiextensions.k8s.io/v1',
+    kind: 'CustomResourceDefinition',
+    metadata: {
+      name: `${plural}.aquasecurity.github.io`,
+      uid: `crd-${plural}`,
+      creationTimestamp: '2026-10-01T00:00:00Z',
+    },
+    spec: {
+      group: 'aquasecurity.github.io',
+      names: { kind, listKind: `${kind}List`, plural, singular: kind.toLowerCase() },
+      scope: 'Namespaced',
+      versions: [
+        {
+          name: 'v1alpha1',
+          served: true,
+          storage: true,
+          schema: {
+            openAPIV3Schema: {
+              type: 'object',
+              properties: {
+                report: { type: 'object', 'x-kubernetes-preserve-unknown-fields': true },
+              },
+            },
+          },
+        },
+      ],
+    },
+    status: { acceptedNames: { kind, plural } },
+  } as unknown as KubeObject
+}
+
 /** Trivy's CRD and a report of two findings, in the demo cluster (undone after each test). */
 export function scanned(cluster: MockCluster) {
   cluster.upsert(CRD)

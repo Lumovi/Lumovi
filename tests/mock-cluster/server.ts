@@ -386,17 +386,28 @@ function groupVersion(def: Served): string {
   return def.group ? `${def.group}/${def.version}` : def.version
 }
 
-/** Equality-based label selectors: `a=b`, `a==b`, `a!=b`, `a`, `!a`, comma separated. */
+/**
+ * Label selectors: `a=b`, `a==b`, `a!=b`, `a`, `!a`, and sets, `a in (b,c)` and `a notin (b,c)`;
+ * comma separated (but for the commas in a set).
+ */
 export function matchesLabels(
   labels: Record<string, string> | undefined,
   selector: string,
 ): boolean {
   return selector
-    .split(',')
+    .split(/,(?![^(]*\))/)
     .map((term) => term.trim())
     .filter(Boolean)
     .every((term) => {
       const value = (key: string) => labels?.[key]
+      const set = term.match(/^(\S+)\s+(in|notin)\s+\(([^)]*)\)$/)
+      if (set) {
+        const among = set[3]!.split(',').map((each) => each.trim())
+        const found = value(set[1]!)
+        return set[2] === 'in'
+          ? found !== undefined && among.includes(found)
+          : found === undefined || !among.includes(found)
+      }
       const notEqual = term.match(/^([^!=]+)!=(.*)$/)
       if (notEqual) return value(notEqual[1]!.trim()) !== notEqual[2]!.trim()
       const equal = term.match(/^([^!=]+)==?(.*)$/)
