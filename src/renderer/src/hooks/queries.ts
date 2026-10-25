@@ -247,6 +247,24 @@ export function useCombinedLists<T>(
   })
 }
 
+/**
+ * Several whole lists at once (items, whether each was capped, which namespaces weren't read),
+ * each as `useListResponse` reads it, made one value by `combine`: a stable one, as
+ * `useCombinedLists`'s is.
+ */
+export function useCombinedListResponses<T>(
+  lists: ({ kind: ResourceKind } & ListOptions)[],
+  combine: (results: UseQueryResult<PickedList>[]) => T,
+): T {
+  const { context, namespaces } = useCluster()
+  return useQueries({
+    queries: lists.map(({ kind, ...options }) =>
+      listQuery(context, namespaces, kind, options, selectAll),
+    ),
+    combine,
+  })
+}
+
 /** How complete a list is: loaded items, whether it was capped, and the server-side total. */
 export function useListTotals(kind: ResourceKind, options: ListOptions) {
   return useListQuery(kind, options, selectTotals).data

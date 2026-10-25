@@ -74,6 +74,11 @@ export interface Asks {
    */
   listed: ResourceKind[]
   /**
+   * The kinds whose links count against workloads (`counts`): lists Lumovi reads, by their
+   * labels, in the whole cluster, for workloads' Findings.
+   */
+  counted: ResourceKind[]
+  /**
    * What its pages may propose to change (`spec.changes`): each of its own kinds, and how. The
    * person confirms each in Lumovi's own dialog.
    */
@@ -227,6 +232,11 @@ export function asks(plugin: Plugin): Asks {
       }
     }),
     manages: unique(plugin.views.flatMap((view) => (view.manages ? view.kinds : []))),
+    counted: unique(
+      plugin.views.flatMap((view) =>
+        (view.links ?? []).some((link) => link.listedThere && link.counts) ? view.kinds : [],
+      ),
+    ),
     listed: unique(
       plugin.views.flatMap((view) =>
         (view.links ?? []).some((link) => link.listedThere) ? view.kinds : [],

@@ -14,7 +14,7 @@ import { useActionsUi } from '@renderer/state/actions'
 import { Section } from './sections'
 
 /** A plugin as its group's line says it: "Trivy 1.1.0", its place's name where it has one. */
-function pluginWords(name: string): { label: string; version?: string } {
+export function pluginWords(name: string): { label: string; version?: string } {
   const plugin = pluginNamed(name)
   return { label: plugin?.place?.label ?? name, ...(plugin ? { version: plugin.version } : {}) }
 }

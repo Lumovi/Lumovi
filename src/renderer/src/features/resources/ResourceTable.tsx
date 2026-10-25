@@ -19,6 +19,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
 } from 'react'
@@ -498,20 +499,38 @@ function ResourceGrid({
                     <span data-words className="flex min-w-0">
                       <TheirCell text={column.header} />
                     </span>
+                  ) : column.headerIcon ? (
+                    <span data-words className="flex min-w-0 items-center gap-1">
+                      <column.headerIcon
+                        className={cn('size-3.5 shrink-0', column.headerIconClassName)}
+                        aria-hidden
+                      />
+                      <span className="truncate">{column.header}</span>
+                    </span>
                   ) : (
                     <span data-words className="truncate">
                       {column.header}
                     </span>
                   )
-                // (A tooltip of more than the header is drawn, not a title: it can hold marks.)
                 // Narrowed, its word is heard and in its title, not shown: never cut to a letter.
                 const words = column.narrowed ? (
                   <span className="sr-only">{column.header}</span>
-                ) : column.headerTip ? (
-                  <Tooltip content={column.headerTip}>{drawn}</Tooltip>
                 ) : (
                   drawn
                 )
+                // (A tooltip of more than the header is drawn, not a title: it can hold marks. On
+                // what's pressed or focused, so the keyboard opens it too.)
+                // One whose heading may come to say more is wrapped either way, and says nothing
+                // while it has nothing: drawn anew as its tip came and went, its heading would lose
+                // the keyboard's focus.
+                const tipped = (element: ReactElement) =>
+                  (column.headerTip || column.headerTipped) && !column.narrowed ? (
+                    <Tooltip content={column.headerTip} when={() => Boolean(column.headerTip)}>
+                      {element}
+                    </Tooltip>
+                  ) : (
+                    element
+                  )
                 // (Else a title: words not Lumovi's spelled, as a title can't draw a mark.)
                 const title = column.headerTip
                   ? undefined
@@ -529,32 +548,34 @@ function ResourceGrid({
                     onBlur={() => (keyed.current = undefined)}
                     className={cn(listHeadCell, column.align === 'right' && 'justify-end')}
                   >
-                    {column.sort ? (
-                      <button
-                        type="button"
-                        onClick={() => onSort(column.id)}
-                        // A header keeps to its line: cut short in a narrow column, its arrow kept.
-                        className={listHeadButton(isSorted)}
-                        title={title}
-                      >
-                        {words}
-                        {isSorted &&
-                          (sort.desc ? (
-                            <ArrowDown className="size-3 shrink-0" />
-                          ) : (
-                            <ArrowUp className="size-3 shrink-0" />
-                          ))}
-                      </button>
-                    ) : (
-                      <span
-                        // (A stop of its own where it can be sized from the keyboard.)
-                        tabIndex={layout ? 0 : undefined}
-                        className={cn(listHeadWords, 'outline-none focus-visible:text-ink-1')}
-                        title={title}
-                      >
-                        {words}
-                      </span>
-                    )}
+                    {column.sort
+                      ? tipped(
+                          <button
+                            type="button"
+                            onClick={() => onSort(column.id)}
+                            // A header keeps to its line: cut short in a narrow column, its arrow kept.
+                            className={listHeadButton(isSorted)}
+                            title={title}
+                          >
+                            {words}
+                            {isSorted &&
+                              (sort.desc ? (
+                                <ArrowDown className="size-3 shrink-0" />
+                              ) : (
+                                <ArrowUp className="size-3 shrink-0" />
+                              ))}
+                          </button>,
+                        )
+                      : tipped(
+                          <span
+                            // (A stop of its own where it can be sized from the keyboard.)
+                            tabIndex={layout ? 0 : undefined}
+                            className={cn(listHeadWords, 'outline-none focus-visible:text-ink-1')}
+                            title={title}
+                          >
+                            {words}
+                          </span>,
+                        )}
                     {layout && edge(column)}
                   </div>
                 )

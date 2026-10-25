@@ -4,6 +4,9 @@ import { useSearchParams } from 'react-router'
 import type { KubeObject } from '@shared/api'
 import { builtinResource, kindOf } from '@shared/resources'
 import { EmptyState, ErrorState, StaleNotice, UnreadNotice } from '@renderer/components/States'
+import { useLayout } from '@renderer/lib/layout'
+import { FindingsUnreadLine } from '../resources/Findings'
+import { useFindings } from '@renderer/hooks/findings'
 import { useManagers } from '@renderer/hooks/managers'
 import { useOpenObject } from '@renderer/hooks/open-object'
 import { useList, useListResponse, useMetrics } from '@renderer/hooks/queries'
@@ -21,7 +24,13 @@ import {
 import { useCluster } from '@renderer/state/cluster'
 import { SelectionBar } from '../actions/BulkActions'
 import { useListColumns } from '../resources/ColumnsMenu'
-import { sortedBy, sortRows, withManagedBy, type CellContext } from '../resources/columns'
+import {
+  sortedBy,
+  sortRows,
+  withFindings,
+  withManagedBy,
+  type CellContext,
+} from '../resources/columns'
 import { useListState, useSortTidied } from '../resources/list-state'
 import { countBy, HealthChips, ListBar, type LabelSelectorHandle } from '../resources/ListToolbar'
 import { Pagination } from '../resources/Pagination'
@@ -86,13 +95,18 @@ export function WorkloadsPage() {
     usage: usage !== undefined,
     scalers: autoscalers(hpas),
   })
-  const columns = managers ? withManagedBy(ownColumns, kindOf) : ownColumns
+  const managed = managers ? withManagedBy(ownColumns, kindOf) : ownColumns
+  // What plugins' objects say of each workload, where a plugin's link counts against it.
+  const findings = useFindings()
+  const phone = useLayout() === 'phone'
+  const columns = findings ? withFindings(managed, kindOf, findings.unread) : managed
   const ctx: CellContext = {
     // Ages are relative to the last refresh, which keeps rendering pure.
     now: Math.max(...all.map(([, q]) => q.dataUpdatedAt)),
     metrics: usage,
     open,
     managers,
+    findings,
   }
   const counts = countBy(workloads, (o) => statusOf(kindOf(o), o).health)
   // The columns as the person chose them for workloads in this cluster.
@@ -222,6 +236,12 @@ export function WorkloadsPage() {
         onArrowDown={() => gridRef.current?.focus()}
         after={chosen.button(rows)}
       />
+      {/* (On a phone, where no heading says what plugins' reports couldn't all be read.) */}
+      {phone && findings?.unread.length ? (
+        <div className="shrink-0 border-b border-line px-4 pt-2">
+          <FindingsUnreadLine unread={findings.unread} />
+        </div>
+      ) : null}
       {unread.length > 0 && unread.length < all.length && (
         <div role="status" className="shrink-0 border-b border-warn/25 bg-warn/10 px-5 py-1.5">
           {unread.map(([kind, q]) => (

@@ -131,6 +131,12 @@ export interface ViewLink {
    * container"). Its kind alone where a placeholder finds nothing.
    */
   about?: string
+  /**
+   * Its view's status counts against what it leads to, where that's a workload: the worst there
+   * is (critical or warning) in a Findings column of Lumovi's workload lists. Only where it's
+   * listed there.
+   */
+  counts?: boolean
 }
 
 /** How a link that's listed where it leads is found from there: by its labels. */
@@ -929,9 +935,11 @@ function managesProblem(entry: Record<string, unknown>): string | undefined {
  */
 function listedProblem(link: Record<string, unknown>): string | undefined {
   if (link.listedThere !== true) {
-    return link.about === undefined
-      ? undefined
-      : 'says what it’s about where it’s listed, and it isn’t: give it listedThere: true'
+    return link.counts === true
+      ? 'counts against what it leads to where it’s listed there, and it isn’t: give it listedThere: true'
+      : link.about === undefined
+        ? undefined
+        : 'says what it’s about where it’s listed, and it isn’t: give it listedThere: true'
   }
   if (link.namespace !== undefined) {
     return 'is listed where it leads, which finds it in the namespace of what it names: it can’t name another'
@@ -975,6 +983,7 @@ const VIEW_SHAPE: Shape = {
           namespace: 'template',
           listedThere: 'boolean',
           about: 'template',
+          counts: 'boolean',
         },
         refine: listedProblem,
       },

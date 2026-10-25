@@ -56,6 +56,8 @@ export const PLUGIN_SINCE = {
      * it doesn't know).
      */
     listedThere: 'next',
+    /** A listed link whose view's status `counts` against a workload, in its list's Findings. */
+    counts: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {

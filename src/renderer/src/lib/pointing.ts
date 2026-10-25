@@ -144,20 +144,27 @@ const leading = (label: string) => {
   return found ? Number(found[1]) : undefined
 }
 
+/** The largest number a status's words are ordered by: past it, they're alike. */
+const MOST_SAID = 999_999
+
 /**
- * Worst first, and the same each time, whatever order they came in: by health; then by the larger
- * number its words start with ("9 critical" before "2 critical"); then by name. One with no status
- * is last.
+ * How bad a status is, as one number, lower the worse: by health, then by the larger number its
+ * words start with ("9 critical" before "2 critical"). None is last.
+ */
+export function severity(status: Status | null): number {
+  if (!status) return Infinity
+  const number = Math.min(leading(status.label) ?? 0, MOST_SAID)
+  return RANK[status.health] * (MOST_SAID + 1) + (MOST_SAID - number)
+}
+
+/**
+ * Worst first, and the same each time, whatever order they came in: by `severity`, then by name.
  */
 export function worstFirst(
   a: { status: Status | null; name: string },
   b: { status: Status | null; name: string },
 ): number {
-  const rank = (status: Status | null) => (status ? RANK[status.health] : Infinity)
-  const number = (status: Status | null) => (status && leading(status.label)) ?? -Infinity
-  return (
-    rank(a.status) - rank(b.status) ||
-    number(b.status) - number(a.status) ||
-    (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
-  )
+  const x = severity(a.status)
+  const y = severity(b.status)
+  return x === y ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : x < y ? -1 : 1
 }

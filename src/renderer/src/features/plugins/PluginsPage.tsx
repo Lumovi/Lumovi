@@ -1539,6 +1539,13 @@ function MayRead({
           by labels and annotations the workload carries under {tool}’s own groups.
         </p>
       )}
+      {asked.counted.length > 0 && (
+        <p>
+          Every {listed(asked.counted.map(names.bare))} whose labels name a workload, in the cluster
+          you may list (or, where you can’t, in the namespaces you’re looking at), to show the worst
+          it says in the Findings column of workloads’ lists.
+        </p>
+      )}
       {asked.listed.length > 0 && (
         <p>
           Every {listed(asked.listed.map(names.bare))} whose labels name an object you open, or one
