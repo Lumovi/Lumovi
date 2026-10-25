@@ -50,6 +50,12 @@ export const PLUGIN_SINCE = {
      * refuses the file (it's a view's key it doesn't know), so it never shows them either.
      */
     withholds: '1.23.0',
+    /**
+     * A view's link that's listed where it leads (`listedThere`), among the objects that point at
+     * what it names, with what it's `about` there. An older Lumovi refuses the file (a link's key
+     * it doesn't know).
+     */
+    listedThere: 'next',
   },
   /** What a view's action can say beyond what it first took. */
   action: {

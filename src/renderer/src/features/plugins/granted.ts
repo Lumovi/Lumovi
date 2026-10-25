@@ -111,6 +111,7 @@ function more(next: Granted, was: Granted): Granted {
         return keys.length > 0 ? [{ ...shown, keys }] : []
       }),
       manages: beyond(n.manages, w.manages),
+      listed: beyond(n.listed, w.listed),
       changes: n.changes.flatMap((change) => {
         const before = w.changes.find(({ kind }) => kind === change.kind)
         const actions = beyond(change.actions, before?.actions ?? [])
@@ -153,6 +154,7 @@ export function isEmpty(granted: Granted): boolean {
       a.reads,
       a.secrets,
       a.manages,
+      a.listed,
       a.changes,
       a.actions,
       added.pages,

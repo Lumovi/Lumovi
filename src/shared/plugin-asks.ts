@@ -69,6 +69,11 @@ export interface Asks {
   /** The kinds whose objects it says manage workloads: lists Lumovi reads, in the whole cluster. */
   manages: ResourceKind[]
   /**
+   * The kinds whose links are listed where they lead (`listedThere`): lists Lumovi reads, by their
+   * labels, beside each object they might point at.
+   */
+  listed: ResourceKind[]
+  /**
    * What its pages may propose to change (`spec.changes`): each of its own kinds, and how. The
    * person confirms each in Lumovi's own dialog.
    */
@@ -222,6 +227,11 @@ export function asks(plugin: Plugin): Asks {
       }
     }),
     manages: unique(plugin.views.flatMap((view) => (view.manages ? view.kinds : []))),
+    listed: unique(
+      plugin.views.flatMap((view) =>
+        (view.links ?? []).some((link) => link.listedThere) ? view.kinds : [],
+      ),
+    ),
     changes: plugin.changes.map(({ kind, actions: how }) => {
       const group = kind.slice(0, kind.indexOf('/'))
       return {

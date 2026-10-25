@@ -11,6 +11,7 @@ import { factsFor } from './facts'
 import { FieldTree } from './FieldTree'
 import { ManagedNotice } from './ManagedBy'
 import { ObjectLink } from './ObjectLink'
+import { PointsHere } from './PointsHere'
 import { LAST_APPLIED } from './YamlTab'
 import {
   LimitRangeLimits,
@@ -218,6 +219,7 @@ export function OverviewTab({ object }: { object: KubeObject }) {
       <Section title="Details">
         <KeyValueGrid entries={factsFor(object)} />
       </Section>
+      <PointsHere object={object} />
       {Extra && <Extra object={object} />}
       {conditions.length > 0 && (
         <Section title="Conditions">

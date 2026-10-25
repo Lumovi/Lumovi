@@ -1539,6 +1539,13 @@ function MayRead({
           by labels and annotations the workload carries under {tool}’s own groups.
         </p>
       )}
+      {asked.listed.length > 0 && (
+        <p>
+          Every {listed(asked.listed.map(names.bare))} whose labels name an object you open, or one
+          it belongs to or runs, in its namespace (anywhere, for one outside namespaces), to list it
+          in that object’s detail with its status.
+        </p>
+      )}
       {/* Shown on its pages: Lumovi reads and draws them (read: said first, above). */}
       {logs === 'shown' && (
         <div>
