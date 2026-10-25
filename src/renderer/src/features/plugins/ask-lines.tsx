@@ -163,6 +163,13 @@ export function askLines(granted: Granted, names: KindNames, tool: string): AskL
       text: `Every ${listed(a.manages.map(names.bare))} in the cluster you may list (or, where you can’t, in the namespaces you’re looking at), to say which of them manages each workload, by labels and annotations the workload carries under ${tool}’s own groups.`,
     })
   }
+  if (a.counted.length > 0) {
+    lines.push({
+      key: 'counted',
+      icon: Eye,
+      text: `Every ${listed(a.counted.map(names.bare))} whose labels name a workload, in the cluster you may list (or, where you can’t, in the namespaces you’re looking at), to show the worst it says in the Findings column of workloads’ lists.`,
+    })
+  }
   if (a.listed.length > 0) {
     lines.push({
       key: 'listed',

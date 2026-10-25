@@ -1053,6 +1053,19 @@ test('a view’s link can be listed where it leads, found there by the labels it
   ).toBe(
     `${at}: is listed where it leads, which finds it in the namespace of what it names: it can’t name another`,
   )
+  // Its status counts against what it leads to, said only where it's listed; and the Plugins page
+  // says those lists.
+  const counting = plugin(`{ name: Of, ${KIND}, ${NAME}, listedThere: true, counts: true }`)
+  expect(counting.problems).toEqual([])
+  expect(counting.plugin!.views[0]!.links![0]!.counts).toBe(true)
+  expect(asks(counting.plugin!).counted).toEqual(['Report.example.com'])
+  expect(asks(fine.plugin!).counted).toEqual([])
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, counts: true }`)).toBe(
+    `${at}: counts against what it leads to where it’s listed there, and it isn’t: give it listedThere: true`,
+  )
+  expect(said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true, counts: 1 }`)).toContain(
+    `${at}.counts: should be`,
+  )
   // What it's about, said only where it's listed.
   const ABOUT = 'about: "the {{ .metadata.labels[\'example.com/container\'] }} container"'
   expect(said(`{ name: Of, ${KIND}, ${NAME}, listedThere: true, ${ABOUT} }`)).toBe('')

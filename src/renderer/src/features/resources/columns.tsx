@@ -1,3 +1,4 @@
+import { Plug, TriangleAlert, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { eventCount, lastSeen } from '@shared/events'
 import type { CertificateSummary, KubeObject, TableColumn, UsageSample } from '@shared/api'
@@ -19,6 +20,9 @@ import { MiddleCut } from '@renderer/kit/MiddleCut'
 import { TheirText } from '@renderer/plugins/TheirText'
 import { managedBy, type Managers } from '@renderer/lib/managers'
 import { ManagerCell, ManagerFact, managerText } from '@renderer/features/details/ManagedBy'
+import type { Findings } from '@renderer/lib/findings'
+import { severity } from '@renderer/lib/pointing'
+import { FindingsCell, FindingsFact, findingText, FindingsUnread } from './Findings'
 import { fullestSort, fullestText, limitTypes, QuotaFullest } from '../quotas/parts'
 
 export interface CellContext {
@@ -30,6 +34,8 @@ export interface CellContext {
   open?: (kind: ResourceKind, name: string, namespace?: string) => void
   /** What manages each object, where plugins say what manages workloads (`useManagers`). */
   managers?: Managers
+  /** What plugins' objects say of each workload, where a link counts against it (`useFindings`). */
+  findings?: Findings
   /** Secrets': what their certificates say, by `namespace/name` (the list's). */
   certificates?: Record<string, CertificateSummary[]>
   now: number
@@ -40,8 +46,14 @@ export interface Column {
   header: string
   /** A header that isn't Lumovi's words (a label's key): drawn in pieces, as cluster text is. */
   headerTheirs?: boolean
+  /** Drawn before its header's words: the plug, on a column of what plugins say. */
+  headerIcon?: LucideIcon
+  /** Its icon's own colour, where it isn't the heading's: a warning's. */
+  headerIconClassName?: string
   /** What its header's tooltip says, if more than the header: drawn, so it can hold marks. */
   headerTip?: ReactNode
+  /** Its heading may come to have a tip it hasn't now (what couldn't be read, say). */
+  headerTipped?: true
   /** A header that's a key's whole name is cut in its middle, where keys differ, not at its end. */
   headerCut?: 'middle'
   /**
@@ -994,6 +1006,55 @@ export function managedByColumn(kindOf: (object: KubeObject) => ResourceKind): C
         .map((manager) => manager.name)
         .join(', '),
   }
+}
+
+/**
+ * What plugins' objects say of each workload, where a view's link counts against it (Trivy's
+ * reports): the worst as its pill, and a dash where nothing that counts says anything wrong.
+ * Sorted worst first. `kindOf` says each row's kind.
+ */
+export function findingsColumn(
+  kindOf: (object: KubeObject) => ResourceKind,
+  unread: Findings['unread'] = [],
+): Column {
+  const of = (object: KubeObject, ctx: CellContext) =>
+    ctx.findings ? ctx.findings.of(object, kindOf(object)) : []
+  return {
+    id: 'findings',
+    header: 'Findings',
+    // Where a counting kind couldn't all be read, its heading says so, marked: a dash there isn't
+    // "nothing was found".
+    headerIcon: unread.length ? TriangleAlert : Plug,
+    headerTipped: true,
+    ...(unread.length ? { headerIconClassName: 'text-warn-text' } : {}),
+    ...(unread.length ? { headerTip: <FindingsUnread unread={unread} /> } : {}),
+    width: 'minmax(110px, auto)',
+    priority: 2,
+    cell: (o, ctx) => {
+      const findings = of(o, ctx)
+      return findings.length ? <FindingsCell findings={findings} /> : none
+    },
+    fact: (o, ctx) => {
+      const findings = of(o, ctx)
+      return findings.length ? <FindingsFact findings={findings} /> : ''
+    },
+    alwaysSaid: true,
+    text: (o, ctx) => of(o, ctx).map(findingText).join('; '),
+    // (The worst first, as findings are ordered among themselves; none last.)
+    sort: (o, ctx) => severity(of(o, ctx)[0]?.status ?? null),
+  }
+}
+
+/** `columns` with what plugins say of each workload, after what manages it (or before its age). */
+export function withFindings(
+  columns: Column[],
+  kindOf: (object: KubeObject) => ResourceKind,
+  unread: Findings['unread'] = [],
+): Column[] {
+  const managed = columns.findIndex((column) => column.id === 'managedBy')
+  const age = columns.findIndex((column) => column.id === 'age')
+  const at = managed !== -1 ? managed + 1 : age === -1 ? columns.length : age
+  return [...columns.slice(0, at), findingsColumn(kindOf, unread), ...columns.slice(at)]
 }
 
 /** `columns` with what manages each workload, before its age. */

@@ -33,6 +33,8 @@ import { hasHealth, healthName, statusFor, statusOf, type Health } from '@render
 import { fieldValue, listedPlugins, viewFor } from '@renderer/lib/plugins'
 import { pinnable } from '@renderer/lib/marks'
 import { isWorkloadType } from '@renderer/lib/workloads'
+import { FindingsUnreadLine } from './Findings'
+import { useFindings } from '@renderer/hooks/findings'
 import { useManagers } from '@renderer/hooks/managers'
 import { useCluster } from '@renderer/state/cluster'
 import { usePrefs } from '@renderer/state/prefs'
@@ -48,6 +50,7 @@ import {
   metricsKey,
   sortedBy,
   sortRows,
+  withFindings,
   withManagedBy,
   type CellContext,
 } from './columns'
@@ -189,7 +192,10 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     builtinColumns ?? customColumnsFor({ kind, showNamespace, hasHealth: withHealth, view, table })
   // What manages each workload, where a plugin says what can and the cluster serves it.
   const managers = useManagers(isWorkloadType(kind))
-  const columns = managers ? withManagedBy(ownColumns, () => kind) : ownColumns
+  const managed = managers ? withManagedBy(ownColumns, () => kind) : ownColumns
+  // What plugins' objects say of each workload, where a plugin's link counts against it.
+  const findings = useFindings(isWorkloadType(kind))
+  const columns = findings ? withFindings(managed, () => kind, findings.unread) : managed
   const cells = table
     ? new Map(items.map((item, i) => [item, table.cells[i]!] as const))
     : undefined
@@ -214,6 +220,7 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
     open,
     cells,
     managers,
+    findings,
     certificates,
     metrics: metrics.data?.available
       ? new Map(
@@ -431,6 +438,8 @@ export function ResourcePage({ resource }: { resource: ResourceDefinition }) {
               name={(health) => healthName(kind, health)}
             />
           </div>
+          {/* Where what a plugin's reports say couldn't all be read: no heading says so here. */}
+          {findings && <FindingsUnreadLine unread={findings.unread} />}
           {/* (The square says no name: the view open is said here, under the bar.) */}
           {opened && (
             <p className="-mt-1 truncate pb-2 text-[13px] text-ink-2">View: {viewWords(opened)}</p>

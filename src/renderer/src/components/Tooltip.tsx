@@ -1,5 +1,5 @@
 import { Slot, Tooltip as TooltipPrimitive } from 'radix-ui'
-import { isValidElement, useState, type ComponentProps, type ReactNode } from 'react'
+import { isValidElement, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { useTouch } from '@renderer/lib/layout'
 
 export const TooltipProvider = TooltipPrimitive.Provider
@@ -49,13 +49,30 @@ export function Tooltip({
   when?: () => boolean
 }) {
   const [hovered, setHovered] = useState(false)
+  const held = shown !== undefined || when !== undefined
+  // Left all at once, it shuts too: the pointer off the window, or the window left for another.
+  // (Radix shuts it on the pointer's moves after it's left, and there may be none. A move onto the
+  // tooltip itself is Radix's to keep it open for, as one stays to be read.)
+  useEffect(() => {
+    if (!hovered) return
+    const shut = () => setHovered(false)
+    const out = (event: PointerEvent) => {
+      if (event.relatedTarget === null) shut()
+    }
+    window.addEventListener('blur', shut)
+    document.documentElement.addEventListener('pointerout', out)
+    return () => {
+      window.removeEventListener('blur', shut)
+      document.documentElement.removeEventListener('pointerout', out)
+    }
+  }, [hovered])
   // Nothing hovers under a finger, and a tooltip shown on focus would take the Escape meant for
   // what it's in. What it says is in its button's name.
   const touch = useTouch()
   if (touch) return children
   return (
     <TooltipPrimitive.Root
-      {...(shown === undefined && when === undefined
+      {...(!held
         ? {}
         : {
             open: (shown ?? false) || hovered,
