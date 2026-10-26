@@ -116,10 +116,13 @@ export function report(name: string, secrets: unknown[]): KubeObject {
 }
 
 /**
- * The CRD of another of Trivy's namespaced reports (`VulnerabilityReport`, say), its report
- * preserved as Trivy writes it.
+ * The CRD of another of Trivy's reports (`VulnerabilityReport`, say), its report preserved as
+ * Trivy writes it: namespaced, but for its cluster's (`ClusterRbacAssessmentReport`).
  */
-export function reportCrd(kind: string): KubeObject {
+export function reportCrd(
+  kind: string,
+  scope: 'Namespaced' | 'Cluster' = 'Namespaced',
+): KubeObject {
   const plural = `${kind.toLowerCase()}s`
   return {
     apiVersion: 'apiextensions.k8s.io/v1',
@@ -132,7 +135,7 @@ export function reportCrd(kind: string): KubeObject {
     spec: {
       group: 'aquasecurity.github.io',
       names: { kind, listKind: `${kind}List`, plural, singular: kind.toLowerCase() },
-      scope: 'Namespaced',
+      scope,
       versions: [
         {
           name: 'v1alpha1',

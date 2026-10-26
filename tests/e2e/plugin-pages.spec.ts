@@ -10,9 +10,48 @@ import { pluginsAndCode, readLock, takePlugins, trust } from '../../scripts/plug
 import { parsePlugin } from '../../src/shared/plugins.ts'
 import { holds } from '../holds.ts'
 import { demoWithCloudNativePg } from '../mock-cluster/fixtures/cloudnative-pg.ts'
+import { reportCrd } from '../mock-cluster/fixtures/trivy.ts'
 import { writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import { startMockCluster } from '../mock-cluster/server.ts'
-import { expect, test } from './fixtures.ts'
+import type { KubeObject } from '../mock-cluster/types.ts'
+import { DEMO, expect, test } from './fixtures.ts'
+
+/** Trivy's scan of the ReplicaSet storefront runs: one critical, with a fix. */
+const VULNERABILITIES = {
+  apiVersion: 'aquasecurity.github.io/v1alpha1',
+  kind: 'VulnerabilityReport',
+  metadata: {
+    name: `replicaset-${DEMO.replicaSets.storefront}-storefront`,
+    namespace: 'shop',
+    uid: 'uid-vulnerabilities-storefront',
+    creationTimestamp: '2026-10-20T08:00:00Z',
+    labels: {
+      'trivy-operator.resource.kind': 'ReplicaSet',
+      'trivy-operator.resource.name': DEMO.replicaSets.storefront,
+      'trivy-operator.resource.namespace': 'shop',
+      'trivy-operator.container.name': 'storefront',
+    },
+  },
+  report: {
+    updateTimestamp: '2026-10-20T08:00:00Z',
+    registry: { server: 'ghcr.io' },
+    artifact: { repository: 'acme/storefront', tag: '3.8.2' },
+    os: { family: 'debian', name: '12.4' },
+    summary: { criticalCount: 1, highCount: 0, mediumCount: 0, lowCount: 0 },
+    vulnerabilities: [
+      {
+        vulnerabilityID: 'CVE-2024-6387',
+        severity: 'CRITICAL',
+        resource: 'openssh-client',
+        installedVersion: '1:9.2p1-2',
+        fixedVersion: '1:9.2p1-2+deb12u3',
+        title: 'openssh: a race in its signal handler',
+        primaryLink: 'https://avd.aquasec.com/nvd/cve-2024-6387',
+        score: 8.1,
+      },
+    ],
+  },
+} as unknown as KubeObject
 
 test('every page of every plugin Lumovi comes with opens, drawn, and none is stopped', async ({
   launch,
@@ -24,10 +63,23 @@ test('every page of every plugin Lumovi comes with opens, drawn, and none is sto
     const { plugin } = parsePlugin(text, file, { carriesCode: true })
     return (plugin?.added.pages ?? []).map(({ id }) => ({ plugin: plugin!.name, id }))
   })
-  expect(pages.map(({ plugin, id }) => `${plugin}/${id}`)).toContain('cloudnative-pg/backups')
+  expect(pages.map(({ plugin, id }) => `${plugin}/${id}`)).toEqual(
+    expect.arrayContaining(['cloudnative-pg/backups', 'trivy-operator/security']),
+  )
 
-  // (The demo's tools, and CloudNativePG's databases beside them.)
+  // (The demo's tools, CloudNativePG's databases beside them, and Trivy's reports' kinds with a
+  // report of what it found.)
   const cluster = await startMockCluster({ fixture: () => demoWithCloudNativePg(), tls: true })
+  for (const kind of [
+    'VulnerabilityReport',
+    'ConfigAuditReport',
+    'ExposedSecretReport',
+    'RbacAssessmentReport',
+  ]) {
+    cluster.upsert(reportCrd(kind))
+  }
+  cluster.upsert(reportCrd('ClusterRbacAssessmentReport', 'Cluster'))
+  cluster.upsert(VULNERABILITIES)
   const kubeconfig = writeKubeconfig(mkdtempSync(join(tmpdir(), 'lumovi-pages-')), {
     currentContext: 'databases',
     clusters: [{ name: 'databases', server: cluster.url, caPem: cluster.caPem }],
