@@ -10,6 +10,7 @@ import { IconButton } from '@renderer/components/Button'
 import { cn } from '@renderer/lib/cn'
 import { useToasts } from '@renderer/state/toasts'
 import { focusMoved } from '@renderer/lib/focus-back'
+import { escapeIsSearchs } from '@renderer/lib/find'
 
 export function PageDialog({
   leading,
@@ -51,9 +52,7 @@ export function PageDialog({
           aria-describedby={undefined}
           // Escape in the editor's search closes the search, not the dialog (and what was pasted).
           onEscapeKeyDown={(event) => {
-            if ((event.target as HTMLElement | null)?.closest?.('.cm-panel')) {
-              event.preventDefault()
-            }
+            if (escapeIsSearchs(event.target)) event.preventDefault()
           }}
           // Closed: back to the list's search, where its keys are (what opened it may be gone).
           // Unless the person has put the keyboard elsewhere since: it stays there.

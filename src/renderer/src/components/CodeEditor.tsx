@@ -7,7 +7,14 @@ import {
   indentUnit,
   syntaxHighlighting,
 } from '@codemirror/language'
-import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
+import {
+  closeSearchPanel,
+  highlightSelectionMatches,
+  openSearchPanel,
+  search,
+  searchKeymap,
+  searchPanelOpen,
+} from '@codemirror/search'
 import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
 import {
   Decoration,
@@ -25,7 +32,9 @@ import { MARKED_CHARACTER } from '@shared/kit/characters'
 import type { SchemaSource } from '@renderer/hooks/schema-source'
 import type { DocumentKind } from '@renderer/lib/yaml-schema'
 import { TheirText } from '@renderer/plugins/TheirText'
+import { findPanel } from './editor-find'
 import { schemaEditor } from './schema-editor'
+import { useFindControl, useFinder, type FindControl } from '@renderer/lib/find'
 import { pressed } from '@renderer/lib/shortcuts'
 
 /** The app's YAML colours (see YamlTab), so editing looks like reading. */
@@ -71,16 +80,35 @@ const theme = EditorView.theme({
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
     backgroundColor: 'var(--accent-soft) !important',
   },
-  '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--warn) 22%, transparent)' },
-  '.cm-matchingBracket': { backgroundColor: 'var(--accent-soft)', outline: 'none' },
-  '.cm-panels': {
-    backgroundColor: 'var(--surface-2)',
-    color: 'var(--text-1)',
-    borderTop: '1px solid var(--line)',
+  // What else reads as the selection does: ringed, not filled, so it's never taken for a match.
+  '.cm-selectionMatch': {
+    backgroundColor: 'transparent',
+    borderRadius: '2px',
+    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--text-3) 70%, transparent)',
   },
-  '.cm-panel.cm-search': { fontFamily: 'var(--font-sans)', fontSize: '12px', padding: '6px 12px' },
-  '.cm-panel.cm-search input, .cm-panel.cm-search button': { fontSize: '12px' },
-  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--warn) 30%, transparent)' },
+  '.cm-matchingBracket': { backgroundColor: 'var(--accent-soft)', outline: 'none' },
+  '.cm-panels': { backgroundColor: 'var(--surface-2)', color: 'var(--text-1)', border: 'none' },
+  // (The search's panel is at the top: its edge is below it.)
+  '.cm-panels-top': { borderBottom: '1px solid var(--line)' },
+  '.cm-panels-bottom': { borderTop: '1px solid var(--line)' },
+  // A search's matches as the logs and the YAML views mark theirs: every one, and the current one.
+  // The fill is the match's alone (what's in it, a word's colour or the selection's others,
+  // lays none of its own over it), and what's in it is in the text's own colour, not its syntax's:
+  // a coloured word on the fill is hard to read.
+  '.cm-searchMatch': {
+    backgroundColor: 'color-mix(in srgb, var(--warn) 40%, transparent)',
+    borderRadius: '2px',
+  },
+  '.cm-searchMatch, .cm-searchMatch *': { color: 'var(--text-1)' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--accent)' },
+  '.cm-searchMatch.cm-searchMatch-selected, .cm-searchMatch.cm-searchMatch-selected *': {
+    color: 'var(--accent-on)',
+  },
+  // (One of the selection's others that's a match too is drawn as a match: no ring, no fill.)
+  '.cm-searchMatch .cm-selectionMatch, .cm-selectionMatch:has(.cm-searchMatch)': {
+    backgroundColor: 'transparent',
+    boxShadow: 'none',
+  },
 })
 
 /** Lines (from 1) set apart from the rest, each kind in its own way. */
@@ -145,6 +173,7 @@ export function CodeEditor({
   readOnly = false,
   autoFocus = true,
   schema,
+  find,
 }: {
   value: string
   onChange: (value: string) => void
@@ -163,6 +192,8 @@ export function CodeEditor({
   autoFocus?: boolean
   /** The cluster's schemas, for YAML of its kinds (`useSchemaSource`): the same for its life. */
   schema?: SchemaSource
+  /** Its toolbar's Find, where it has one. */
+  find?: FindControl
 }) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -176,6 +207,35 @@ export function CodeEditor({
   const setting = useRef(false)
   // The kinds the documents name whose cluster publishes no schema for them: said above.
   const [unchecked, setUnchecked] = useState<string[]>([])
+  // Its search: opened by ⌘F wherever the keyboard is (a field beside it, a button), as in it,
+  // or by its toolbar's Find; closed, the keyboard goes back to what opened it.
+  const own = useFindControl()
+  const control = useRef(find ?? own)
+  useEffect(() => {
+    control.current = find ?? own
+  })
+  const back = useRef<Element | null>(null)
+  const openFind = (from: Element | null) => {
+    if (!searchPanelOpen(view.current!.state)) back.current = from
+    openSearchPanel(view.current!)
+  }
+  useEffect(() => {
+    const bound = find ?? own
+    bound.bind({
+      open: openFind,
+      close: (giveBack) => {
+        const to = back.current
+        back.current = null
+        closeSearchPanel(view.current!)
+        if (giveBack && to instanceof HTMLElement && to.isConnected) to.focus()
+      },
+    })
+    return () => bound.bind(null)
+  })
+  useFinder(
+    () => host.current,
+    () => openFind(document.activeElement),
+  )
 
   useEffect(() => {
     view.current = new EditorView({
@@ -205,7 +265,20 @@ export function CodeEditor({
           history(),
           indentOnInput(),
           bracketMatching(),
-          search({ top: true }),
+          // (Its panel is the find bar every YAML view has: editor-find.tsx.)
+          search({
+            top: true,
+            literal: true,
+            createPanel: findPanel(label, {
+              shown: (open) => control.current.shown(open),
+              back: () => {
+                const to = back.current
+                back.current = null
+                return to
+              },
+              barId: control.current.barId,
+            }),
+          }),
           highlightSelectionMatches(),
           indentUnit.of('  '),
           EditorState.tabSize.of(2),

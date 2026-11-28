@@ -50,6 +50,7 @@ import { toast, type Said } from '@renderer/state/toasts'
 import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 import { keepMovedFocus } from '@renderer/lib/focus-back'
+import { escapeIsSearchs } from '@renderer/lib/find'
 
 type ApprovalsApi = NonNullable<LumoviApi['approvals']>
 
@@ -293,8 +294,10 @@ function ApprovalDialog({
             event.preventDefault()
             ;(event.currentTarget as HTMLElement).focus()
           }}
-          // Escape leaves a note unwritten first, then puts the change aside.
+          // Escape closes a search of the change first, leaves a note unwritten next, then puts
+          // the change aside.
           onEscapeKeyDown={(event) => {
+            if (escapeIsSearchs(event.target)) return event.preventDefault()
             if (!rejecting) return
             event.preventDefault()
             setRejecting(false)

@@ -581,3 +581,15 @@
     background-color: var(--accent-soft);
   }
 }
+
+/* A find's matches in YAML and diffs (Findable), as the logs mark theirs: every one, and the
+   current one over it. What's in one is in the text's own colour, not its syntax's or its diff's:
+   a coloured word on the fill is hard to read. */
+::highlight(lumovi-find) {
+  background-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  color: var(--text-1);
+}
+::highlight(lumovi-find-current) {
+  background-color: var(--accent);
+  color: var(--accent-on);
+}

@@ -177,7 +177,8 @@ function marked(text: string, ranges: readonly Mark[]): ReactNode {
         data-current={current || undefined}
         className={cn(
           'rounded-sm',
-          current ? 'bg-accent text-on-accent' : 'bg-warn/40 text-inherit',
+          // (What's in a match is in the text's own colour, not its level's: as YAML's are.)
+          current ? 'bg-accent text-on-accent' : 'bg-warn/40 text-ink-1',
         )}
       >
         {text.slice(start, end)}

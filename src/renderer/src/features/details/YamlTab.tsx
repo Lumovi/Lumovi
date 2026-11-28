@@ -17,6 +17,8 @@ import { useAccessHere } from '../access/use-access'
 import { kindOf } from '../actions/common'
 import { useObjectActions } from '../actions/use-actions'
 import { YamlEditor } from './YamlEditor'
+import { FindButton } from '@renderer/components/FindBar'
+import { useFindControl } from '@renderer/lib/find'
 
 export const MASK = '••••••••'
 
@@ -81,6 +83,7 @@ function YamlView({ object, onEdit }: { object: KubeObject; onEdit: () => void }
     [object, isSecret, revealed],
   )
   const lines = yaml.trimEnd().split('\n')
+  const find = useFindControl()
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -99,11 +102,12 @@ function YamlView({ object, onEdit }: { object: KubeObject; onEdit: () => void }
               {revealed ? 'Hide values' : 'Reveal values'}
             </Button>
           ))}
+        <FindButton control={find} />
         <CopyButton text={yaml} label="Copy YAML" />
         <EditButton object={object} onEdit={onEdit} />
       </div>
       <WithheldFields object={object} />
-      <YamlText text={yaml} label="YAML" />
+      <YamlText text={yaml} label="YAML" find={find} />
     </div>
   )
 }
