@@ -115,21 +115,231 @@ export function masking(manifest: string): Masked {
     offset += line.length + 1
   }
   const source: Source = { text: manifest, lines, starts }
-  const documents = parseAllDocuments(manifest, READ)
+  const parsed = parseAllDocuments(manifest, READ)
+  // (Nothing but comments and markers: no document.)
+  const documents = Array.isArray(parsed) ? parsed : []
+  const spans = documents.map(({ range: [from, , to] }): Span => [
+    lineOf(source, from),
+    lineOf(source, Math.max(from, to - 1)),
+  ])
+  const unsure = unsureLines(source, spans)
   const hidden: Hidden = { values: false, documents: 0 }
-  // (Nothing but comments and markers: no document, nothing to mask.)
-  if (!Array.isArray(documents)) return { text: manifest, hidden }
   const shown = [...lines]
-  for (const document of documents) {
-    const [from, , to] = document.range
-    const first = lineOf(source, from)
-    const last = lineOf(source, Math.max(from, to - 1))
-    const masked = maskedDocument(source, document, first, last)
+  documents.forEach((document, at) => {
+    const [first, last] = spans[at]!
+    const own = lines.slice(first, last + 1)
+    const masked = own.some((_, i) => unsure[first + i])
+      ? noted(own, nothingShown(source, document, first, last))
+      : maskedDocument(source, document, first, last)
     if (masked.whole) hidden.documents++
-    else if (masked.lines.some((line, i) => line !== lines[first + i])) hidden.values = true
-    shown.splice(first, last - first + 1, ...masked.lines)
-  }
+    else if (masked.lines.some((line, i) => line !== own[i])) hidden.values = true
+    shown.splice(first, own.length, ...masked.lines)
+  })
+  // What's in no document of the library's, where it's unsure: masked, and said once a run.
+  const covered = new Set(spans.flatMap(([first, last]) => linesOf(first, last)))
+  let said = false
+  lines.forEach((text, line) => {
+    if (covered.has(line) || !unsure[line]) {
+      said = false
+      return
+    }
+    shown[line] = looseMasked(text)
+    if (said || !shown[line].endsWith(MASK)) return
+    shown[line] = `${shown[line]} # ${HIDDEN_WHOLE}`
+    hidden.documents++
+    said = true
+  })
   return { text: shown.join('\n'), hidden }
+}
+
+/** A run of lines, the first and the last. */
+type Span = [number, number]
+
+/** Every line from the first to the last. */
+const linesOf = (first: number, last: number) =>
+  Array.from({ length: last - first + 1 }, (_, i) => first + i)
+
+/** Go's white space, as its strings.TrimSpace trims it (unicode.IsSpace). */
+const GO_SPACE =
+  '\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000'
+const GO_LEADING = new RegExp(`^[${GO_SPACE}]+`)
+const GO_TRAILING = new RegExp(`[${GO_SPACE}]+$`)
+const goTrimmed = (text: string) => text.replace(GO_LEADING, '').replace(GO_TRAILING, '')
+
+/**
+ * Where Helm cuts a manifest into its documents (SplitManifests, in its release util): the white
+ * space before the first trimmed, then cut at each line that starts with `---`, the `---` and the
+ * spaces and tabs after it going; each piece's white space before it trimmed, and none blank. As
+ * places in the text.
+ */
+export function helmManifests(text: string): Span[] {
+  const start = text.length - text.replace(GO_LEADING, '').length
+  const body = text.slice(start)
+  const cuts = [...body.matchAll(/(?<=^|\n)---[ \t]*/g)]
+  const ends = [0, ...cuts.flatMap((cut) => [cut.index, cut.index + cut[0].length]), body.length]
+  const pieces: Span[] = []
+  for (let i = 0; i < ends.length; i += 2) {
+    const piece = body.slice(ends[i], ends[i + 1])
+    if (goTrimmed(piece) === '') continue
+    const from = ends[i]! + piece.length - piece.replace(GO_LEADING, '').length
+    pieces.push([start + from, start + ends[i + 1]!])
+  }
+  return pieces
+}
+
+/**
+ * Where Helm 3 cuts a manifest into its documents (its releaseutil's SplitManifests, by which a
+ * release installed with it was cut): the whole trimmed, then cut at each `---` that starts a line,
+ * with the white space (Go's `\s`) before the line's end ahead of it and after the `---`; each piece
+ * trimmed, none that was empty before (one that's empty only after, kept as nothing). As places in
+ * the text.
+ */
+export function helm3Manifests(text: string): Span[] {
+  const start = text.length - text.replace(GO_LEADING, '').length
+  const body = goTrimmed(text)
+  const cuts = [...body.matchAll(/(?:^|[\t\n\f\r ]*\n)---[\t\n\f\r ]*/g)]
+  const ends = [0, ...cuts.flatMap((cut) => [cut.index, cut.index + cut[0].length]), body.length]
+  const pieces: Span[] = []
+  for (let i = 0; i < ends.length; i += 2) {
+    const piece = body.slice(ends[i], ends[i + 1])
+    if (piece === '') continue
+    const from = ends[i]! + piece.length - piece.replace(GO_LEADING, '').length
+    pieces.push([start + from, start + from + goTrimmed(piece).length])
+  }
+  return pieces
+}
+
+/**
+ * Where the cluster's reader (apimachinery's util/yaml, which Helm's kube client and kubectl read
+ * a manifest with) cuts it into documents, as runs of lines: at each line that starts with `---`
+ * and has nothing after it but white space (Go's) or a comment, the line itself in none (or, where
+ * no document has begun, the first of the next). None at all where it refuses the manifest: such a
+ * line with anything else after the `---`, or a manifest that starts with `{` (which it reads as
+ * JSON) other than a single JSON value.
+ */
+export function kubernetesDocuments(text: string): Span[] | undefined {
+  // (Each line, as Go reads it: an empty manifest has none, and the end of the last one no other.)
+  const lines = text === '' ? [] : text.split('\n')
+  if (text.endsWith('\n')) lines.pop()
+  if (text.replace(GO_LEADING, '').startsWith('{')) {
+    try {
+      JSON.parse(text)
+    } catch {
+      return undefined
+    }
+    return [[0, lines.length - 1]]
+  }
+  const documents: Span[] = []
+  let from: number | undefined
+  for (const [at, line] of lines.entries()) {
+    if (line.startsWith('---')) {
+      const after = goTrimmed(line.slice(3))
+      if (after !== '' && !after.startsWith('#')) return undefined
+      if (from !== undefined) {
+        documents.push([from, at - 1])
+        from = undefined
+        continue
+      }
+    }
+    from ??= at
+  }
+  if (from !== undefined) documents.push([from, lines.length - 1])
+  return documents
+}
+
+/**
+ * Where the cluster's reader as it was before apimachinery 0.21 (in Helm 3.0 to 3.5, and kubectl
+ * then) cuts a manifest: as now, but only at a line that has nothing after the `---` but white space
+ * (Go's), and refusing none of them; a manifest that starts with `{` is one JSON value, or refused.
+ * The first document of each run of lines is all it reads of it.
+ */
+export function olderKubernetesDocuments(text: string): Span[] | undefined {
+  // (Each line, as Go reads it: an empty manifest has none, and the end of the last one no other.)
+  const lines = text === '' ? [] : text.split('\n')
+  if (text.endsWith('\n')) lines.pop()
+  if (text.replace(GO_LEADING, '').startsWith('{')) return kubernetesDocuments(text)
+  const documents: Span[] = []
+  let from: number | undefined
+  for (const [at, line] of lines.entries()) {
+    if (line.startsWith('---') && goTrimmed(line.slice(3)) === '' && from !== undefined) {
+      documents.push([from, at - 1])
+      from = undefined
+      continue
+    }
+    from ??= at
+  }
+  if (from !== undefined) documents.push([from, lines.length - 1])
+  return documents
+}
+
+/** A line no reader reads anything in: blank, a comment, or a bare document marker. */
+const IDLE = /^(---(?=[ \t]|\r?$))?[ \t]*(#.*)?\r?$/
+
+/**
+ * The lines that aren't surely where every reader reads them: each line that holds anything must
+ * lie in one document under every split (Helm 4's, Helm 3's, the cluster's, the YAML library's),
+ * the same one under each; where it doesn't, or the cluster's refuses the manifest, or it holds what readers
+ * can't be counted on to read alike, every document that holds it, under any split, is unsure
+ * whole.
+ */
+function unsureLines(source: Source, library: Span[]): boolean[] {
+  const { lines } = source
+  const owners = (spans: Span[]) => {
+    const owner = lines.map(() => -1)
+    spans.forEach(([first, last], at) => linesOf(first, last).forEach((line) => (owner[line] = at)))
+    return owner
+  }
+  // (A piece of nothing holds no line.)
+  const pieces = (cut: (text: string) => Span[]) =>
+    cut(source.text).flatMap(([from, to]): Span[] =>
+      to > from ? [[lineOf(source, from), lineOf(source, to - 1)]] : [],
+    )
+  const cluster = kubernetesDocuments(source.text)
+  const splits = [
+    owners(library),
+    owners(pieces(helmManifests)),
+    owners(pieces(helm3Manifests)),
+    owners(cluster ?? []),
+  ]
+  const holds = lines.map((line) => !IDLE.test(line))
+  const unsure = lines.map(
+    (line, at) =>
+      UNREADABLE.test(line) ||
+      (holds[at]! && (cluster === undefined || splits.some((owner) => owner[at]! < 0))),
+  )
+  // The same document under every split: where one holds lines the others split, all unsure.
+  const key = (at: number) => splits.map((owner) => owner[at]).join('/')
+  for (const owner of splits) {
+    const keys = new Map<number, Set<string>>()
+    lines.forEach((_, at) => {
+      if (holds[at] && owner[at]! >= 0) {
+        keys.set(owner[at]!, (keys.get(owner[at]!) ?? new Set()).add(key(at)))
+      }
+    })
+    lines.forEach((_, at) => {
+      if ((keys.get(owner[at]!)?.size ?? 0) > 1) unsure[at] = true
+    })
+  }
+  // And every document, under any split, that holds an unsure line: unsure whole.
+  for (let settled = false; !settled;) {
+    settled = true
+    for (const owner of splits) {
+      const touched = new Set(lines.flatMap((_, at) => (unsure[at] ? [owner[at]] : [])))
+      lines.forEach((_, at) => {
+        if (unsure[at] || owner[at]! < 0 || !touched.has(owner[at])) return
+        unsure[at] = true
+        settled = false
+      })
+    }
+  }
+  return unsure
+}
+
+/** A line in no document masked, as nothing of it is shown: a marker as it's always written. */
+function looseMasked(text: string): string {
+  if (text.trim() === '') return text
+  if (/^---([ \t]|\r?$)/.test(text)) return /^---[ \t]*\r?$/.test(text) ? '---' : `--- ${MASK}`
+  return `${' '.repeat(text.length - text.trimStart().length)}${MASK}`
 }
 
 /** One document's lines, as `maskedManifest` masks them. */
@@ -204,14 +414,16 @@ function plainlyRead(document: Document.Parsed): boolean {
 
 /**
  * Whether a node is plainly an object: a mapping, untagged, each of its keys a string written once,
- * with a kind that's an untagged string, an untagged apiVersion and metadata (whose keys are the
- * same), and, where it holds items, items each the same.
+ * with a kind that's an untagged string, not empty, an untagged apiVersion and metadata (whose keys
+ * are the same), and, where it holds items, a kind that isn't a Secret's or a list of them, and
+ * items each the same.
  */
 function plainObject(node: unknown): boolean {
   if (!isMap(node) || node.tag) return false
   const keys = plainKeys(node)
   const kind = node.get('kind', true)
   if (!keys || !isScalar(kind) || kind.tag || typeof kind.value !== 'string') return false
+  if (kind.value.trim() === '') return false
   const apiVersion = node.get('apiVersion', true) as Node | null | undefined
   const metadata = node.get('metadata', true) as Node | null | undefined
   if (apiVersion?.tag || metadata?.tag || (isMap(metadata) && !plainKeys(metadata))) return false
@@ -219,6 +431,9 @@ function plainObject(node: unknown): boolean {
   if (items === undefined || items === null || (isScalar(items) && items.value === null)) {
     return true
   }
+  // (A list's items are made one by one; one with no kind of its own takes its list's.)
+  const listed = kind.value.trim().toLowerCase()
+  if (listed === 'secret' || listed === 'secretlist') return false
   return isSeq(items) && !items.tag && items.items.every(plainObject)
 }
 

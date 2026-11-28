@@ -582,12 +582,15 @@ test('A change an assistant asks for shows a Secret’s values masked until aske
   const value = Buffer.from('made-up').toString('base64')
   const flow = `{apiVersion: v1, kind: Secret, metadata: {name: masked, namespace: default}, data: {password: ${value}}}`
   const json = `{"apiVersion":"v1","kind":"Secret","metadata":{"name":"masked","namespace":"default"},"data":{"password":"${value}"}}`
-  for (const manifest of [
-    `apiVersion: v1\nkind: Secret\nmetadata:\n  name: masked\n  namespace: default\ndata:\n  password: ${value}\n`,
-    // (In more than one shape, as a person or an assistant may write it.)
-    `--- ${flow}\n`,
-    `--- ${json}\n`,
-    `---\t${flow}\n`,
+  for (const [manifest, hidden] of [
+    [
+      `apiVersion: v1\nkind: Secret\nmetadata:\n  name: masked\n  namespace: default\ndata:\n  password: ${value}\n`,
+      'Secrets’ values hidden',
+    ],
+    // (In more than one shape, as a person or an assistant may write it: these hidden whole.)
+    [`--- ${flow}\n`, '1 document hidden'],
+    [`--- ${json}\n`, '1 document hidden'],
+    [`---\t${flow}\n`, '1 document hidden'],
   ]) {
     const asking = call(client, 'apply_manifest', { cluster: 'demo', manifest, reason: 'Test.' })
     const dialog = page.getByRole('dialog', { name: 'Create Secret masked' })
@@ -600,7 +603,7 @@ test('A change an assistant asks for shows a Secret’s values masked until aske
     const shows = () => dialog.evaluate((at, v) => at.textContent!.includes(v), value)
     expect(await shows()).toBe(false)
     await dialog.getByText(/^The manifest .* gave$/).click()
-    await expect(dialog).toContainText('Secrets’ values hidden')
+    await expect(dialog).toContainText(hidden!)
     expect(await shows()).toBe(false)
     await dialog.getByRole('button', { name: 'Reveal values' }).click()
     await expect.poll(shows).toBe(true)
