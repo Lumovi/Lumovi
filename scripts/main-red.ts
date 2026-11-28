@@ -66,6 +66,23 @@ export function testsOf(log: string): { failed: string[]; flaky: string[] } {
   return found
 }
 
+/**
+ * What a job's log says went wrong, where it names no test: its errors as GitHub marks them (a
+ * worker's teardown run out of time, a step's own message), each once, the first few. Not the
+ * step's exit code, nor a test's failure (said as a test).
+ */
+export function errorsOf(log: string): string[] {
+  const said = log
+    .split('\n')
+    .map(untimed)
+    .filter((line) => line.startsWith('##[error]'))
+    .map((line) => line.slice('##[error]'.length).trim())
+    .filter(
+      (line) => line && !/^Process completed with exit code/.test(line) && !/^\d+\) \[/.test(line),
+    )
+  return [...new Set(said)].slice(0, 3).map((line) => line.slice(0, 200))
+}
+
 /** What a run of main says, from its jobs' results: red, green, or nothing (somebody cancelled it). */
 export function verdictOf(results: string[], ranOutOfTime: boolean): 'red' | 'green' | 'nothing' {
   if (results.includes('failure') || ranOutOfTime) return 'red'
@@ -227,16 +244,27 @@ export function tell(
     finished.map((job) => job.conclusion!),
     ranOutOfTime,
   )
-  const tests = finished.filter(ranTests).map((job) => testsOf(logOf(job)))
+  // (Each job's log read once: those that ran tests, and each that failed.)
+  const read = new Map<number, string>()
+  const log = (job: Job) => {
+    if (!read.has(job.id)) read.set(job.id, logOf(job))
+    return read.get(job.id)!
+  }
+  const tests = finished.filter(ranTests).map((job) => testsOf(log(job)))
   const gate = finished.find(
     (job) => job.name === 'Coverage (all platforms)' && job.conclusion === 'failure',
   )
-  const coverage = gate ? coverageOf(logOf(gate)) : []
+  const coverage = gate ? coverageOf(log(gate)) : []
+  // A job that failed with no test failed in it says what did, beside its name.
+  const failedJob = (job: Job) => {
+    const errors = testsOf(log(job)).failed.length > 0 ? [] : errorsOf(log(job))
+    return errors.length > 0 ? `${job.name}: ${errors.join(' · ')}` : job.name
+  }
   const said: Said = {
     what,
     sha,
     url,
-    failedJobs: finished.filter((job) => job.conclusion === 'failure').map((job) => job.name),
+    failedJobs: finished.filter((job) => job.conclusion === 'failure').map(failedJob),
     failed: tests.flatMap((each) => each.failed),
     flaky: tests.flatMap((each) => each.flaky),
     ...(coverage.length > 0 ? { coverage } : {}),

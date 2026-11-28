@@ -225,7 +225,7 @@ export const SECURITY: readonly { paths: RegExp; specs: readonly string[] }[] = 
       ...SERVER_PAGES,
     ],
   },
-  { paths: /^src\/renderer\/src\/plugins\//, specs: BOX },
+  { paths: /^src\/renderer\/src\/plugins\//, specs: [...BOX, ...MASKED] },
   { paths: /^src\/(backend|shared|server)\/plugin[\w-]*\.ts$/, specs: [...BOX, ...MASKED] },
   { paths: /^src\/(shared|server)\/box-check\.ts$/, specs: BOX },
   { paths: /^src\/backend\/withholding\.ts$/, specs: MASKED },

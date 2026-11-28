@@ -27,6 +27,7 @@ import { EVERYTHING, gate, missing } from '../../scripts/release-gate.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import {
   coverageOf,
+  errorsOf,
   flakyComment,
   redComment,
   tell,
@@ -119,6 +120,8 @@ test('a change to what keeps people and clusters safe runs the specs that guard 
     ['src/main/plugin-box.ts', 'tests/web/fleet-agents.spec.ts'],
     ['src/preload/index.ts', 'tests/e2e/withheld.spec.ts'],
     ['src/renderer/src/plugins/box.ts', 'tests/e2e/plugin-box-ways-out.spec.ts'],
+    // (A Secret's part on a plugin's page: its masking tests too.)
+    ['src/renderer/src/plugins/secret-part.ts', 'tests/web/plugin-secret-page.spec.ts'],
     ['src/backend/plugin-reads.ts', 'tests/web/plugin-hostile.spec.ts'],
     ['src/shared/plugin-door.ts', 'tests/web/plugin-secret.spec.ts'],
     ['src/shared/plugins.ts', 'tests/e2e/plugin-box.spec.ts'],
@@ -784,6 +787,24 @@ test('a job’s log says which tests failed on every try and which passed only w
   })
 })
 
+test('a job that failed with no test failed says what did: its errors, not its exit code nor a test’s', () => {
+  const at = (line: string) => `2026-11-28T20:51:00.0000000Z ${line}`
+  const log = [
+    '  ok 103 [desktop] › tests\\e2e\\lists.spec.ts:410:3 › a list’s bar keeps to one row',
+    '##[error]Worker teardown timeout of 60000ms exceeded.',
+    '##[error]  1) [desktop] › tests\\e2e\\helm.spec.ts:284:1 › install and upgrade options ',
+    '  1 flaky',
+    '    [desktop] › tests\\e2e\\helm.spec.ts:284:1 › install and upgrade options',
+    '  254 passed (16.4m)',
+    '##[error]Worker teardown timeout of 60000ms exceeded.',
+    '##[error]Process completed with exit code 1.',
+  ]
+    .map(at)
+    .join('\n')
+  expect(errorsOf(log)).toEqual(['Worker teardown timeout of 60000ms exceeded.'])
+  expect(errorsOf(at('##[error]Process completed with exit code 1.'))).toEqual([])
+})
+
 test('a coverage gate that failed says where it fell: unloaded files, low measures, and the files with the most not run', () => {
   const at = (line: string) => `2026-11-29T03:10:00.0000000Z ${line}`
   const log = [
@@ -915,6 +936,7 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
   const logs: Record<number, string> = {
     1: '  1 failed\n    [desktop] › tests/e2e/settings.spec.ts:107:1 › the time zone ──',
     2: '  1 flaky\n    [desktop] › tests/e2e/helm.spec.ts:284:1 › install and upgrade options',
+    7: '  12 passed (1.0m)\n##[error]Worker teardown timeout of 60000ms exceeded.\n##[error]Process completed with exit code 1.',
   }
   const run = {
     repository: 'Lumovi/Lumovi',
@@ -1060,6 +1082,14 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
     annotations: { 6: 'The job has exceeded the maximum execution time of 1h0m0s' },
   })
   expect(tell(late.api, run, logOf, true)[0]).toBe('Red: opened #40')
+  // A job that failed with no test failed in it says what did, beside its name.
+  const torn = github([job(7, 'E2E (windows-latest, 3/4)', 'failure')])
+  tell(torn.api, run, logOf, true)
+  expect(torn.made()[0]![2]).toMatchObject({
+    body: expect.stringContaining(
+      '- E2E (windows-latest, 3/4): Worker teardown timeout of 60000ms exceeded.',
+    ),
+  })
   // An issue GitHub made without its label: said, as later runs wouldn't find it.
   const dropped = github(red, { drops: true })
   expect(tell(dropped.api, run, logOf, true)[0]).toBe(
