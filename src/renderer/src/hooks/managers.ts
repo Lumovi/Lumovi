@@ -6,6 +6,7 @@ import { managingKinds } from '@renderer/lib/plugins'
 import { usePlugins } from './plugins'
 import { useCombinedLists } from './queries'
 import { useResources } from './resources'
+import { useCluster } from '@renderer/state/cluster'
 
 /** Each list's objects; `refused` where it couldn't be read. (Stable: see `useCombinedLists`.) */
 const read = (results: UseQueryResult<KubeObject[]>[]) =>
@@ -32,9 +33,13 @@ export function useManagers(enabled = true): Managers | undefined {
     served.map(({ kind }) => ({ kind, namespace: null })),
     read,
   )
+  // In the namespaces in view, where some are picked: with all of them in view, that's the read
+  // in the whole cluster again (the same query), and refused there is refused. (Asked for again,
+  // it was read again and again, without end: LMV-400.)
+  const picked = Boolean(useCluster().namespaces?.length)
   const refused = useMemo(
-    () => served.filter((_, i) => everywhere[i] === 'refused'),
-    [served, everywhere],
+    () => (picked ? served.filter((_, i) => everywhere[i] === 'refused') : []),
+    [picked, served, everywhere],
   )
   const near = useCombinedLists(
     refused.map(({ kind }) => ({ kind })),
@@ -44,11 +49,11 @@ export function useManagers(enabled = true): Managers | undefined {
     if (served.length === 0) return undefined
     const lists = served.flatMap(({ kind, view }, i) => {
       const listed =
-        everywhere[i] === 'refused'
+        everywhere[i] === 'refused' && picked
           ? near[refused.findIndex((r) => r.kind === kind)]
           : everywhere[i]
       return Array.isArray(listed) ? [{ kind, view, items: listed }] : []
     })
     return indexManagers(lists)
-  }, [served, everywhere, refused, near])
+  }, [served, everywhere, picked, refused, near])
 }
