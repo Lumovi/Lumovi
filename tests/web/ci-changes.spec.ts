@@ -26,6 +26,7 @@ import { added, MOST_NEW, namesOf, share } from '../../scripts/new-tests.ts'
 import { EVERYTHING, gate, missing } from '../../scripts/release-gate.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import {
+  asCode,
   coverageOf,
   errorsOf,
   flakyComment,
@@ -851,8 +852,8 @@ test('a coverage gate that failed says where it fell: unloaded files, low measur
       '',
       'Coverage, where it fell:',
       '',
-      '- branches: 89.97%, not more than 90%',
-      '- src/main/a.ts: 3 not run',
+      '- `branches: 89.97%, not more than 90%`',
+      '- `src/main/a.ts: 3 not run`',
     ].join('\n'),
   )
 })
@@ -881,15 +882,26 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
       '',
       'Failed on every try:',
       '',
-      '- [desktop] › tests/e2e/settings.spec.ts:107 › the time zone',
+      '- `[desktop] › tests/e2e/settings.spec.ts:107 › the time zone`',
     ].join('\n'),
   )
   expect(flakyComment(said)).toBe(
     [
       '**Main’s nightly run at abcdef0**, passed only when tried again: https://github.com/Lumovi/Lumovi/actions/runs/9',
       '',
-      '- [desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options',
+      '- `[desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options`',
     ].join('\n'),
+  )
+  // What a log says is shown as it is, never as markdown: no one mentioned, no issue linked, nothing
+  // after it hidden.
+  expect(
+    redComment({
+      ...said,
+      failed: ['[desktop] › tests/e2e/a.spec.ts:1 › @electron/get and #12, `<!-- hid'],
+    }),
+  ).toContain("- `[desktop] › tests/e2e/a.spec.ts:1 › @electron/get and #12, '<!-- hid`")
+  expect(asCode('npm error 404 @scope%2fpkg · see #3 ``')).toBe(
+    "`npm error 404 @scope%2fpkg · see #3 ''`",
   )
   // GitHub as asked here: this run's jobs, the issues open by label and their text, a job's
   // annotations, how two commits compare; and an issue made with the labels asked for, unless it
@@ -1087,7 +1099,7 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
   tell(torn.api, run, logOf, true)
   expect(torn.made()[0]![2]).toMatchObject({
     body: expect.stringContaining(
-      '- E2E (windows-latest, 3/4): Worker teardown timeout of 60000ms exceeded.',
+      '- E2E (windows-latest, 3/4): `Worker teardown timeout of 60000ms exceeded.`',
     ),
   })
   // An issue GitHub made without its label: said, as later runs wouldn't find it.

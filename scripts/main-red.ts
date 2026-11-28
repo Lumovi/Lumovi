@@ -129,15 +129,23 @@ export function coverageOf(log: string): string[] {
   return [...unloaded.map((line) => line.trim()), ...low.map((line) => line.trim()), ...most]
 }
 
+/**
+ * A line of a log as an issue shows it: in a code span, a backtick in it as `'`, so none of it is
+ * read as GitHub's markdown (an npm scope's `@` doesn't mention anybody, nor a `#` link an issue).
+ */
+export const asCode = (line: string) => `\`${line.replaceAll('`', "'")}\``
+
 /** What a red run says on `main-red`: its commit, then each job and test that failed. */
 export function redComment({ what, sha, url, failedJobs, failed, coverage = [] }: Said): string {
   return [
     `**${what} is red at ${sha.slice(0, 7)}:** ${url}`,
     '',
     ...failedJobs.map((job) => `- ${job}`),
-    ...(failed.length > 0 ? ['', 'Failed on every try:', '', ...failed.map((t) => `- ${t}`)] : []),
+    ...(failed.length > 0
+      ? ['', 'Failed on every try:', '', ...failed.map((t) => `- ${asCode(t)}`)]
+      : []),
     ...(coverage.length > 0
-      ? ['', 'Coverage, where it fell:', '', ...coverage.map((line) => `- ${line}`)]
+      ? ['', 'Coverage, where it fell:', '', ...coverage.map((line) => `- ${asCode(line)}`)]
       : []),
   ].join('\n')
 }
@@ -147,7 +155,7 @@ export function flakyComment({ what, sha, url, flaky }: Said): string {
   return [
     `**${what} at ${sha.slice(0, 7)}**, passed only when tried again: ${url}`,
     '',
-    ...flaky.map((t) => `- ${t}`),
+    ...flaky.map((t) => `- ${asCode(t)}`),
   ].join('\n')
 }
 
@@ -258,7 +266,7 @@ export function tell(
   // A job that failed with no test failed in it says what did, beside its name.
   const failedJob = (job: Job) => {
     const errors = testsOf(log(job)).failed.length > 0 ? [] : errorsOf(log(job))
-    return errors.length > 0 ? `${job.name}: ${errors.join(' · ')}` : job.name
+    return errors.length > 0 ? `${job.name}: ${errors.map(asCode).join(' · ')}` : job.name
   }
   const said: Said = {
     what,
