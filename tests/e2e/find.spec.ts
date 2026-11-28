@@ -210,7 +210,9 @@ test('a Secret’s hidden values are never found: only what’s shown is', async
   await expect(bar(yaml, 'YAML')).toContainText('1 match')
   await detail.getByRole('button', { name: 'Hide values' }).click()
   await expect(bar(yaml, 'YAML')).toContainText('No matches')
-  expect(await page.evaluate(() => document.body.innerText)).not.toContain(DEMO.postgresPassword)
+  // (Said yes or no: a failure prints no value.)
+  const text = await page.evaluate(() => document.body.innerText)
+  expect(text.includes(DEMO.postgresPassword)).toBe(false)
 })
 
 test('Edit YAML has the same bar: in the dark theme it reads, it replaces, and Escape gives the keyboard back', async ({

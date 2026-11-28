@@ -540,6 +540,18 @@ test('a search of a long change stays at the top of its box as the box scrolls, 
   })
   expect(match.top).toBeGreaterThanOrEqual(at.y + at.height)
   expect(match.bottom).toBeLessThanOrEqual(top.y + top.height)
+  // The window shorter, the box with it: the match is kept in sight in it.
+  await page.setViewportSize({ width: SMALLEST.width, height: SMALLEST.height - 80 })
+  await expect(async () => {
+    const [box_, bar_] = [await placed(box(copy)), await placed(search)]
+    const now = await page.evaluate(() => {
+      const range = [...CSS.highlights.get('lumovi-find-current')!][0] as Range
+      const { top, bottom } = range.getBoundingClientRect()
+      return { top, bottom }
+    })
+    expect(now.top).toBeGreaterThanOrEqual(bar_.y + bar_.height)
+    expect(now.bottom).toBeLessThanOrEqual(box_.y + box_.height)
+  }).toPass()
   // Escape closes the search, not the dialog.
   await page.keyboard.press('Escape')
   await expect(search).toHaveCount(0)

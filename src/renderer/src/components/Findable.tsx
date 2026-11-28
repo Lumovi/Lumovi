@@ -198,9 +198,10 @@ export function Findable({
     const resized = new ResizeObserver(() =>
       reveal(now, root.current?.querySelector('[data-find-bar]')),
     )
-    resized.observe(root.current!)
+    // (Inside, it has no box of its own to resize: its holder's is watched.)
+    resized.observe(inside ? root.current!.parentElement! : root.current!)
     return () => resized.disconnect()
-  }, [open, found])
+  }, [open, found, inside])
 
   // The match a step unfolded, drawn now: into sight.
   useEffect(() => {
