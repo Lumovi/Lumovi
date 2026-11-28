@@ -8,6 +8,72 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.24.0] - 2026-11-28
+
+1.24.0 has one security update, under Security below: the desktop app runs on Electron 44.9.3.
+
+It adds ⌘F (Ctrl+F) in every YAML view and diff: one find bar, which the editors share, and a Find
+button over YAML. A plugin can now list its objects in the detail of what they point at, and count
+its reports against workloads in a new Findings column; Trivy Operator's plugin does both, and
+draws a Security page of what to fix first. An install's or upgrade's review hides Secrets' values
+until asked. It's built with Lumovi-plugins 1.7.0 (bundle digest
+`sha256:95a50b6cb434269bc38c11c42d0db1e710d3cb40acff9a70130b0b917880ed55`).
+
+### Added
+
+- **An object's detail lists what points at it**: a plugin's link with `listedThere` is listed in
+  the detail of the object it names too, under **Objects that point here** on its Overview,
+  grouped by plugin, each with its kind, what it's `about` and its view's status, and opening it.
+  They're the objects whose labels name it, what it belongs to, or, for a Deployment, the
+  ReplicaSets it runs (as Trivy's reports do). Lumovi finds them by those labels, in the object's
+  namespace (anywhere, for one outside namespaces), and the Plugins page says so. Where no plugin
+  asks, nothing more is read, and no plugin's code runs on Lumovi's own detail.
+- **Workloads' lists say what a plugin's reports found**: a listed link with `counts` makes its
+  view's status count against the workload it leads to. Lumovi's workload lists then get a
+  **Findings** column (a fact on a phone's card) with the worst there is, critical or a warning,
+  each of them under a pointer, and a dash where nothing's wrong; sorted by it, the worst come
+  first. A Deployment's are those of the ReplicaSets it runs, as Trivy's reports are. Lumovi lists
+  those views' kinds by their labels in the whole cluster where you may list them (else in the
+  namespaces you're looking at), and the Plugins page says so. Where no plugin asks, nothing more
+  is read.
+- **Trivy Operator's plugin draws a Security page** of what to fix first: vulnerabilities by
+  workload and by image, those with a fix first; critical and high by namespace, and fixable by
+  package; exposed secrets, never the text that matched; misconfigurations and RBAC. A
+  VulnerabilityReport gets a **Vulnerabilities** tab with every vulnerability in its image, those
+  with a fix first. Besides Trivy's reports, it reads ReplicaSets' names, owners, replica counts
+  and creation times, never what they run, to count a ReplicaSet's report as its Deployment's
+  (Lumovi-plugins 1.6.0).
+- **Find in YAML**: ⌘F (Ctrl+F) finds in every YAML view, read-only ones too: an object's YAML
+  tab (a plugin's objects too), a Helm release's values and manifest, an action's "Creates…",
+  and every diff, where a match in folded unchanged lines counts and a step to it unfolds them.
+  A bar says how many there are and which is current, steps to the next and previous (Enter and
+  Shift+Enter, ⌘G and ⇧⌘G), matches case or a regular expression, and closes with Escape. The
+  toolbars over YAML have a Find button too, for a mouse or a phone. Only what's shown is found:
+  a Secret's hidden values never are. Settings can give it other keys.
+- **Trivy Operator's reports are listed where they point, and count in workloads' Findings**: each
+  is in the detail of what it's about, among the objects that point there, a vulnerability or
+  exposed-secret report saying its container; and the worst of a workload's vulnerability,
+  misconfiguration and exposed-secret reports, critical or high, is in the Findings column of its
+  list. RBAC reports, of roles, are listed only in the role's detail (Lumovi-plugins 1.7.0).
+
+### Changed
+
+- **An install's or upgrade's review hides Secrets' values**: its manifest's changes show each
+  Secret's values masked until Reveal values, as a rollback's and a release's Manifest tab do.
+
+### Fixed
+
+- **Searching in an editor in the dark theme**: Edit YAML's, Create's and the other editors'
+  search was white fields and buttons with text that barely showed. It's now the same find bar
+  as the YAML views, in both themes, with Replace and Replace all where the text can be changed.
+
+### Security
+
+- **The desktop app runs on Electron 44.9.3**, with Chromium 152.0.7977.167 and the fixes Electron
+  has backported from Chromium, V8 and the libraries they use since 44.7.2, and with Electron's
+  mitigation for the compromised eMudhra intermediate certificates (GHSA-jr5w-w6x2-84p9). Lumovi
+  in your cluster doesn't run on Electron, and is unchanged by it.
+
 ## [1.23.2] - 2026-10-24
 
 1.23.2 has one security fix, for Lumovi on a server, under Security below: where a server fetches
@@ -1607,7 +1673,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.23.2...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.24.0...HEAD
+[1.24.0]: https://github.com/Lumovi/Lumovi/compare/v1.23.2...v1.24.0
 [1.23.2]: https://github.com/Lumovi/Lumovi/compare/v1.23.1...v1.23.2
 [1.23.1]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/Lumovi/Lumovi/compare/v1.22.1...v1.23.0

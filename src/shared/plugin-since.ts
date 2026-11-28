@@ -55,9 +55,9 @@ export const PLUGIN_SINCE = {
      * what it names, with what it's `about` there. An older Lumovi refuses the file (a link's key
      * it doesn't know).
      */
-    listedThere: 'next',
+    listedThere: '1.24.0',
     /** A listed link whose view's status `counts` against a workload, in its list's Findings. */
-    counts: 'next',
+    counts: '1.24.0',
   },
   /** What a view's action can say beyond what it first took. */
   action: {
