@@ -265,9 +265,11 @@ test('without a plugin whose links are listed where they lead, nothing’s liste
   const { page, userDataDir } = lumovi
   const plugins = join(userDataDir, 'plugins')
   mkdirSync(plugins, { recursive: true })
+  // (Its `about` goes too: one without listedThere is refused, and the Trivy Lumovi comes with,
+  // whose links are listed, would be read in its place.)
   writeFileSync(
     join(plugins, 'trivy-operator.yaml'),
-    TRIVY.replaceAll('          listedThere: true\n', ''),
+    TRIVY.replaceAll('          listedThere: true\n', '').replace(/ {10}about: .*\n/, ''),
   )
   const cluster = clusters.demo
   cluster.upsert(reportCrd('VulnerabilityReport'))
