@@ -10,6 +10,7 @@ import type { MockCluster } from '../mock-cluster/server.ts'
 import type { KubeObject } from '../mock-cluster/types.ts'
 import { CUSTOM } from '../mock-cluster/fixtures/custom.ts'
 import { DEMO, expect, goTo, openCluster, panel, row, test } from './fixtures.ts'
+import { holds } from '../holds.ts'
 
 /** Flux: what a Kustomization applies carries its name and namespace as labels. */
 const FLUX = `apiVersion: lumovi.dev/v1beta1
@@ -267,6 +268,13 @@ test('who may not list a manager’s kind in the whole cluster: its namespaces i
   await expect(deployment(page, checkout)).toBeVisible()
   await expect(managedBy(page, checkout)).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
+  // Nor is it asked for again and again: with every namespace in view, reading them is reading
+  // the whole cluster, the same read, refused.
+  const asked = () =>
+    clusters.demo.requests.filter((r) => r.path === '/apis/argoproj.io/v1alpha1/applications')
+      .length
+  const before = asked()
+  await holds(() => asked() < before + 8, 3_000, 'a refused read isn’t asked for again and again')
   // In shop, shop's are read.
   await page.getByLabel('Namespace', { exact: true }).click()
   await page.getByRole('option', { name: 'shop', exact: true }).click()
