@@ -2492,6 +2492,8 @@ test('without a volume, in memory; and recording less, or not on the output', as
   context,
   serve,
 }) => {
+  // (Over two thousand calls to the server: a slow machine takes most of a minute over them.)
+  test.slow()
   await as(context, 'alice@example.com', 'auditors')
   // As much as memory keeps (the oldest let go), since the server started: said.
   const served = await serve({
@@ -2518,15 +2520,21 @@ test('without a volume, in memory; and recording less, or not on the output', as
       name: 'postgres-credentials',
       namespace: 'data',
     })
-    for (let i = 0; i < 1010; i++) {
-      await api.logs.start(`logs-${String(i).padStart(6, '0')}`, {
-        context: 'demo',
-        namespace: 'shop',
-        pod: `nowhere-${i}`,
-        container: 'app',
-        previous: false,
-        follow: false,
-      })
+    // (Twenty-five at a time: none is recorded at this level, so their order doesn't matter.)
+    for (let from = 0; from < 1010; from += 25) {
+      await Promise.all(
+        Array.from({ length: Math.min(25, 1010 - from) }, (_, at) => {
+          const i = from + at
+          return api.logs.start(`logs-${String(i).padStart(6, '0')}`, {
+            context: 'demo',
+            namespace: 'shop',
+            pod: `nowhere-${i}`,
+            container: 'app',
+            previous: false,
+            follow: false,
+          })
+        }),
+      )
     }
   })
   // A thousand at most at once; the oldest memory kept was let go.

@@ -37,9 +37,10 @@ const watchApprove = (page: Page) =>
     const seen: [number, boolean][] = []
     ;(window as unknown as { approveSeen: typeof seen }).approveSeen = seen
     const look = () => {
-      const button = [...document.querySelectorAll('button')].find((b) =>
+      // (The dialog's own: no other button that says Approve is the one that waits.)
+      const button = [...document.querySelectorAll('[role="dialog"] button')].find((b) =>
         /^Approve/.test(b.textContent ?? ''),
-      )
+      ) as HTMLButtonElement | undefined
       if (button) seen.push([performance.now(), button.disabled])
     }
     new MutationObserver(look).observe(document.body, {
@@ -821,6 +822,16 @@ test('on a touch screen of any width Approve waits its moment, which always ends
   await mouse.setViewportSize(TABLET)
   await page.setViewportSize(TABLET)
   await page.goto(`${served.url}cluster/demo`)
+  // Each screen is what it is before the change comes: the dialog reads it as it first draws, and
+  // a touch screen's emulation can settle after the page has loaded, on a slow machine.
+  for (const [where, touch] of [
+    [page, true],
+    [mouse, false],
+  ] as const) {
+    await expect
+      .poll(() => where.evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches))
+      .toBe(touch)
+  }
   await watchApprove(page)
   await watchApprove(mouse)
   await call(client, 'scale', {
