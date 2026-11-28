@@ -573,6 +573,34 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   await client.close()
 })
 
+test('A change an assistant asks for shows a Secret’s values masked until asked: in the change, and in the manifest it gave', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await permit(page, [], { ...DEFAULTS, secrets: 'values' })
+  const client = await connect(page)
+  const value = Buffer.from('made-up').toString('base64')
+  const asking = call(client, 'apply_manifest', {
+    cluster: 'demo',
+    manifest: `apiVersion: v1\nkind: Secret\nmetadata:\n  name: masked\n  namespace: default\ndata:\n  password: ${value}\n`,
+    reason: 'Test.',
+  })
+  const dialog = page.getByRole('dialog', { name: 'Create Secret masked' })
+  await expect(dialog).toContainText('Secrets’ values hidden')
+  // Whether the value is there (the manifest's folded part too), said yes or no: a failure
+  // prints no value.
+  const shows = () => dialog.evaluate((at, v) => at.textContent!.includes(v), value)
+  expect(await shows()).toBe(false)
+  await expect(dialog.locator('pre[aria-label="Changes"]')).toContainText('password: ••••••••')
+  await dialog.getByRole('button', { name: 'Reveal values' }).click()
+  await expect.poll(shows).toBe(true)
+  await dialog.getByRole('button', { name: 'Hide values' }).click()
+  await expect.poll(shows).toBe(false)
+  await dialog.getByRole('button', { name: 'Reject…' }).click()
+  await dialog.getByRole('button', { name: 'Reject', exact: true }).click()
+  expect((await asking).text).toBe('The person rejected it in Lumovi. Nothing was changed.')
+})
+
 test('Labels the person can’t read count where they’re stricter', async ({ page, clusters }) => {
   await openCluster(page)
   const demo = clusters.demo

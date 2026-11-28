@@ -17,6 +17,7 @@ import {
   Fragment,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -51,6 +52,8 @@ import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 import { keepMovedFocus } from '@renderer/lib/focus-back'
 import { escapeIsSearchs } from '@renderer/lib/find'
+import { maskedManifest } from '@renderer/lib/helm-diff'
+import { SecretsHidden } from '../helm/SecretsHidden'
 
 type ApprovalsApi = NonNullable<LumoviApi['approvals']>
 
@@ -261,7 +264,22 @@ function ApprovalDialog({
   const typeToConfirm =
     danger && (TYPE_TO_DELETE.includes(target.kind) || production) ? target.name : undefined
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
-  const diff = unifiedDiff(forDiff(proposal.before), forDiff(proposal.after))
+  // A Secret's values, in the change and in the manifest the assistant gave, masked until asked
+  // (as Lumovi's own YAML and manifests have them): the change worked out on the real text.
+  const [revealed, setRevealed] = useState(false)
+  const [before, after] = [forDiff(proposal.before), forDiff(proposal.after)]
+  const masked = useMemo(
+    () => ({
+      before: maskedManifest(before),
+      after: maskedManifest(after),
+      manifest: proposal.manifest && maskedManifest(proposal.manifest),
+    }),
+    [before, after, proposal.manifest],
+  )
+  const hidesSome =
+    masked.before !== before || masked.after !== after || masked.manifest !== proposal.manifest
+  const diff = unifiedDiff(before, after, revealed ? undefined : masked)
+  const manifest = revealed ? proposal.manifest : masked.manifest
   const at = queue.indexOf(proposal)
   const layout = useLayout()
   const touch = useTouch()
@@ -400,10 +418,13 @@ function ApprovalDialog({
                       ? 'The cluster accepts it'
                       : 'Creates it: the cluster accepts it'}
                 </span>
-                <span className="tabular-nums">
-                  <span className="font-medium text-good-text">+{diff.added}</span>{' '}
-                  <span className="font-medium text-critical-text">−{diff.removed}</span>{' '}
-                  {diff.added + diff.removed === 1 ? 'line' : 'lines'}
+                <span className="flex items-center gap-2">
+                  {hidesSome && <SecretsHidden revealed={revealed} onReveal={setRevealed} />}
+                  <span className="tabular-nums">
+                    <span className="font-medium text-good-text">+{diff.added}</span>{' '}
+                    <span className="font-medium text-critical-text">−{diff.removed}</span>{' '}
+                    {diff.added + diff.removed === 1 ? 'line' : 'lines'}
+                  </span>
                 </span>
               </p>
               <div className="flex max-h-[38vh] min-h-0 flex-col overflow-hidden rounded-lg border border-line">
@@ -425,13 +446,13 @@ function ApprovalDialog({
               </div>
             )}
 
-            {proposal.manifest && (
+            {manifest && (
               <details className="group rounded-lg border border-line">
                 <summary className="cursor-default px-3 py-2 text-xs font-medium text-ink-2 select-none hover:text-ink-1">
                   The manifest {client} gave
                 </summary>
                 <pre className="max-h-60 overflow-auto border-t border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink-2 selectable">
-                  {proposal.manifest.trim()}
+                  {manifest.trim()}
                 </pre>
               </details>
             )}
