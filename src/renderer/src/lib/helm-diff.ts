@@ -16,7 +16,8 @@ export const MASK = '••••••••'
  * read as YAML (JSON too), and a Secret in it anywhere (a List's item, say) has its values masked
  * line by line only where that's seen to have masked every one of them, read back; otherwise, or
  * where a document can't be read, or holds an alias (a value written elsewhere in it, `&x`, and
- * named in a Secret's, `*x`), the whole document is, but for what names it.
+ * named in a Secret's, `*x`), or starts on its `---` line (`--- {kind: Secret, …}`, as Helm never
+ * writes but a manifest given by hand can), the whole document is, but for what names it.
  */
 export function maskedManifest(manifest: string): string {
   const lines = manifest.split('\n')
@@ -25,19 +26,29 @@ export function maskedManifest(manifest: string): string {
   starts.forEach((start, d) => {
     const end = d + 1 < starts.length ? starts[d + 1]! - 1 : lines.length
     const own = lines.slice(start, end)
+    // What's written on its `---` line itself, but a comment: its document's first part. (Any line
+    // that marks a document, and isn't the bare marker: so it's whatever splits them.)
+    const marker = start > 0 ? lines[start - 1]! : ''
+    const inline = start > 0 && !/^---\s*(#.*)?$/.test(marker)
+    const text = (inline ? [marker, ...own] : own).join('\n')
+    // Masked whole, its `---` line's part too: the same lines.
+    const maskWhole = () => {
+      lines.splice(start, own.length, ...wholeMasked(own))
+      if (inline) lines[start - 1] = `--- ${MASK}`
+    }
     let read: unknown
     try {
-      read = parse(own.join('\n'), { maxAliasCount: 100, uniqueKeys: false })
+      read = parse(text, { maxAliasCount: 100, uniqueKeys: false })
     } catch {
-      lines.splice(start, own.length, ...wholeMasked(own))
+      maskWhole()
       return
     }
     const secrets = secretsIn(read)
     if (secrets.length === 0) return
     // (An alias's value is written where its anchor is, which masking a Secret's lines can't
-    // reach, and reading back can't tell from its own.)
-    if (aliased(own.join('\n'))) {
-      lines.splice(start, own.length, ...wholeMasked(own))
+    // reach, and reading back can't tell from its own; nor can they reach what's on a `---` line.)
+    if (inline || aliased(text)) {
+      maskWhole()
       return
     }
     const masked = lineMasked(own)

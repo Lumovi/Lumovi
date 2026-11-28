@@ -218,6 +218,38 @@ data:
   expect(masked).toContain('  name: api-db')
 })
 
+test('a Secret written on its document’s `---` line is masked whole, that line too: flow, JSON, after a tab', () => {
+  const value = 'made-up'
+  const flow = `{apiVersion: v1, kind: Secret, metadata: {name: x}, stringData: {password: ${value}}}`
+  const json = `{"apiVersion":"v1","kind":"Secret","metadata":{"name":"x"},"stringData":{"password":"${value}"}}`
+  for (const manifest of [
+    `--- ${flow}\n`,
+    `--- ${json}\n`,
+    `---\t${flow}\n`,
+    // (Whatever marks a document: a carriage return, a form feed, a no-break space.)
+    `---\r${flow}\n`,
+    `---\f${flow}\n`,
+    `---\u00a0${flow}\n`,
+    // (After another document, and with more of it below.)
+    `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: c\n--- ${flow}\n---\nkind: Namespace\n`,
+  ]) {
+    const masked = maskedManifest(manifest)
+    // (Said yes or no: a failure prints no value.)
+    expect(masked.includes(value)).toBe(false)
+    expect(masked.split('\n')).toHaveLength(manifest.split('\n').length)
+    expect(masked).toContain(`--- ${MASK}`)
+  }
+  // A comment on it is no document's: what's under it is masked as ever.
+  const commented = `--- # the database\napiVersion: v1\nkind: Secret\nmetadata:\n  name: x\nstringData:\n  password: ${value}\n`
+  const masked = maskedManifest(commented)
+  expect(masked.includes(value)).toBe(false)
+  expect(masked).toContain('--- # the database')
+  expect(masked).toContain(`  password: ${MASK}`)
+  // And what isn't a Secret on its `---` line is as it was.
+  const map = `--- {apiVersion: v1, kind: ConfigMap, metadata: {name: c}, data: {a: b}}\n`
+  expect(maskedManifest(map)).toBe(map)
+})
+
 test('a manifest without a Secret is as it was', () => {
   const plain = MANIFEST.split('---\n# Source: api/templates/deployment.yaml')[1]!
   expect(maskedManifest(plain)).toBe(plain)
