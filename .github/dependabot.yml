@@ -1,13 +1,16 @@
 version: 2
 # Weekly on Saturday, when nothing of ours is in CI's queue, and a few pull requests at a time:
 # patch bumps together, each kind of minor bump with its own, and every major (and Electron) by
-# itself, since those are the ones to read. Security updates don't wait for the day or a group.
+# itself, since those are the ones to read. A release is proposed once it's a week old, time for a
+# bad one to be pulled or fixed. Security updates don't wait for the day, a group or the week.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
       day: saturday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 4
     ignore:
       # Types track the Node.js line the tooling runs on (see .nvmrc).
@@ -68,6 +71,8 @@ updates:
     schedule:
       interval: weekly
       day: saturday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 4
     groups:
       # Every step of github/codeql-action has to be one version: moved as one, whatever the bump.
