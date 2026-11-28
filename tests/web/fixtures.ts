@@ -14,7 +14,7 @@ import { expect, type Page } from '@playwright/test'
 import type { AuditEvent } from '../../src/shared/audit.ts'
 import { startTestClusters, type TestClusters } from '../mock-cluster/kubeconfig.ts'
 import { rendererMaps, withMaps, type Coverage } from './coverage.ts'
-import { test as base, testTempFolder } from '../temp-folders.ts'
+import { test as base, servedAt, testTempFolder, thisTest } from '../temp-folders.ts'
 
 export { expect }
 export { DEMO, DEMO_TOKEN, PEOPLE } from '../mock-cluster/kubeconfig.ts'
@@ -167,6 +167,8 @@ export function startServer(
       if (!found) return
       child.stdout!.off('data', listening)
       const url = found[1]!
+      // (Whose Lumovi it is, for the run: what comes from a page of it elsewhere can say so.)
+      servedAt(Number(new URL(url).port), thisTest() ?? 'a test')
       resolve({
         url,
         port: Number(new URL(url).port),

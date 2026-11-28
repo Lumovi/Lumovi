@@ -243,6 +243,8 @@ async function tryGroup(
   changed: Record<string, string>
   /** What the catchers saw that no try answered for: come late, or naming none of them. */
   unowned: string[]
+  /** The same, each with where its page was and whose: to read, never to match. */
+  explained: string[]
 }> {
   const inAWorker = where !== 'page'
   const ways = ALL.filter(
@@ -303,7 +305,8 @@ async function tryGroup(
     }
     await close(page, `${n}-first`)
   }
-  return { tried: ways.length, out, saw, changed, unowned: await kept.end() }
+  const unowned = await kept.end()
+  return { tried: ways.length, out, saw, changed, unowned, explained: kept.explained() }
 }
 
 /** Takes one of the desktop's walls away, in the app's main process, for a test. */
@@ -406,7 +409,7 @@ for (const group of GROUPS) {
       launch,
     }) => {
       const { page, app, named } = await logged(launch)
-      const { tried, out, saw, changed, unowned } = await tryGroup(
+      const { tried, out, saw, changed, unowned, explained } = await tryGroup(
         'worker',
         group,
         page,
@@ -418,7 +421,7 @@ for (const group of GROUPS) {
       expect(tried).toBeGreaterThan(0)
       expect(out).toEqual({})
       // Nor did anything arrive that no try answered for: between two of them, or after the last.
-      expect(unowned).toEqual([])
+      expect(unowned, explained.join('\n')).toEqual([])
       // Nor did any of them leave a mark on the box's own page: after each, its document was
       // as Lumovi serves it, every element and attribute.
       expect(changed).toEqual({})
@@ -435,10 +438,16 @@ for (const group of GROUPS) {
         lumovi: { page, app },
       }) => {
         await without(app, wall)
-        const { out, saw, unowned } = await tryGroup('worker', group, page, app, catchers)
+        const { out, saw, unowned, explained } = await tryGroup(
+          'worker',
+          group,
+          page,
+          app,
+          catchers,
+        )
         await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
         expect(out).toEqual({})
-        expect(unowned).toEqual([])
+        expect(unowned, explained.join('\n')).toEqual([])
       })
     }
   }
@@ -447,13 +456,23 @@ for (const group of GROUPS) {
     launch,
   }) => {
     const { page, app, named } = await logged(launch)
-    const { out, saw, unowned } = await tryGroup('page', group, page, app, catchers, true)
-    await test.info().attach('saw', { body: JSON.stringify({ out, saw, unowned }, null, 2) })
+    const { out, saw, unowned, explained } = await tryGroup(
+      'page',
+      group,
+      page,
+      app,
+      catchers,
+      true,
+    )
+    await test.info().attach('saw', {
+      body: JSON.stringify({ out, saw, unowned: explained }, null, 2),
+    })
     expect(Object.keys(out).filter((id) => !NOT_HELD_ON_THE_PAGE.includes(id))).toEqual([])
     // (Come late or not: nothing but what's named.)
-    expect(unowned.filter((what) => !NOT_HELD_ON_THE_PAGE.some((id) => what.includes(id)))).toEqual(
-      [],
-    )
+    expect(
+      unowned.filter((what) => !NOT_HELD_ON_THE_PAGE.some((id) => what.includes(id))),
+      explained.join('\n'),
+    ).toEqual([])
     const { lookedUp, anywhere } = await named()
     await test.info().attach('looked up', { body: JSON.stringify({ lookedUp, anywhere }) })
     expect(lookedUp.filter((id) => !NOT_HELD_ON_THE_PAGE.includes(id))).toEqual([])
@@ -466,7 +485,7 @@ for (const walls of ['as it ships', 'without the request filter'] as const) {
     lumovi: { page, app },
   }) => {
     if (walls !== 'as it ships') await without(app, 'the request filter')
-    const { tried, out, saw, unowned } = await tryGroup(
+    const { tried, out, saw, unowned, explained } = await tryGroup(
       'bare',
       THE_FIRST_LINES_STOP,
       page,
@@ -476,7 +495,7 @@ for (const walls of ['as it ships', 'without the request filter'] as const) {
     await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
     expect(tried).toBe(THE_FIRST_LINES_STOP.length)
     expect(out).toEqual({})
-    expect(unowned).toEqual([])
+    expect(unowned, explained.join('\n')).toEqual([])
     // Each stopped, in its own way: a script by address or from text isn't loaded, a worker from
     // an address that isn't text of its own isn't made, and a worker has no shared one to make.
     expect(notStopped('Chromium', saw)).toEqual([])
@@ -491,11 +510,17 @@ for (const walls of ['as it ships', 'without the request filter'] as const) {
     expect(made.saw).toEqual({ [THE_POLICY_ALLOWS]: 'ran: fetch refused' })
     expect(made.out).toEqual({})
     // And every request there is, tried from such a child: under its maker's policy.
-    const { tried, out, saw, unowned } = await tryGroup('child', 'request', page, app, catchers)
+    const { tried, out, saw, unowned, explained } = await tryGroup(
+      'child',
+      'request',
+      page,
+      app,
+      catchers,
+    )
     await test.info().attach('saw', { body: JSON.stringify(saw, null, 2) })
     expect(tried).toBeGreaterThan(5)
     expect(out).toEqual({})
-    expect(unowned).toEqual([])
+    expect(unowned, explained.join('\n')).toEqual([])
     expect(notRefused(saw)).toEqual([])
   })
 }
@@ -504,10 +529,10 @@ test('on the box’s own page without its policy, the request filter alone still
   lumovi: { page, app },
 }) => {
   await without(app, 'the box’s policy')
-  const { out, saw, unowned } = await tryGroup('page', 'request', page, app, catchers)
+  const { out, saw, unowned, explained } = await tryGroup('page', 'request', page, app, catchers)
   await test.info().attach('saw', { body: JSON.stringify({ out, saw }, null, 2) })
   expect(out).toEqual({})
-  expect(unowned).toEqual([])
+  expect(unowned, explained.join('\n')).toEqual([])
   // A packet by WebTransport would be one the filter never sees. A box's page has no
   // WebTransport to send it with: its address isn't a secure one, on purpose.
   expect(saw.webtransport).toBe('no such API')

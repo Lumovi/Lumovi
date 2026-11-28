@@ -6,7 +6,7 @@
  * and the run's at its end, which fails if anything was left in it.
  */
 import { execFileSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { expect, test as base } from '@playwright/test'
@@ -152,6 +152,42 @@ function notRemoved(dir: string, error: unknown): Error {
   )
 }
 
+/** The run's note of who serves Lumovi where (`servedAt`), in its temp folder. */
+const SERVED = 'served-at.tsv'
+
+/** The note's path, for a run whose global setup made its temp folder (`LUMOVI_TEST_RUN`). */
+const servedNote = () => process.env.LUMOVI_TEST_RUN && join(process.env.LUMOVI_TEST_RUN, SERVED)
+
+/**
+ * Noted for the run, every worker's alike: the test `by` serves Lumovi (or a proxy in front of
+ * it) at this computer's `port`. So what arrives later from a page of it, where it shouldn't, can
+ * say whose it was (`servedBy`).
+ */
+export function servedAt(port: number, by: string): void {
+  const note = servedNote()
+  if (note) appendFileSync(note, `${port}\t${by.replaceAll(/\s+/g, ' ')}\n`)
+}
+
+/** Which test last served Lumovi at `port` in this run, if one noted it (`servedAt`). */
+export function servedBy(port: number): string | undefined {
+  const note = servedNote()
+  if (!note || !existsSync(note)) return undefined
+  return readFileSync(note, 'utf8')
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .findLast(([at]) => at === String(port))?.[1]
+}
+
+/** The test running now, by its place and title; or nothing outside one. */
+export function thisTest(): string | undefined {
+  try {
+    const { file, line, titlePath } = base.info()
+    return `${basename(file)}:${line} › ${titlePath.slice(1).join(' › ')}`
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * The run's temp folder, made in global setup (before any worker starts, so each inherits it).
  * What it returns is the run's teardown: it removes the folder, and fails where something was left.
@@ -166,7 +202,10 @@ export function runTempFolder(): () => void {
   )
   const run = mkdtempSync(join(tmpdir(), 'lumovi-run-'))
   tempFolderIs(run)
+  process.env.LUMOVI_TEST_RUN = run
   return () => {
+    // (The run's own note goes with it: no test made it.)
+    rmSync(join(run, SERVED), { force: true })
     // (Playwright's own, for traces and the like: it removes them itself, after this. What a
     // failed test keeps of them is in its results by now.)
     const left = readdirSync(run).filter((name) => !name.startsWith('playwright-artifacts-'))
