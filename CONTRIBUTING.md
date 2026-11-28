@@ -56,28 +56,36 @@ production. `LUMOVI_READ_ONLY=1 npm run dev` keeps every cluster read-only.
    It can merge once CI's _CI passed_ check is green: `main` requires it, of everyone, with no
    one able to bypass it.
 
-On a pull request CI runs every test on Linux, over sixteen machines at once. Windows, macOS, the
-Firefox and WebKit checks and the packages run too where the change touches what differs by system:
-anything but the pages and what they share (`src/renderer`, `src/shared`), the server's own
-(`src/server`), the chart, the tests' spec files (not their harness or the mock clusters), docs and
-changelog entries; or, among those, a file whose text asks which system it's on, or reaches for what
-differs by system (`.platform`, `MOD_KEY`, `'win32'`, a path's separator, a process started, …).
-Then Windows runs the desktop app's tests, except those alike on every system
-(`tests/e2e/linux-only.txt`). macOS runs them likewise where the change touches what macOS does
-differently (the main process and preload, the desktop app's kube client, Helm and network code,
-Electron, packaging, the dependencies, the tests' harness, CI's own scripts, or a file that asks
-which system it's on), and otherwise a short set (`tests/e2e/smoke.txt`): GitHub gives an account
-five macOS machines at a time, and a full run takes all five. Where only Linux ran, the coverage
-gate borrows what macOS and Windows reach from `main`'s newest full run, or, where none is kept, its
-newest merge's. The integration tests run unless the change is only to the other tests, the mock
-clusters, docs or entries. `scripts/ci-changes.ts` says which, in the run's _What changed_ job. The
-browser's tests (`tests/web`) run on Linux, where the server Lumovi ships runs. `main` runs every
-system after each merge, macOS in full, and the label `macos-full` asks for macOS in full on a pull
-request. The nightly run on `main`, a release's pull request and a run by hand run every test on
-every system. The nightly run stays because it's `main`'s only run of the browser's tests and
-`linux-only.txt`'s on macOS and Windows. Main's merges and its nightly run are the ones that count:
-while either is red, _CI passed_ says so on every pull request as a warning, with main's commit and
-the jobs that failed. A pull request fails only for its own jobs.
+On a pull request, and on each merge to `main`, CI runs a short set quickly: on Linux, the smoke
+set (`tests/e2e/smoke.txt` and `tests/smoke.txt`) and every spec file the change touches, split over
+a few machines. Where the change touches what keeps people and their clusters safe (the main process
+and preload, a plugin's box and door, a Secret's values masked and withheld, the audit, and on a
+server who may do what, signing in and sessions: one list, `SECURITY` in `scripts/ci-changes.ts`,
+which a pull request adding such a file adds it to), the security set runs too, with every browser
+engine. Where it touches what differs by system (anything but the pages and what they share, the
+server's own, the chart, the tests' spec files, docs and changelog entries; or a file whose text asks
+which system it's on, or reaches for what differs by system: `.platform`, `MOD_KEY`, `'win32'`, a
+path's separator, a process started, …), Windows and macOS run their smoke set
+(`tests/e2e/smoke.txt`). A change to how the packages are made builds and tries them on every
+system. Tests a pull request adds, or retitles, run 25 times on Linux, never tried again.
+`scripts/ci-changes.ts` says which, in the run's _What changed_ job.
+
+Everything, on every system, with the integration tests, the packages and the coverage gate, runs
+nightly on `main`, for a run by hand, for a release's pull request, where the label `full-ci` asks
+(`macos-full` asks for macOS's desktop tests in full), for a change to the tests' harness (their
+fixtures, helpers, mock clusters and Playwright's config), which any test can rest on, and for a
+change to the integration tests, which run only then.
+
+A red run of `main` opens (or adds to) the `main-red` issue; only a green run of everything, of that
+commit or a later one, closes it. Tests that passed only when tried again are listed on the
+`ci-flaky` issue. A pull request fails only for its own jobs.
+
+A release is published only from a commit whose run of everything passed (its pull request's, whose
+branch must hold all of `main`), and only while the `main-red` issue is closed: the release's pull
+request checks that as it runs, and the release itself again before anything is made, however it was
+started. So while `main` is red, its fix goes to `main` first, as a pull request of its own; then a
+run of everything by hand on `main` (_Actions_, _CI_, _Run workflow_) closes the issue once it's
+green, and the release can go.
 
 Changes to how Lumovi talks to clusters are also worth checking against a real one:
 `npm run test:kind` creates a local [kind](https://kind.sigs.k8s.io) cluster and runs the

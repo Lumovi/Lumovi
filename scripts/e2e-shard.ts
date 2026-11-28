@@ -8,6 +8,7 @@
  *
  *   node scripts/e2e-shard.ts 2/4 > shard.txt
  *   node scripts/e2e-shard.ts 1/2 playwright.integration.config.ts > shard.txt
+ *   E2E_FILES="tests/e2e/app.spec.ts tests/web/fleet.spec.ts" node scripts/e2e-shard.ts 1/2
  *
  * Where a config's tests don't all run in parallel (the integration tests share one cluster), a
  * file's tests stay together, in their shard, in their order.
@@ -52,6 +53,12 @@ const leftToLinux = new Set(
         .filter((line) => line && !line.startsWith('#'))
     : [],
 )
+/**
+ * The spec files a run of less than everything is of, where CI names them (E2E_FILES, by spaces):
+ * the smoke set, what a change touches, the security set (scripts/ci-changes.ts). Where it names
+ * none, every file's.
+ */
+const only = new Set(process.env.E2E_FILES?.split(/\s+/).filter(Boolean))
 if (!current || !total || current > total) {
   console.error('Usage: node scripts/e2e-shard.ts <shard>/<shards> [config]')
   process.exit(1)
@@ -92,6 +99,7 @@ function walk(suite: Suite, titles: string[]): void {
       if (projects?.length && !projects.includes(projectName)) continue
       const file = suite.file.split('\\').join('/')
       if (leftToLinux.has(file)) continue
+      if (only.size > 0 && !only.has(file)) continue
       const name = [projectName ? `[${projectName}]` : '', file, ...titles, spec.title]
         .filter(Boolean)
         .join(' › ')

@@ -26,10 +26,9 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
 jobs:
-  # What the run needs (scripts/ci-changes.ts): nothing but the checks for a pull request of docs;
-  # and on macOS, for a pull request that changes nothing of macOS's own (and doesn't ask, with
-  # the label macos-full), its smoke set: an account has five macOS machines at once, and a full
-  # run takes all five.
+  # What the run needs (scripts/ci-changes.ts): everything, on every system, nightly, by hand, for
+  # a release's pull request and where the label full-ci asks; anything else, the smoke set and
+  # what the change touches, quickly; nothing but the checks for a pull request of docs.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -38,13 +37,16 @@ jobs:
       contents: read
       # Its labels, as they are now.
       pull-requests: read
+      # For a release's: whether main is red (the main-red issue).
+      issues: read
     outputs:
       docs: ${{ steps.what.outputs.docs }}
       release: ${{ steps.what.outputs.release }}
-      macos: ${{ steps.what.outputs.macos }}
-      windows: ${{ steps.what.outputs.windows }}
+      full: ${{ steps.what.outputs.full }}
       platforms: ${{ steps.what.outputs.platforms }}
       integration: ${{ steps.what.outputs.integration }}
+      browsers: ${{ steps.what.outputs.browsers }}
+      packages: ${{ steps.what.outputs.packages }}
       e2e: ${{ steps.what.outputs.e2e }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -59,6 +61,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: scripts/judge.sh ci-changes.ts
+      # A release's pull request runs everything once, of the commit that's released: its branch
+      # holds all of main (so the merge tested is that commit, as it will be on main), and main is
+      # green. release.yml publishes only a commit with such a run (scripts/release-gate.ts).
+      - name: A release of main as it is, and main green
+        if: steps.what.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! git diff --quiet HEAD HEAD^2; then
+            echo "::error::The release's branch isn't up to date with main: rebase it onto main, so the commit tested is the one released."
+            exit 1
+          fi
+          red=$(gh api "repos/$GITHUB_REPOSITORY/issues?labels=main-red&state=open" --jq 'length')
+          if [ "$red" != 0 ]; then
+            echo "::error::Main is red (its main-red issue is open): a release waits until a full run of main is green."
+            exit 1
+          fi
 
   checks:
     name: Format, lint & typecheck
@@ -270,10 +289,10 @@ jobs:
     if: needs.changes.outputs.docs != 'true'
     strategy:
       fail-fast: false
-      # Each platform's tests, split over machines that run at once (Linux's sixteen, the others'
-      # four: SHARDS in scripts/ci-changes.ts), so that each takes about as long
-      # (scripts/e2e-shard.ts); or on macOS, the smoke set. A pull request whose changes are alike
-      # on every system runs Linux's alone.
+      # A full run's tests, each platform's split over machines that run at once (Linux's sixteen,
+      # the others' four: SHARDS in scripts/ci-changes.ts), so that each takes about as long
+      # (scripts/e2e-shard.ts). Any other run's: on Linux, the files it names, over a few; on
+      # Windows and macOS, where it asks, their smoke sets.
       matrix: ${{ fromJSON(needs.changes.outputs.e2e) }}
     runs-on: ${{ matrix.os }}
     # The longest shard has taken 28 minutes: room for a few failing tests' retries, so that a
@@ -347,6 +366,8 @@ jobs:
           E2E_PROJECTS: ${{ matrix.projects }}
           # And on macOS and Windows, the desktop tests alike on every system left to Linux.
           E2E_ONLY: ${{ matrix.only }}
+          # Of a run of less than everything, on Linux: the spec files it runs.
+          E2E_FILES: ${{ matrix.files }}
         run: |
           if [ "$SHARD" = smoke ]; then
             list=tests/e2e/smoke.txt
@@ -362,18 +383,16 @@ jobs:
       # One file of this shard's coverage, merged here (where it's one of many at once) rather
       # than as thousands, after the last shard.
       - name: Merge coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.changes.outputs.full == 'true' }}
         shell: bash
         run: npx nyc merge .nyc_output "coverage-${RUNNER_OS}-${{ matrix.part }}.json"
       - name: Upload coverage
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.changes.outputs.full == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-${{ runner.os }}-${{ matrix.part }}
           path: coverage-${{ runner.os }}-${{ matrix.part }}.json
-          # Main's are borrowed by later runs (the coverage job): kept as long as GitHub keeps
-          # anything, since a month without a green run would leave nothing to borrow.
-          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
+          retention-days: 7
       - name: Upload test report
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -384,52 +403,69 @@ jobs:
             test-results/
           retention-days: 7
 
-  # A run whose macOS ran only its smoke set, or that ran Linux alone, reached less than a full one
-  # does, having lost nothing. What only the systems that didn't run here reach is taken from
-  # main's newest green run whose macOS ran in full (a merge's, its nightly one, or one by hand), or for Linux
-  # alone, where none is kept, from its newest merge's: so that the gate judges like with like
-  # (scripts/borrow-coverage.ts). It needs nothing of this run's tests, so it's worked out while
-  # they run, and Coverage only collects it.
-  borrowed:
-    name: Coverage borrowed from main
+  # What a pull request adds, or retitles, of the desktop app's tests and the browser's: each run
+  # 25 times on Linux, and never tried again (scripts/new-tests.ts), so that one a runner's timing
+  # can fail is seen to before it's on main.
+  new-tests:
+    name: New tests, 25 times (${{ matrix.part }}/3)
     needs: changes
-    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.macos != 'full'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs != 'true'
+    strategy:
+      fail-fast: false
+      # In three parts, each a third of them; with more than its time holds, it says so and stops.
+      matrix:
+        part: [1, 2, 3]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      # To read main's coverage.
-      actions: read
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The pull request's merge commit, and what it's merged into (scripts/judge.sh).
+          # The merge commit, and main beside it: the tests of each are listed.
           fetch-depth: 2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: What the systems that didn't run here reach, from main
+      - name: Which are new
+        id: new
+        run: |
+          node scripts/new-tests.ts ${{ matrix.part }}/3 > new.txt
+          echo "any=$([ -s new.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - *apt-archives
+      - name: Install Chromium
+        if: steps.new.outputs.any == 'true'
+        timeout-minutes: 12
+        run: scripts/ci-browsers.sh chromium
+      - if: steps.new.outputs.any == 'true'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - *plugins-release
+      - name: Build with coverage instrumentation
+        if: steps.new.outputs.any == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          WINDOWS: ${{ needs.changes.outputs.windows }}
-        run: scripts/judge.sh borrow-coverage.ts
-      # (Nothing where nothing was borrowed: Coverage then judges what ran here as it is.)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run build:coverage
+      - name: Run them, 25 times
+        if: steps.new.outputs.any == 'true'
+        env:
+          LUMOVI_E2E_OPAQUE: '1'
+        run: xvfb-run --auto-servernum npx playwright test --test-list new.txt --repeat-each=25 --retries=0
+      - name: Upload test report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: coverage-borrowed-from-main
-          path: .nyc_output/main-borrowed.json
-          if-no-files-found: ignore
-          retention-days: 1
+          name: playwright-report-new-tests-${{ matrix.part }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
 
+  # Only a full run measures coverage, every system's own: one of less is for its tests.
   coverage:
     name: Coverage (all platforms)
-    needs: [changes, e2e, borrowed]
-    # (As before, once every test ran; with what was borrowed, or with nothing borrowed to wait for.)
-    if: >-
-      ${{ !cancelled() && needs.e2e.result == 'success' &&
-      (needs.borrowed.result == 'success' || needs.borrowed.result == 'skipped') }}
+    needs: [changes, e2e]
+    # (Once every test ran.)
+    if: ${{ !cancelled() && needs.changes.outputs.full == 'true' && needs.e2e.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -444,7 +480,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # (What's borrowed from main, where it is, comes with them: coverage-borrowed-from-main.)
       - name: Collect coverage from every platform
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -469,12 +504,11 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  # (Not for a pull request whose changes are alike on every system: main, nightly and a release's
-  # pull request package every time. A plan that says nothing of it packages.)
+  # (In a full run, and where a change is to how the packages are made: scripts/ci-changes.ts.)
   package:
     name: Package (${{ matrix.os }})
     needs: [changes, checks]
-    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.platforms != 'false'
+    if: needs.changes.outputs.packages == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -736,8 +770,8 @@ jobs:
     name: Integration (kind, ${{ matrix.shard }}/6)
     # (Not after the lint: it starts as soon as the plan says, and CI passed waits for both.)
     needs: changes
-    # (Not for a pull request that changes nothing they see: scripts/ci-changes.ts.)
-    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.integration != 'false'
+    # (In a full run: scripts/ci-changes.ts.)
+    if: needs.changes.outputs.integration == 'true'
     strategy:
       fail-fast: false
       # Six clusters, each with a sixth of the files (a file's tests share theirs, one at a time).
@@ -812,8 +846,8 @@ jobs:
   browsers:
     name: Browsers (Firefox, WebKit)
     needs: [changes, checks]
-    # (As the packages: not for a pull request whose changes are alike on every system.)
-    if: needs.changes.outputs.docs != 'true' && needs.changes.outputs.platforms != 'false'
+    # (In a full run, and where a change touches what holds a plugin in: scripts/ci-changes.ts.)
+    if: needs.changes.outputs.browsers == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -861,7 +895,7 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]
+    needs: [changes, checks, e2e, new-tests, coverage, package, integration, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -909,7 +943,7 @@ jobs:
   told:
     name: Whether main is red, said
     if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]
+    needs: [changes, checks, e2e, new-tests, coverage, package, integration, browsers]
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -927,5 +961,5 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           # Only a green run of everything closes the issue.
-          FULL: ${{ needs.changes.outputs.macos == 'full' }}
+          FULL: ${{ needs.changes.outputs.full }}
         run: node scripts/main-red.ts

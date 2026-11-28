@@ -6,9 +6,9 @@ name: Pull request
 # - Its text edited: CI's last job, "CI passed", reads it as it is (the changelog entry or
 #   "Changelog: none: …"). If that job is all that failed in the newest finished run for this
 #   commit, it alone is run again. Anything else waits for whoever reads the failure.
-# - The label macos-full put on: everything is wanted on macOS. The newest run for this commit is
-#   ended if it's still going, and run again from the start, which reads the label
-#   (scripts/ci-changes.ts).
+# - The label full-ci put on (everything, on every system), or macos-full (macOS's desktop tests
+#   in full): the newest run for this commit is ended if it's still going, and run again from the
+#   start, which reads the label (scripts/ci-changes.ts).
 
 on:
   pull_request:
@@ -31,7 +31,8 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (github.event.action == 'edited' ||
-       (github.event.action == 'labeled' && github.event.label.name == 'macos-full'))
+       (github.event.action == 'labeled' &&
+       (github.event.label.name == 'macos-full' || github.event.label.name == 'full-ci')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -39,7 +40,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SHA: ${{ github.event.pull_request.head.sha }}
-      EVERYTHING: ${{ github.event.action == 'labeled' && github.event.label.name == 'macos-full' }}
+      EVERYTHING: ${{ github.event.action == 'labeled' && (github.event.label.name == 'macos-full' || github.event.label.name == 'full-ci') }}
     steps:
       - name: CI's newest run for this commit
         id: run

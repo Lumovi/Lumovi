@@ -47,6 +47,9 @@ jobs:
     # Read only: nothing is made, here or anywhere, before the release is approved.
     permissions:
       contents: read
+      # CI's runs of the commit, and whether main is red (scripts/release-gate.ts).
+      actions: read
+      issues: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
@@ -129,6 +132,15 @@ jobs:
           # 1.1.0-beta.1 and the like are pre-releases, never the latest release.
           if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+      # Only a commit that a run of CI ran everything of, on every system, and passed: the
+      # release's pull request's. CI's run on main is the smoke set; whether that started this or
+      # somebody did by hand, a red run of everything, or none, never publishes.
+      - name: A run of everything of this commit passed
+        if: steps.version.outputs.version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: node scripts/release-gate.ts "$SHA"
       - name: Its CHANGELOG summary, for the release notes
         if: steps.version.outputs.version
         env:

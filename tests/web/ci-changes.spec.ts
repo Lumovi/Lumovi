@@ -1,37 +1,34 @@
 /**
- * What CI runs (scripts/ci-changes.ts): nothing but the checks for a pull request of docs; and on
- * macOS its desktop tests in full for main's merges, nightly, by hand, for a release's pull
- * request, a label's ask, or a pull request that changes what macOS does differently, and its
- * smoke set for any other pull request. Each
- * case with the files as a pull request would change them (a file moved is both where it was and
- * where it is).
+ * What CI runs (scripts/ci-changes.ts): everything, on every system, nightly, by hand, for a
+ * release's pull request and where its label asks; anything else, quickly, the smoke set and what
+ * it changes, with the security set where it touches what holds a plugin in; nothing but the
+ * checks for a pull request of docs. Each case with the files as a pull request would change them
+ * (a file moved is both where it was and where it is). And what judges a run of main
+ * (main-is-green.ts, main-red.ts), what's new of a pull request's tests (new-tests.ts), and what
+ * a release waits on (release-starts.ts, release-gate.ts).
  */
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
 import { expect, test } from '../temp-folders.ts'
 import {
-  borrowedOf,
-  fetchOf,
-  fitOf,
-  inTurns,
-  judgeRuns,
-  mainsOwn,
-  onlyIn,
-  pick,
-  shardsIn,
-  withoutChanged,
-} from '../../scripts/borrow-coverage.ts'
-import {
+  FULL_CI,
+  isHarness,
   isRelease,
   NAMES_A_SYSTEM,
   namingASystem,
   plan,
-  ranMacosInFull,
+  SECURITY,
+  SECURITY_SET,
+  securitySpecs,
+  SMOKE_SHARD_MINUTES,
+  touchesSecurity,
 } from '../../scripts/ci-changes.ts'
+import { added, MOST_NEW, namesOf, share } from '../../scripts/new-tests.ts'
+import { EVERYTHING, gate, missing } from '../../scripts/release-gate.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
 import {
+  asCode,
+  coverageOf,
+  errorsOf,
   flakyComment,
   redComment,
   tell,
@@ -45,20 +42,16 @@ import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-s
 /** A pull request changing `changed`, on `branch`, with `labels`. */
 const pr = (changed: string[], branch = 'lmv-1-x', labels: string[] = []) =>
   plan({ event: 'pull_request', branch, changed, labels })
-const macos = (result: ReturnType<typeof plan>) =>
-  result.e2e.filter((shard) => shard.os === 'macos-latest').map((shard) => shard.shard)
 const FULL = ['1/4', '2/4', '3/4', '4/4']
-/** Linux's fourteen shards, as the plan names them. */
+/** Linux's sixteen shards, as the plan names them. */
 const LINUX = Array.from({ length: 16 }, (_, i) => `${i + 1}/16`)
 /** Each system's shards, as the plan names them. */
 const shards = (result: ReturnType<typeof plan>, os: string) =>
   result.e2e.filter((shard) => shard.os === os).map((shard) => shard.shard)
-/** The tests' projects each system runs, as one text each. */
-const projects = (result: ReturnType<typeof plan>) =>
-  Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.projects]))
-/** What each system's shards leave to Linux, as one text each. */
-const only = (result: ReturnType<typeof plan>) =>
-  Object.fromEntries(result.e2e.map((shard) => [shard.os, shard.only]))
+/** The spec files Linux's shards run, where the plan names them. */
+const files = (result: ReturnType<typeof plan>) => [
+  ...new Set(result.e2e.filter((shard) => shard.os === 'ubuntu-latest').map((s) => s.files)),
+]
 
 test('docs only: Markdown, and images that aren’t the app’s', () => {
   const result = pr([
@@ -73,7 +66,7 @@ test('docs only: Markdown, and images that aren’t the app’s', () => {
 
 test('not docs: a file moved into docs/, code there, the tests’ Markdown, the app’s images', () => {
   // git mv src/main/menu.ts docs/menu.md, as --no-renames lists it.
-  expect(pr(['src/main/menu.ts', 'docs/menu.md'])).toMatchObject({ docs: false, macos: true })
+  expect(pr(['src/main/menu.ts', 'docs/menu.md'])).toMatchObject({ docs: false, platforms: true })
   expect(pr(['electron-builder.yml', 'docs/electron-builder.yml']).docs).toBe(false)
   expect(pr(['docs/x.ts']).docs).toBe(false)
   expect(pr(['tests/e2e/README.md']).docs).toBe(false)
@@ -81,73 +74,226 @@ test('not docs: a file moved into docs/, code there, the tests’ Markdown, the 
   expect(pr(['build/icon.png']).docs).toBe(false)
 })
 
-test('a pull request that changes what macOS does differently runs macOS in full, and Windows and Linux', () => {
-  // The app's own process, Electron, packaging, the lockfile, CI itself, the harness.
-  for (const changed of [
-    ['src/main/menu.ts'],
-    ['src/preload/index.ts'],
-    ['src/backend/kube/kubeconfig.ts'],
-    ['electron-builder.yml', 'package-lock.json'],
-    ['.github/workflows/ci.yml'],
-    ['scripts/ci-changes.ts'],
-    ['tests/e2e/fixtures.ts'],
-    ['tests/e2e/smoke.txt'],
-    ['playwright.config.ts'],
-  ]) {
-    const result = pr(changed)
-    expect(result, changed.join(' ')).toMatchObject({ docs: false, macos: true, platforms: true })
-    expect(macos(result)).toEqual(FULL)
-    // Linux runs the browser's tests too, and the desktop tests alike everywhere: over sixteen.
-    expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
-    expect(shards(result, 'windows-latest')).toEqual(FULL)
-    expect(result.said).toContain(
-      'The desktop app’s tests in full on macOS: it changes what macOS does differently.',
-    )
-    // macOS, like Windows, leaves the desktop tests alike on every system to Linux.
-    expect(only(result)['macos-latest']).toBe('system')
+test('a pull request runs the smoke set and every spec file it changes, on Linux, split so each shard has its share', () => {
+  const smoke = ['tests/e2e/app.spec.ts', 'tests/web/server.spec.ts']
+  const changed = [
+    'src/renderer/src/features/x.tsx',
+    'tests/e2e/lists.spec.ts',
+    'changelog.d/x.added.md',
+  ]
+  const result = plan({ event: 'pull_request', changed, smoke, minutes: () => 10 })
+  expect(result).toMatchObject({
+    full: false,
+    platforms: false,
+    integration: false,
+    packages: false,
+  })
+  // (An entry isn't a spec file: it runs nothing more.)
+  expect(files(result)).toEqual([
+    'tests/e2e/app.spec.ts tests/web/server.spec.ts tests/e2e/lists.spec.ts',
+  ])
+  expect(shards(result, 'ubuntu-latest')).toEqual(['1/2', '2/2'])
+  expect(result.e2e.filter((shard) => shard.os === 'ubuntu-latest')).toEqual([
+    expect.objectContaining({ part: 'smoke-1', projects: 'desktop web', only: '' }),
+    expect.objectContaining({ part: 'smoke-2', projects: 'desktop web', only: '' }),
+  ])
+  // More of them where the tests take longer: each has at most SMOKE_SHARD_MINUTES.
+  const long = plan({
+    event: 'pull_request',
+    changed: ['src/renderer/x.tsx'],
+    smoke,
+    minutes: (named) => (named.length === smoke.length ? 3 * SMOKE_SHARD_MINUTES + 1 : 0),
+  })
+  expect(shards(long, 'ubuntu-latest')).toEqual(['1/4', '2/4', '3/4', '4/4'])
+  // Alike on every system: Linux alone. A change that differs by system: Windows' and macOS's
+  // smoke sets too, never more.
+  expect(shards(pr(['src/renderer/x.tsx']), 'windows-latest')).toEqual([])
+  expect(shards(pr(['src/renderer/x.tsx']), 'macos-latest')).toEqual([])
+  for (const os of ['windows-latest', 'macos-latest']) {
+    expect(shards(pr(['src/main/index.ts']), os), os).toEqual(['smoke'])
   }
-  // So does a file whose text asks which system it's on.
-  const keys = 'src/renderer/src/features/terminal/keys.ts'
-  expect(macos(plan({ event: 'pull_request', changed: [keys], namesASystem: [keys] }))).toEqual(
-    FULL,
+  expect(pr(['src/main/index.ts']).said).toContain('Windows’ and macOS’s smoke sets')
+})
+
+test('a change to what keeps people and clusters safe runs the specs that guard it, and every engine', () => {
+  const smoke = ['tests/e2e/app.spec.ts']
+  for (const [path, guards] of [
+    ['src/main/plugin-box.ts', 'tests/web/fleet-agents.spec.ts'],
+    ['src/preload/index.ts', 'tests/e2e/withheld.spec.ts'],
+    ['src/renderer/src/plugins/box.ts', 'tests/e2e/plugin-box-ways-out.spec.ts'],
+    // (A Secret's part on a plugin's page: its masking tests too.)
+    ['src/renderer/src/plugins/secret-part.ts', 'tests/web/plugin-secret-page.spec.ts'],
+    ['src/backend/plugin-reads.ts', 'tests/web/plugin-hostile.spec.ts'],
+    ['src/shared/plugin-door.ts', 'tests/web/plugin-secret.spec.ts'],
+    ['src/shared/plugins.ts', 'tests/e2e/plugin-box.spec.ts'],
+    // The server's half: the box's check, and the plugin's code it hands a browser.
+    ['src/server/box-check.ts', 'tests/web/box-check.spec.ts'],
+    ['src/shared/box-check.ts', 'tests/web/box-check-calls.spec.ts'],
+    ['src/server/plugin-code.ts', 'tests/web/plugin-hand-over.spec.ts'],
+    // A Secret's values masked and withheld, in a view, its YAML, a compare, a release's review.
+    ['src/backend/withholding.ts', 'tests/web/withheld.spec.ts'],
+    ['src/renderer/src/lib/helm-diff.ts', 'tests/web/helm-diff.spec.ts'],
+    ['src/renderer/src/features/details/YamlTab.tsx', 'tests/e2e/details.spec.ts'],
+    ['src/renderer/src/features/compare/ComparePage.tsx', 'tests/web/compare.spec.ts'],
+    // An assistant's reads and approvals.
+    ['src/backend/mcp/present.ts', 'tests/e2e/assistant-permissions.spec.ts'],
+    ['src/backend/mcp/access.ts', 'tests/web/assistant-permissions.spec.ts'],
+    ['src/backend/mcp/tools.ts', 'tests/web/assistants.spec.ts'],
+    ['src/backend/mcp/approvals.ts', 'tests/e2e/assistants.spec.ts'],
+    // The audit; and on a server, its pages' policy, who may do what, signing in, sessions, fleets.
+    ['src/backend/audit/log.ts', 'tests/e2e/audit.spec.ts'],
+    ['src/server/audit.ts', 'tests/web/audit.spec.ts'],
+    ['src/server/pages.ts', 'tests/web/server.spec.ts'],
+    ['src/server/app.ts', 'tests/web/plugin-box.spec.ts'],
+    ['src/server/access.ts', 'tests/e2e/access-control.spec.ts'],
+    ['src/server/auth.ts', 'tests/web/sign-in.spec.ts'],
+    ['src/server/sessions.ts', 'tests/web/oidc.spec.ts'],
+    ['src/server/fleet/secrets.ts', 'tests/web/fleet-join-agent.spec.ts'],
+  ] as const) {
+    expect(touchesSecurity(path), path).toBe(true)
+    const result = plan({ event: 'pull_request', changed: [path], smoke })
+    expect(result.browsers, path).toBe(true)
+    const runs = files(result)[0]!.split(' ')
+    expect(runs, path).toEqual([...smoke, ...securitySpecs([path])])
+    expect(runs, path).toContain(guards)
+    expect(result.said, path).toContain('with the security set')
+  }
+  // Each touches its own: a change to the audit alone runs no box test.
+  expect(securitySpecs(['src/backend/audit/log.ts'])).toEqual([
+    'tests/e2e/audit.spec.ts',
+    'tests/web/audit.spec.ts',
+  ])
+  // The main process runs all of them.
+  expect(securitySpecs(['src/main/index.ts']).sort()).toEqual([...SECURITY_SET].sort())
+  for (const path of [
+    'src/renderer/src/features/x.tsx',
+    'src/shared/kit/parts.ts',
+    'tests/e2e/x.spec.ts',
+  ]) {
+    expect(touchesSecurity(path), path).toBe(false)
+    expect(plan({ event: 'pull_request', changed: [path], smoke }).browsers, path).toBe(false)
+  }
+  // Every entry is of files that are there, and names specs that are: so one can't come in
+  // without its tests, nor its tests go without it.
+  const sources = readdirSync('src', { recursive: true, encoding: 'utf8' }).map(
+    (path) => `src/${path.split('\\').join('/')}`,
   )
-  // A change that runs every system but isn't macOS's own: its smoke set.
-  for (const changed of [['src/backend/audit/log.ts'], ['tests/e2e/action-helpers.ts']]) {
-    const result = pr(changed)
-    expect(result, changed.join(' ')).toMatchObject({ macos: false, platforms: true })
-    expect(macos(result)).toEqual(['smoke'])
-    expect(shards(result, 'windows-latest')).toEqual(FULL)
-    expect(result.said).toContain('macOS runs its smoke set: nothing it changes is macOS’s own')
+  for (const { paths, specs } of SECURITY) {
+    expect(sources.filter((path) => paths.test(path)).length, String(paths)).toBeGreaterThan(0)
+    expect(specs.length, String(paths)).toBeGreaterThan(0)
+    for (const spec of specs) expect(readFileSync(spec, 'utf8').length, spec).toBeGreaterThan(0)
   }
 })
 
-test('the label macos-full runs everything on macOS, whatever changed', () => {
-  const path = 'src/renderer/src/features/lists/ResourceList.tsx'
-  // (Alike on every system: Linux alone.)
-  expect(macos(pr([path]))).toEqual([])
-  const asked = pr([path], 'lmv-1-x', ['design', 'macos-full'])
-  expect(asked.macos).toBe(true)
-  expect(macos(asked)).toEqual(FULL)
-  expect(asked.said).toContain('as its label asks')
-  // And on a pull request that runs every system without changing macOS's own.
-  expect(macos(pr(['src/backend/audit/log.ts']))).toEqual(['smoke'])
-  expect(macos(pr(['src/backend/audit/log.ts'], 'lmv-1-x', ['macos-full']))).toEqual(FULL)
+test('a change to the tests’ harness runs everything, on every system, as full-ci does: any test can rest on it', () => {
+  for (const path of [
+    'tests/e2e/fixtures.ts',
+    'tests/web/fixtures.ts',
+    'tests/e2e/global-setup.ts',
+    'tests/e2e/plugin-box/catchers.ts',
+    'tests/e2e/helm/metrics-stack.yaml',
+    'tests/mock-cluster/fixtures/demo.ts',
+    'tests/mock-downloads/plugin-store.ts',
+    'tests/temp-folders.ts',
+    'playwright.config.ts',
+    'playwright.integration.config.ts',
+    'scripts/e2e-shard.ts',
+    // The integration tests, which run only in a run of everything: their specs and their cluster.
+    'tests/integration/served.spec.ts',
+    'tests/integration/cluster.ts',
+  ]) {
+    expect(isHarness(path), path).toBe(true)
+    const result = pr([path])
+    expect(result, path).toMatchObject({ full: true, integration: true, packages: true })
+    expect(shards(result, 'ubuntu-latest'), path).toEqual(LINUX)
+    expect(result.said, path).toContain('it changes the tests’ harness')
+    // A merge of it too.
+    expect(plan({ event: 'push', changed: [path] }).full, path).toBe(true)
+  }
+  // Not a spec file, a list of them, the tests' timings, nor the plugins' tests.
+  for (const path of [
+    'tests/e2e/lists.spec.ts',
+    'tests/web/fleet.spec.ts',
+    'tests/e2e/smoke.txt',
+    'tests/smoke.txt',
+    'tests/durations.json',
+    'tests/plugins/known.spec.ts',
+  ]) {
+    expect(isHarness(path), path).toBe(false)
+  }
 })
 
-test('a pull request whose changes are alike on every system runs Linux alone, in full', () => {
-  for (const changed of [
-    ['src/renderer/src/features/lists/ResourceList.tsx', 'tests/e2e/lists.spec.ts'],
-    ['src/shared/kit/parts.ts', 'tests/web/audit.spec.ts'],
-    ['src/server/index.ts', 'charts/lumovi/values.yaml'],
-    ['tests/plugins/plugins.spec.ts'],
-    ['tests/integration/metrics.spec.ts', 'tests/durations.json', 'changelog.d/x.fixed.md'],
+test('the label macos-full runs macOS’s desktop tests in full; full-ci, everything on every system', () => {
+  const asked = pr(['src/renderer/x.tsx'], 'lmv-1-x', ['macos-full'])
+  expect(shards(asked, 'macos-latest')).toEqual(FULL)
+  expect(shards(asked, 'windows-latest')).toEqual(['smoke'])
+  expect(asked.full).toBe(false)
+  const everything = pr(['src/renderer/x.tsx'], 'lmv-1-x', [FULL_CI])
+  expect(everything).toMatchObject({
+    full: true,
+    integration: true,
+    browsers: true,
+    packages: true,
+  })
+  expect(shards(everything, 'ubuntu-latest')).toEqual(LINUX)
+  expect(shards(everything, 'macos-latest')).toEqual(FULL)
+  expect(shards(everything, 'windows-latest')).toEqual(FULL)
+  expect(everything.said).toContain(`as its label asks (${FULL_CI})`)
+})
+
+test('the packages, the integration tests and the other engines run in a full run, and where a change asks', () => {
+  // The packages: for a change to how they're made, or what they're made with.
+  for (const path of [
+    'package.json',
+    'package-lock.json',
+    'build/icon.png',
+    'packaging/x.desktop',
+    'electron-builder.yml',
+    '.github/workflows/ci.yml',
+    'scripts/after-pack.mjs',
   ]) {
-    const result = pr(changed)
-    expect(result, changed.join(' ')).toMatchObject({ docs: false, platforms: false })
+    expect(pr([path]).packages, path).toBe(true)
+  }
+  expect(pr(['src/main/index.ts']).packages).toBe(false)
+  // The integration tests: in a full run only.
+  expect(pr(['charts/lumovi/values.yaml']).integration).toBe(false)
+  expect(pr(['x.ts'], 'release-1.24.0').integration).toBe(true)
+  for (const event of ['schedule', 'workflow_dispatch']) {
+    expect(plan({ event, changed: [] }), event).toMatchObject({
+      integration: true,
+      packages: true,
+      browsers: true,
+    })
+  }
+})
+
+test('main’s merge runs what a pull request does: the smoke set and what it touches, never docs alone', () => {
+  const merged = plan({
+    event: 'push',
+    changed: ['src/renderer/x.tsx', 'tests/e2e/lists.spec.ts'],
+    smoke: ['tests/e2e/app.spec.ts'],
+  })
+  expect(merged).toMatchObject({ full: false, docs: false, integration: false })
+  expect(files(merged)).toEqual(['tests/e2e/app.spec.ts tests/e2e/lists.spec.ts'])
+  expect(merged.said).toContain('Main’s merge')
+  // Its tests run even for docs.
+  expect(plan({ event: 'push', changed: ['README.md'] }).docs).toBe(false)
+})
+
+test('main’s nightly run, a run by hand and a release’s pull request run everything, on every system', () => {
+  for (const result of [
+    plan({ event: 'schedule', changed: [] }),
+    plan({ event: 'workflow_dispatch', changed: [] }),
+    pr(['README.md'], 'release-1.24.0'),
+  ]) {
+    expect(result.full).toBe(true)
+    expect(result.docs).toBe(false)
     expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
-    expect(shards(result, 'windows-latest')).toEqual([])
-    expect(macos(result)).toEqual([])
-    expect(result.said).toContain('Linux alone: nothing it changes is a system’s own')
+    expect(shards(result, 'macos-latest')).toEqual(FULL)
+    expect(shards(result, 'windows-latest')).toEqual(FULL)
+    for (const shard of result.e2e) {
+      expect(shard).toMatchObject({ projects: 'desktop web', only: '', files: '' })
+    }
   }
 })
 
@@ -182,14 +328,20 @@ test('every system runs for a file that asks which system it’s on, the harness
   ]) {
     const result = pr(changed)
     expect(result.platforms, changed.join(' ')).toBe(true)
-    expect(shards(result, 'windows-latest')).toEqual(FULL)
+    // (The tests' harness runs everything: the next test.)
+    expect(shards(result, 'windows-latest'), changed.join(' ')).toEqual(
+      changed.some(isHarness) ? FULL : ['smoke'],
+    )
   }
-  // A release's pull request, a label's ask, main's merge, nightly and a run by hand: every system.
+  // A release's pull request, the labels' asks, nightly and a run by hand: every system. A merge
+  // to main is as a pull request.
   expect(pr(['src/renderer/x.tsx'], 'release-1.23.0').platforms).toBe(true)
   expect(pr(['src/renderer/x.tsx'], 'lmv-1-x', ['macos-full']).platforms).toBe(true)
-  for (const event of ['push', 'schedule', 'workflow_dispatch']) {
+  expect(pr(['src/renderer/x.tsx'], 'lmv-1-x', [FULL_CI]).platforms).toBe(true)
+  for (const event of ['schedule', 'workflow_dispatch']) {
     expect(plan({ event, changed: ['src/renderer/x.tsx'] }).platforms, event).toBe(true)
   }
+  expect(plan({ event: 'push', changed: ['src/renderer/x.tsx'] }).platforms).toBe(false)
   // What asks which system it is, in the words the app's own files use.
   for (const text of [
     "process.platform === 'darwin'",
@@ -247,102 +399,10 @@ test('every system runs for a file that asks which system it’s on, the harness
   ])
 })
 
-test('the integration tests run for anything they see: a pull request of the other tests alone runs none', () => {
-  const others = pr([
-    'tests/e2e/lists.spec.ts',
-    'tests/web/audit.spec.ts',
-    'tests/mock-cluster/fixtures/demo.ts',
-    'tests/plugins/plugins.spec.ts',
-    'tests/durations.json',
-    'changelog.d/x.fixed.md',
-  ])
-  expect(others.integration).toBe(false)
-  expect(others.said).toContain('No integration tests: nothing it changes is theirs.')
-  // The server, the chart, the image, the app, the pages, CI, their own tests, a path not named.
-  for (const changed of [
-    'src/backend/audit/log.ts',
-    'src/server/index.ts',
-    'charts/lumovi/values.yaml',
-    'Dockerfile',
-    'src/main/kube.ts',
-    'src/renderer/src/features/lists/ResourceList.tsx',
-    'src/shared/metrics-stack.ts',
-    '.github/workflows/ci.yml',
-    'tests/integration/metrics.spec.ts',
-    'something-new/file.ts',
-  ]) {
-    expect(pr(['tests/e2e/lists.spec.ts', changed]).integration, changed).toBe(true)
-  }
-  // Main's merge, nightly, a run by hand and a release's pull request: always.
-  for (const event of ['push', 'schedule', 'workflow_dispatch']) {
-    expect(plan({ event, changed: ['tests/e2e/lists.spec.ts'] }).integration, event).toBe(true)
-  }
-  expect(pr(['tests/e2e/lists.spec.ts'], 'release-1.23.0').integration).toBe(true)
-})
-
-test('main’s merge runs every system’s desktop tests in full, macOS’s too; its tests run even for docs', () => {
-  for (const changed of [['src/main/menu.ts'], ['README.md']]) {
-    const result = plan({ event: 'push', changed })
-    expect(result).toMatchObject({ docs: false, macos: true })
-    expect(macos(result)).toEqual(FULL)
-    // (Linux's shards, and Windows' and macOS's four each.)
-    expect(result.e2e).toHaveLength(LINUX.length + 4 + 4)
-    // Every merge runs Windows and macOS, whatever it changed.
-    expect(result.platforms).toBe(true)
-    expect(shards(result, 'windows-latest')).toEqual(FULL)
-    expect(shards(result, 'ubuntu-latest')).toEqual(LINUX)
-    expect(result.said).toContain('Main’s merge')
-    // The browser's tests on Linux alone, where the server Lumovi ships runs; and Windows and
-    // macOS leave to Linux the desktop tests alike on every system (the nightly run has them).
-    expect(projects(result)).toEqual({
-      'ubuntu-latest': 'desktop web',
-      'macos-latest': 'desktop',
-      'windows-latest': 'desktop',
-    })
-    expect(only(result)).toEqual({
-      'ubuntu-latest': '',
-      'macos-latest': 'system',
-      'windows-latest': 'system',
-    })
-  }
-  // macOS in full, as its label asks, is all of the desktop app's tests there.
-  expect(only(pr(['x.ts'], 'lmv-1-x', ['macos-full']))).toEqual({
-    'ubuntu-latest': '',
-    'macos-latest': '',
-    'windows-latest': 'system',
-  })
-  // And for a pull request, whatever it changes or its label asks.
-  for (const result of [pr(['src/main/menu.ts']), pr(['x.ts'], 'lmv-1-x', ['macos-full'])]) {
-    expect(projects(result)).toEqual({
-      'ubuntu-latest': 'desktop web',
-      'macos-latest': 'desktop',
-      'windows-latest': 'desktop',
-    })
-    expect(result.said).toContain('The browser’s tests run on Linux (on every system nightly).')
-  }
-})
-
-test('main’s nightly run, a run by hand and a release’s pull request run everything, macOS in full', () => {
-  for (const [result, said] of [
-    [plan({ event: 'schedule', changed: [] }), 'Main’s nightly run'],
-    [plan({ event: 'workflow_dispatch', changed: [] }), 'A run by hand'],
-    [pr(['CHANGELOG.md', 'package.json'], 'release-1.16.0'), 'A release’s pull request'],
-    [pr(['README.md'], 'release-1.16.0'), 'A release’s pull request'],
-  ] as const) {
-    expect(result).toMatchObject({ docs: false, macos: true })
-    // (Linux's shards, and Windows' and macOS's four each.)
-    expect(result.e2e).toHaveLength(LINUX.length + 4 + 4)
-    expect(result.said).toContain(said)
-    // Every system runs every test: a break in the browser's on one system shows here.
-    expect(new Set(result.e2e.map((shard) => shard.projects))).toEqual(new Set(['desktop web']))
-    expect(new Set(result.e2e.map((shard) => shard.only))).toEqual(new Set(['']))
-  }
-})
-
 test('a release’s pull request is its version’s branch alone: another whose name starts the same is an ordinary one', () => {
   for (const branch of ['release-1.22.0', 'release-2.0.0-rc.1']) {
     expect(isRelease(branch), branch).toBe(true)
-    expect(pr(['x.ts'], branch)).toMatchObject({ release: true, macos: true })
+    expect(pr(['x.ts'], branch)).toMatchObject({ release: true, full: true })
   }
   for (const branch of [
     'release-guard',
@@ -352,7 +412,7 @@ test('a release’s pull request is its version’s branch alone: another whose 
   ]) {
     expect(isRelease(branch), branch).toBe(false)
     const result = pr(['x.ts'], branch)
-    expect(result).toMatchObject({ release: false, macos: false })
+    expect(result).toMatchObject({ release: false, full: false })
     expect(result.said).not.toContain('A release’s pull request')
   }
   // Nor is a branch of that name pushed to main, or main's own runs.
@@ -360,386 +420,126 @@ test('a release’s pull request is its version’s branch alone: another whose 
   expect(plan({ event: 'schedule', changed: [] }).release).toBe(false)
 })
 
-test('a shard of a system’s tests is of the projects CI names: the browser’s left out where it says', () => {
-  const listed = (env: Record<string, string>) =>
-    execFileSync(process.execPath, ['scripts/e2e-shard.ts', '1/1'], {
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .split('\n')
-      .filter(Boolean)
-  const desktop = listed({ E2E_PROJECTS: 'desktop' })
-  expect(desktop.length).toBeGreaterThan(100)
-  expect(desktop.every((name) => name.startsWith('[desktop] › '))).toBe(true)
-  const both = listed({ E2E_PROJECTS: 'desktop web' })
-  expect(both.some((name) => name.startsWith('[web] › '))).toBe(true)
-  expect(both.length).toBeGreaterThan(desktop.length)
-  // Where CI names none (a plan that says nothing of them), every project's.
-  expect(listed({ E2E_PROJECTS: '' })).toEqual(both)
-  // A system's shard leaves the desktop tests alike on every system to Linux: each named spec is
-  // there, and none of its tests is in the system's shard.
-  const alike = readFileSync('tests/e2e/linux-only.txt', 'utf8')
-    .split('\n')
-    .filter((line) => line && !line.startsWith('#'))
-  expect(alike.length).toBeGreaterThan(5)
-  const system = listed({ E2E_PROJECTS: 'desktop', E2E_ONLY: 'system' })
-  for (const file of alike) {
-    expect(
-      desktop.some((name) => name.startsWith(`[desktop] › ${file} › `)),
+test('the tests a pull request adds are each whole name that’s new: a retitled one is new, a moved one too', () => {
+  const listing = (titles: Record<string, string[]>) => ({
+    suites: Object.entries(titles).map(([file, specs]) => ({
+      title: file,
       file,
-    ).toBe(true)
-    expect(
-      system.some((name) => name.startsWith(`[desktop] › ${file} › `)),
-      file,
-    ).toBe(false)
-  }
-  expect(system.length).toBeLessThan(desktop.length)
-  // The specs that rest on what a system does are never left to Linux.
-  for (const kept of [
-    'plugin-box',
-    'plugin-hand-over',
-    'plugin-page',
-    'secret-by-key',
-    'safety',
-    'details',
-  ]) {
-    expect(alike, kept).not.toContain(`tests/e2e/${kept}.spec.ts`)
-  }
+      specs: specs.map((title) => ({ title, tests: [{ projectName: 'desktop' }] })),
+      suites: [
+        {
+          title: 'a describe',
+          file,
+          specs: [{ title: 'inside', tests: [{ projectName: 'web' }] }],
+        },
+      ],
+    })),
+  })
+  const before = namesOf(listing({ 'tests/e2e/a.spec.ts': ['one', 'two'] }))
+  expect(before).toEqual([
+    '[desktop] › tests/e2e/a.spec.ts › one',
+    '[desktop] › tests/e2e/a.spec.ts › two',
+    '[web] › tests/e2e/a.spec.ts › a describe › inside',
+  ])
+  const now = namesOf(
+    listing({
+      'tests/e2e/a.spec.ts': ['one', 'two, retitled', 'three'],
+      'tests\\e2e\\b.spec.ts': ['one'],
+    }),
+  )
+  expect(added(now, before)).toEqual([
+    '[desktop] › tests/e2e/a.spec.ts › two, retitled',
+    '[desktop] › tests/e2e/a.spec.ts › three',
+    '[desktop] › tests/e2e/b.spec.ts › one',
+    '[web] › tests/e2e/b.spec.ts › a describe › inside',
+  ])
+  expect(added(before, before)).toEqual([])
+  // Shared over the job's parts, each its every third; more than its time holds, said by the
+  // first part and run by none.
+  const seven = Array.from({ length: 7 }, (_, i) => `t${i}`)
+  expect([1, 2, 3].map((part) => share(seven, part, 3).names)).toEqual([
+    ['t0', 't3', 't6'],
+    ['t1', 't4'],
+    ['t2', 't5'],
+  ])
+  const many = Array.from({ length: MOST_NEW + 1 }, (_, i) => `t${i}`)
+  expect(share(many, 1, 3)).toEqual({
+    names: [],
+    said: `${MOST_NEW + 1} tests are new or retitled: more than this job repeats in its time (${MOST_NEW}). Run them 25 times with Actions, Repeat a test, a few files at a time, and say so on the pull request.`,
+  })
+  expect(share(many, 2, 3)).toEqual({ names: [] })
+  expect(share(many.slice(1), 3, 3).names).toHaveLength(MOST_NEW / 3)
 })
 
-test('the full macOS run borrowed from is one that kept every shard’s coverage, not the smoke set’s', () => {
-  const full = [
-    'coverage-Linux-1',
-    'coverage-macOS-1',
-    'coverage-macOS-2',
-    'coverage-macOS-3',
-    'coverage-macOS-4',
-  ]
-  expect(ranMacosInFull(full)).toBe(true)
-  expect(ranMacosInFull(['coverage-Linux-1', 'coverage-macOS-smoke'])).toBe(false)
-  expect(ranMacosInFull(full.filter((name) => name !== 'coverage-macOS-3'))).toBe(false)
-  expect(ranMacosInFull([])).toBe(false)
-  // And what it keeps leaves out the files a change touched: this run's own speak for them.
-  const path = 'src/renderer/src/features/overview/OverviewPage.tsx'
-  const main = { [path]: { s: { 0: 9 } }, 'src/main/menu.ts': { s: { 0: 2 } } }
-  expect(Object.keys(withoutChanged(main, [path]))).toEqual(['src/main/menu.ts'])
-})
-
-test('where macOS ran the smoke set, main’s macOS coverage is borrowed: not of files that changed', () => {
-  const main = {
-    'src/main/terminal-keys.ts': { s: { 0: 3 } },
-    'src/renderer/src/features/lists/ResourceList.tsx': { s: { 0: 1 } },
-    // (As Windows writes a path, should a run there ever be borrowed.)
-    'src\\main\\menu.ts': { s: { 0: 2 } },
-  }
-  // What only macOS reaches is what main reached; a file that isn't main's any more has other
-  // lines than its coverage counts, and this run's Linux and Windows speak for it.
-  expect(
-    Object.keys(
-      withoutChanged(main, [
-        'src/renderer/src/features/lists/ResourceList.tsx',
-        'src/main/menu.ts',
-      ]),
-    ),
-  ).toEqual(['src/main/terminal-keys.ts'])
-  expect(withoutChanged(main, [])).toEqual(main)
-})
-
-test('what’s borrowed is what main’s macOS reached and its Linux and Windows didn’t: nothing else', () => {
-  const file = (s: number[], f: number[], b: number[][]) => ({
-    path: 'kept as it is',
-    s: Object.fromEntries(s.map((n, i) => [i, n])),
-    f: Object.fromEntries(f.map((n, i) => [i, n])),
-    b: Object.fromEntries(b.map((arms, i) => [i, arms])),
+test('a commit is released only after a run of CI of it ran everything and passed', () => {
+  const run = (id: number) => ({
+    id,
+    conclusion: 'success',
+    html_url: `https://github.com/Lumovi/Lumovi/actions/runs/${id}`,
   })
-  // macOS's two shards together reach statements 0, 1 and 2; the others reach 0 and 3.
-  const mac: Record<string, ReturnType<typeof file>>[] = [
-    { 'src/main/menu.ts': file([1, 0, 0, 0], [1], [[2, 0]]) },
-    {
-      'src/main/menu.ts': file([0, 4, 1, 0], [0], [[0, 3]]),
-      'src/main/dock.ts': file([5], [5], []),
-    },
-  ]
-  const others: Record<string, ReturnType<typeof file>>[] = [
-    // (As Windows writes a path.)
-    { 'src\\main\\menu.ts': file([7, 0, 0, 1], [0], [[1, 0]]) },
-    { 'src/main/menu.ts': file([0, 0, 0, 0], [0], [[0, 0]]) },
-  ]
-  expect(onlyIn(mac, others)).toEqual({
-    // Statement 0 and the branch's first arm are the others' too: not borrowed. What they never
-    // reached is, with macOS's own counts; and a file they never loaded, whole.
-    'src/main/menu.ts': file([0, 4, 1, 0], [1], [[0, 3]]),
-    'src/main/dock.ts': file([5], [5], []),
-  })
-  // So a test taken away in a pull request loses what it reached, unless only macOS reached it.
-  expect(onlyIn(mac, mac)['src/main/menu.ts']).toEqual(file([0, 0, 0, 0], [0], [[0, 0]]))
-})
-
-test('what’s borrowed is every shard’s or nothing, and never a file that isn’t coverage', () => {
-  const shard = JSON.stringify({
-    'src/main/menu.ts': { s: { 0: 2 }, f: {}, b: {} },
-    'src/a.ts': { s: { 0: 1 }, f: {}, b: {} },
-  })
-  const none = JSON.stringify({ 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } })
-  const mac = [shard, shard, shard, shard]
-  const of = (count: number, text = none) => Array.from({ length: count }, () => text)
-  // (A run of main from before Linux's fourteen shards keeps six of Linux's; after, fourteen.)
-  for (const linux of [6, 14]) {
-    const texts = { mac, linux: of(linux), windows: of(4) }
-    expect(borrowedOf(texts, ['src/a.ts'], { linux, windows: 4 })).toEqual({
-      kept: { 'src/main/menu.ts': { s: { 0: 8 }, f: {}, b: {} } },
-    })
-  }
-  const texts = { mac, linux: of(14), windows: of(4) }
-  const shards = { linux: 14, windows: 4 }
-  // Three of four would be most of what macOS reaches, and read as all of it; and with one of
-  // the others' missing, what it reached would be taken for macOS's alone.
-  expect(borrowedOf({ ...texts, mac: mac.slice(1) }, [], shards)).toEqual({
-    nothing: '3 of macOS’s 4 coverage files are there, not all of them',
-  })
-  expect(borrowedOf({ ...texts, mac: [] }, [], shards)).toEqual({
-    nothing: '0 of macOS’s 4 coverage files are there, not all of them',
-  })
-  expect(borrowedOf({ ...texts, linux: of(13) }, [], shards)).toEqual({
-    nothing: '13 of Linux’s 14 coverage files are there, not all of them',
-  })
-  expect(borrowedOf({ ...texts, windows: of(3) }, [], shards)).toEqual({
-    nothing: '3 of Windows’ 4 coverage files are there, not all of them',
-  })
-  expect(borrowedOf({ ...texts, mac: [shard, shard, shard, 'cut sh'] }, [], shards)).toEqual({
-    nothing: 'one of its files isn’t JSON',
-  })
-  expect(borrowedOf({ ...texts, windows: [...of(3), '[]'] }, [], shards)).toEqual({
-    nothing: 'one of its files isn’t coverage',
-  })
-})
-
-test('where Linux alone ran, what main’s macOS and Windows reached and its Linux didn’t is borrowed alike', () => {
-  const coverage = (s: number) =>
-    JSON.stringify({ 'src/main/menu.ts': { s: { 0: s }, f: {}, b: {} } })
-  const texts = {
-    mac: Array.from({ length: 4 }, () => coverage(0)),
-    linux: [coverage(0)],
-    windows: [coverage(3)],
-  }
-  const shards = { linux: 1, windows: 1 }
-  // Windows ran here: what only its shards reached there is this run's own to reach again.
-  expect(borrowedOf(texts, [], shards)).toEqual({
-    kept: { 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } },
-  })
-  // It didn't: what main's Windows reached, and its Linux didn't, is borrowed with macOS's.
-  expect(borrowedOf(texts, [], shards, false)).toEqual({
-    kept: { 'src/main/menu.ts': { s: { 0: 3 }, f: {}, b: {} } },
-  })
-  // And never of what main's Linux reached too, nor of a file that changed.
-  expect(borrowedOf({ ...texts, linux: [coverage(1)] }, [], shards, false)).toEqual({
-    kept: { 'src/main/menu.ts': { s: { 0: 0 }, f: {}, b: {} } },
-  })
-  expect(borrowedOf(texts, ['src/main/menu.ts'], shards, false)).toEqual({ kept: {} })
-})
-
-test('a run of main is borrowed from only whole: every Linux and Windows shard, and macOS in full or its smoke set', () => {
-  const jobs = [
-    ...Array.from({ length: 14 }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/14)`),
-    ...Array.from({ length: 4 }, (_, i) => `E2E (windows-latest, ${i + 1}/4)`),
-  ]
-  const files = (system: string, count: number) =>
-    Array.from({ length: count }, (_, i) => `coverage-${system}-${i + 1}`)
-  const merge = [...files('Linux', 14), ...files('Windows', 4), 'coverage-macOS-smoke']
-  const nightly = [...files('Linux', 14), ...files('Windows', 4), ...files('macOS', 4)]
-  expect(fitOf(merge, jobs)).toEqual({ linux: 14, windows: 4, mac: 1, full: false })
-  expect(fitOf(nightly, jobs)).toEqual({ linux: 14, windows: 4, mac: 4, full: true })
-  // A shard's file missing, or macOS's: not whole, so not borrowed from.
-  expect(
-    fitOf(
-      merge.filter((name) => name !== 'coverage-Windows-3'),
-      jobs,
-    ),
-  ).toBeUndefined()
-  expect(
-    fitOf(
-      merge.filter((name) => name !== 'coverage-Linux-14'),
-      jobs,
-    ),
-  ).toBeUndefined()
-  expect(
-    fitOf(
-      merge.filter((name) => name !== 'coverage-macOS-smoke'),
-      jobs,
-    ),
-  ).toBeUndefined()
-  expect(fitOf(merge, jobs.slice(0, 14))).toBeUndefined()
-
-  const runs = [
-    { run: 'newest merge', fit: fitOf(merge, jobs) },
-    { run: 'a merge with a file gone', fit: undefined },
-    { run: 'nightly', fit: fitOf(nightly, jobs) },
-    { run: 'older merge', fit: fitOf(merge, jobs) },
-  ]
-  // macOS ran its smoke set here: only a full macOS run says what only macOS reaches.
-  expect(pick(runs, true)?.run).toBe('nightly')
-  expect(pick([runs[0]!, runs[3]!], true)).toBeUndefined()
-  // Linux alone: a full run where one is kept; else the newest merge's, which every day has.
-  expect(pick(runs, false)?.run).toBe('nightly')
-  expect(pick([runs[0]!, runs[1]!, runs[3]!], false)?.run).toBe('newest merge')
-  expect(pick([runs[1]!], false)).toBeUndefined()
-  // Only main's own runs: a pull request from a fork's own `main` branch is listed as main's too,
-  // and its coverage files are its own code's to write. Newer and whole, it's still skipped.
-  const listed = [
-    { databaseId: 9, event: 'pull_request' },
-    { databaseId: 8, event: 'push' },
-    { databaseId: 7, event: 'schedule' },
-    { databaseId: 6, event: 'workflow_dispatch' },
-    { databaseId: 5, event: 'pull_request_target' },
-  ]
-  expect(mainsOwn(listed).map(({ databaseId }) => databaseId)).toEqual([8, 7, 6])
-  const fork = { run: 'a fork’s main, newest', fit: fitOf(nightly, jobs), event: 'pull_request' }
-  const own = mainsOwn([fork, ...runs.map((each) => ({ ...each, event: 'push' }))])
-  expect(pick(own, false)?.run).toBe('nightly')
-  expect(pick(own, true)?.run).toBe('nightly')
-  // And from a merge's run, macOS's one smoke file is all of macOS's there is to borrow.
-  const coverage = (s: number) =>
-    JSON.stringify({ 'src/main/mcp-node.ts': { s: { 0: s }, f: {}, b: {} } })
-  expect(
-    borrowedOf(
-      { mac: [coverage(2)], linux: [coverage(0)], windows: [coverage(1)] },
-      [],
-      { linux: 1, windows: 1, mac: 1 },
-      false,
-    ),
-  ).toEqual({ kept: { 'src/main/mcp-node.ts': { s: { 0: 3 }, f: {}, b: {} } } })
-  expect(
-    borrowedOf(
-      { mac: [], linux: [coverage(0)], windows: [coverage(1)] },
-      [],
-      { linux: 1, windows: 1, mac: 1 },
-      false,
-    ),
-  ).toEqual({ nothing: '0 of macOS’s 1 coverage files are there, not all of them' })
-})
-
-test('how many of Linux’s and Windows’ coverage files a run of main has: as its E2E jobs say each was split', () => {
-  const jobs = (linux: number, windows: number) => [
+  const passed = (names: string[]) => names.map((name) => ({ name, conclusion: 'success' }))
+  const smoke = passed([
     'What changed',
-    'E2E (macos-latest, smoke)',
-    ...Array.from({ length: linux }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/${linux})`),
-    ...Array.from({ length: windows }, (_, i) => `E2E (windows-latest, ${i + 1}/${windows})`),
-    'Coverage (all platforms)',
-  ]
-  // (A run from before Linux's fourteen shards, and one after.)
-  expect(shardsIn(jobs(6, 4))).toEqual({ linux: 6, windows: 4 })
-  expect(shardsIn(jobs(14, 4))).toEqual({ linux: 14, windows: 4 })
-  // However many of a platform's jobs are listed, its count is what their names say it was split into.
-  expect(shardsIn(jobs(14, 4).filter((name) => name !== 'E2E (ubuntu-latest, 14/14)'))).toEqual({
-    linux: 14,
-    windows: 4,
-  })
-  // A platform with no such job: nothing to count.
-  expect(shardsIn(jobs(0, 4))).toBeUndefined()
-  expect(shardsIn(jobs(14, 0))).toBeUndefined()
-})
-
-test('main’s commit is fetched to compare with, and a full clone stays full: only a shallow one fetches it alone', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'lumovi-fetch-'))
-  try {
-    const git = (cwd: string, ...args: string[]) =>
-      execFileSync('git', ['-c', 'protocol.file.allow=always', ...args], {
-        cwd,
-        encoding: 'utf8',
-        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
-      }).trim()
-    const origin = join(dir, 'origin')
-    git(dir, 'init', '--quiet', '-b', 'main', origin)
-    for (const n of [1, 2, 3]) {
-      git(
-        origin,
-        '-c',
-        'user.name=t',
-        '-c',
-        'user.email=t@t',
-        'commit',
-        '--quiet',
-        '--allow-empty',
-        '-m',
-        `${n}`,
-      )
+    'E2E (ubuntu-latest, 1/2)',
+    'E2E (ubuntu-latest, 2/2)',
+    'CI passed',
+  ])
+  const everything = passed(['What changed', ...EVERYTHING])
+  const github = (
+    runs: number[],
+    jobs: Record<number, { name: string; conclusion: string }[]>,
+    red = false,
+  ) => {
+    const asked: string[] = []
+    const gh = (path: string) => {
+      asked.push(path)
+      if (path.includes('/issues?labels=main-red')) return red ? [{ number: 41 }] : []
+      if (path.includes('/workflows/ci.yml/runs?')) return { workflow_runs: runs.map(run) }
+      const id = Number(/runs\/(\d+)\/jobs/.exec(path)![1])
+      return { jobs: jobs[id] }
     }
-    const sha = git(origin, 'rev-parse', 'HEAD~1')
-    const shallowOf = (cwd: string) => git(cwd, 'rev-parse', '--is-shallow-repository') === 'true'
-    // A person's clone, whole: the commit's fetched and the clone keeps every commit.
-    const full = join(dir, 'full')
-    git(dir, 'clone', '--quiet', `file://${origin}`, full)
-    git(full, ...fetchOf(sha, shallowOf(full)))
-    expect(shallowOf(full)).toBe(false)
-    expect(git(full, 'rev-list', '--count', 'HEAD')).toBe('3')
-    // CI's checkout, shallow: the commit alone is fetched, and it's there to compare with.
-    const ci = join(dir, 'ci')
-    git(dir, 'clone', '--quiet', '--depth=1', `file://${origin}`, ci)
-    expect(fetchOf(sha, shallowOf(ci))).toContain('--depth=1')
-    git(ci, ...fetchOf(sha, shallowOf(ci)))
-    expect(git(ci, 'cat-file', '-t', sha)).toBe('commit')
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
+    return { gh, asked }
   }
-})
-
-test('main’s runs are asked about a few at a time, and judged in their own order', async () => {
-  let asking = 0
-  let most = 0
-  const asked: number[] = []
-  // Each takes as long as its number says: later ones come back first.
-  const made = await inTurns([50, 10, 40, 0, 30, 20, 5], 3, async (ms) => {
-    asking++
-    most = Math.max(most, asking)
-    asked.push(ms)
-    await new Promise((resolve) => setTimeout(resolve, ms))
-    asking--
-    return `run ${ms}`
+  const sha = 'a'.repeat(40)
+  // The merge's run (the smoke set) and the release's pull request's (everything): the latter.
+  const both = github([2, 1], { 2: smoke, 1: everything })
+  expect(gate(both.gh, 'Lumovi/Lumovi', sha)).toEqual({
+    run: run(1),
+    why: 'aaaaaaa ran everything, and passed: https://github.com/Lumovi/Lumovi/actions/runs/1',
   })
-  expect(made).toEqual(['run 50', 'run 10', 'run 40', 'run 0', 'run 30', 'run 20', 'run 5'])
-  expect(most).toBe(3)
-  expect(asked).toHaveLength(7)
-  expect(await inTurns([], 3, async () => 'none')).toEqual([])
-})
-
-test('a run of main that doesn’t answer is skipped and said; the others are still borrowed from', async () => {
-  const jobs = [
-    ...Array.from({ length: 16 }, (_, i) => `E2E (ubuntu-latest, ${i + 1}/16)`),
-    ...Array.from({ length: 4 }, (_, i) => `E2E (windows-latest, ${i + 1}/4)`),
-  ]
-  const files = (system: string, count: number) =>
-    Array.from({ length: count }, (_, i) => `coverage-${system}-${i + 1}`)
-  const full = [...files('Linux', 16), ...files('Windows', 4), ...files('macOS', 4)]
-  const merge = [...files('Linux', 16), ...files('Windows', 4), 'coverage-macOS-smoke']
-  // The newest, a nightly, doesn't answer; a merge, and an older nightly, do.
-  const runs = ['newest nightly', 'merge', 'older nightly']
-  const { judged, skipped } = await judgeRuns(runs, async (run) => {
-    // (As gh fails: the command in the message, the API's own words on stderr.)
-    if (run === 'newest nightly') {
-      throw Object.assign(new Error('Command failed: gh api repos/x/actions/runs/1/jobs'), {
-        stderr: 'gh: Resource not accessible by integration\n(HTTP 403)\n',
-      })
-    }
-    return { names: run === 'merge' ? merge : full, jobs }
+  expect(both.asked[1]).toBe(
+    `repos/Lumovi/Lumovi/actions/workflows/ci.yml/runs?head_sha=${sha}&status=success&per_page=20`,
+  )
+  // While main is red, nothing is released, whatever this commit's own run said.
+  expect(gate(github([1], { 1: everything }, true).gh, 'Lumovi/Lumovi', sha)).toEqual({
+    why: 'Main is red (#41): a release waits until a run of everything of main is green, and closes it.',
   })
-  // All of what it said, on one line.
-  expect(skipped).toEqual([
-    { run: 'newest nightly', why: 'gh: Resource not accessible by integration (HTTP 403)' },
+  // Only the smoke set passed, or nothing: refused, saying which.
+  expect(gate(github([2], { 2: smoke }).gh, 'Lumovi/Lumovi', sha)).toEqual({
+    why: 'No run of CI of aaaaaaa that passed ran everything (1 passed with less): a release’s pull request’s must.',
+  })
+  expect(gate(github([], {}).gh, 'Lumovi/Lumovi', sha).why).toBe(
+    'No run of CI of aaaaaaa passed: a release’s pull request runs everything of its commit, and that run must pass.',
+  )
+  // Everything but one shard, or one that didn't pass, is less than everything.
+  expect(missing(everything.filter(({ name }) => name !== 'E2E (macos-latest, 3/4)'))).toEqual([
+    'E2E (macos-latest, 3/4)',
   ])
-  expect(judged.map(({ run, fit }) => [run, fit?.full])).toEqual([
-    ['newest nightly', undefined],
-    ['merge', false],
-    ['older nightly', true],
-  ])
-  // Borrowed from the newest that fits in full, as ever; where Linux alone ran too.
-  expect(pick(judged, true)?.run).toBe('older nightly')
-  expect(pick(judged, false)?.run).toBe('older nightly')
-  // None answering: nothing to borrow from, said by the choice, never thrown.
-  const none = await judgeRuns(runs, () => Promise.reject(new Error('down\nand out')))
-  expect(none.skipped).toHaveLength(3)
-  expect(none.skipped[0]!.why).toBe('down and out')
-  expect(pick(none.judged, false)).toBeUndefined()
+  expect(
+    missing(
+      everything.map((job) =>
+        job.name === 'Coverage (all platforms)' ? { ...job, conclusion: 'skipped' } : job,
+      ),
+    ),
+  ).toEqual(['Coverage (all platforms)'])
+  expect(EVERYTHING).toContain('E2E (ubuntu-latest, 16/16)')
+  expect(EVERYTHING).toContain('Integration (kind, 6/6)')
+  // And release.yml asks, before anything is made, whatever started it.
+  const release = readFileSync('.github/workflows/release.yml', 'utf8')
+  expect(release).toContain(
+    '      - name: A run of everything of this commit passed\n        if: steps.version.outputs.version',
+  )
+  expect(release).toContain('run: node scripts/release-gate.ts "$SHA"')
 })
 
 test('main is red unless its newest finished run passed: only a run somebody cancelled says nothing', () => {
@@ -988,6 +788,76 @@ test('a job’s log says which tests failed on every try and which passed only w
   })
 })
 
+test('a job that failed with no test failed says what did: its errors, not its exit code nor a test’s', () => {
+  const at = (line: string) => `2026-11-28T20:51:00.0000000Z ${line}`
+  const log = [
+    '  ok 103 [desktop] › tests\\e2e\\lists.spec.ts:410:3 › a list’s bar keeps to one row',
+    '##[error]Worker teardown timeout of 60000ms exceeded.',
+    '##[error]  1) [desktop] › tests\\e2e\\helm.spec.ts:284:1 › install and upgrade options ',
+    '  1 flaky',
+    '    [desktop] › tests\\e2e\\helm.spec.ts:284:1 › install and upgrade options',
+    '  254 passed (16.4m)',
+    '##[error]Worker teardown timeout of 60000ms exceeded.',
+    '##[error]Process completed with exit code 1.',
+  ]
+    .map(at)
+    .join('\n')
+  expect(errorsOf(log)).toEqual(['Worker teardown timeout of 60000ms exceeded.'])
+  expect(errorsOf(at('##[error]Process completed with exit code 1.'))).toEqual([])
+})
+
+test('a coverage gate that failed says where it fell: unloaded files, low measures, and the files with the most not run', () => {
+  const at = (line: string) => `2026-11-29T03:10:00.0000000Z ${line}`
+  const log = [
+    'Coverage from 36 files: statements 91.2%, branches 89.97%, functions 92%, lines 91.5%',
+    '',
+    '5 not run:',
+    '  statement  src/main/a.ts:10  if (x) {',
+    '  branch     src/main/a.ts:12  ? y : z',
+    '  branch     src/renderer/src/b.tsx:3  a ?? b',
+    '  function   src/main/a.ts:20  function f() {',
+    '  statement  src/shared/c.ts:1  export const c = 1',
+    '  src/renderer/src/new.ts: never loaded by any test',
+    '  branches: 89.97%, not more than 90%',
+    '##[error]Process completed with exit code 1.',
+  ]
+    .map(at)
+    .join('\n')
+  expect(coverageOf(log)).toEqual([
+    'src/renderer/src/new.ts: never loaded by any test',
+    'branches: 89.97%, not more than 90%',
+    'src/main/a.ts: 3 not run',
+    'src/renderer/src/b.tsx: 1 not run',
+    'src/shared/c.ts: 1 not run',
+  ])
+  // A gate that passed says nothing.
+  expect(
+    coverageOf(at('All 573 source files are loaded, and more than 90% of each measure runs.')),
+  ).toEqual([])
+  expect(
+    redComment({
+      what: 'Main’s nightly run',
+      sha: 'abcdef0123456789',
+      url: 'u',
+      failedJobs: ['Coverage (all platforms)'],
+      failed: [],
+      flaky: [],
+      coverage: coverageOf(log).slice(1, 3),
+    }),
+  ).toBe(
+    [
+      '**Main’s nightly run is red at abcdef0:** u',
+      '',
+      '- Coverage (all platforms)',
+      '',
+      'Coverage, where it fell:',
+      '',
+      '- `branches: 89.97%, not more than 90%`',
+      '- `src/main/a.ts: 3 not run`',
+    ].join('\n'),
+  )
+})
+
 test('a run of main is red where a job failed or ran out of its time, green where all passed, and says nothing where somebody cancelled it', () => {
   expect(verdictOf(['success', 'failure', 'skipped'], false)).toBe('red')
   expect(verdictOf(['success', 'cancelled'], true)).toBe('red')
@@ -1012,15 +882,26 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
       '',
       'Failed on every try:',
       '',
-      '- [desktop] › tests/e2e/settings.spec.ts:107 › the time zone',
+      '- `[desktop] › tests/e2e/settings.spec.ts:107 › the time zone`',
     ].join('\n'),
   )
   expect(flakyComment(said)).toBe(
     [
       '**Main’s nightly run at abcdef0**, passed only when tried again: https://github.com/Lumovi/Lumovi/actions/runs/9',
       '',
-      '- [desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options',
+      '- `[desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options`',
     ].join('\n'),
+  )
+  // What a log says is shown as it is, never as markdown: no one mentioned, no issue linked, nothing
+  // after it hidden.
+  expect(
+    redComment({
+      ...said,
+      failed: ['[desktop] › tests/e2e/a.spec.ts:1 › @electron/get and #12, `<!-- hid'],
+    }),
+  ).toContain("- `[desktop] › tests/e2e/a.spec.ts:1 › @electron/get and #12, '<!-- hid`")
+  expect(asCode('npm error 404 @scope%2fpkg · see #3 ``')).toBe(
+    "`npm error 404 @scope%2fpkg · see #3 ''`",
   )
   // GitHub as asked here: this run's jobs, the issues open by label and their text, a job's
   // annotations, how two commits compare; and an issue made with the labels asked for, unless it
@@ -1067,6 +948,7 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
   const logs: Record<number, string> = {
     1: '  1 failed\n    [desktop] › tests/e2e/settings.spec.ts:107:1 › the time zone ──',
     2: '  1 flaky\n    [desktop] › tests/e2e/helm.spec.ts:284:1 › install and upgrade options',
+    7: '  12 passed (1.0m)\n##[error]Worker teardown timeout of 60000ms exceeded.\n##[error]Process completed with exit code 1.',
   }
   const run = {
     repository: 'Lumovi/Lumovi',
@@ -1212,6 +1094,14 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
     annotations: { 6: 'The job has exceeded the maximum execution time of 1h0m0s' },
   })
   expect(tell(late.api, run, logOf, true)[0]).toBe('Red: opened #40')
+  // A job that failed with no test failed in it says what did, beside its name.
+  const torn = github([job(7, 'E2E (windows-latest, 3/4)', 'failure')])
+  tell(torn.api, run, logOf, true)
+  expect(torn.made()[0]![2]).toMatchObject({
+    body: expect.stringContaining(
+      '- E2E (windows-latest, 3/4): `Worker teardown timeout of 60000ms exceeded.`',
+    ),
+  })
   // An issue GitHub made without its label: said, as later runs wouldn't find it.
   const dropped = github(red, { drops: true })
   expect(tell(dropped.api, run, logOf, true)[0]).toBe(
@@ -1220,10 +1110,10 @@ test('main red opens an issue, or says so on the open one; green closes it; flak
   // And a pull request's run never asks: the workflow's job is main's alone.
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8')
   expect(workflow).toContain(
-    "if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]\n    continue-on-error: true",
+    "if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n    needs: [changes, checks, e2e, new-tests, coverage, package, integration, browsers]\n    continue-on-error: true",
   )
   // And it's told whether this run ran everything.
   expect(workflow).toContain(
-    "FULL: ${{ needs.changes.outputs.macos == 'full' }}\n        run: node scripts/main-red.ts",
+    'FULL: ${{ needs.changes.outputs.full }}\n        run: node scripts/main-red.ts',
   )
 })

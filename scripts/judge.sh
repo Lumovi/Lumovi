@@ -2,7 +2,6 @@
 # Runs one of the scripts that judge a pull request, as main has it, not as the pull request does:
 #
 #   scripts/judge.sh ci-changes.ts            what the run needs
-#   scripts/judge.sh borrow-coverage.ts       what's borrowed for the coverage gate
 #   scripts/judge.sh check-coverage.ts <file> the gate
 #   scripts/judge.sh main-is-green.ts         whether main is red
 #   scripts/judge.sh changelog.ts check       its changelog entry
@@ -21,7 +20,7 @@ shift
 if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && git cat-file -e "HEAD^1:scripts/$name" 2> /dev/null; then
   # Beside each other, and inside the checkout: they find each other and the packages they use.
   mkdir -p .from-main
-  for judge in ci-changes.ts borrow-coverage.ts check-coverage.ts main-is-green.ts changelog.ts; do
+  for judge in ci-changes.ts check-coverage.ts main-is-green.ts changelog.ts; do
     git show "HEAD^1:scripts/$judge" > ".from-main/$judge" 2> /dev/null || rm -f ".from-main/$judge"
   done
   echo "(scripts/$name as main has it)"
