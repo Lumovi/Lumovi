@@ -201,7 +201,7 @@ data:
   expect(maskedManifest(plain)).toBe(plain)
 })
 
-test('a document that can’t be read is masked whole, but for what names it', () => {
+test('a document that can’t be read is masked whole: nothing of it is shown but its marker', () => {
   const masked = hidden(
     `---
 apiVersion: v1
@@ -214,8 +214,54 @@ data:
 `,
     ['c2VjcmV0', 'unclosed'],
   )
-  expect(masked).toContain('kind: Secret')
-  expect(masked).toContain('  name: api-db')
+  // (What would name it can't be told from a value where it can't be read.)
+  expect(masked.split('\n')[0]).toBe('---')
+  expect(masked.includes('api-db')).toBe(false)
+})
+
+test('a Secret’s values are masked however its manifest is written', () => {
+  // (Made-up values, each said yes or no: a failure prints none.)
+  const value = 'made-up'
+  const flow = `{apiVersion: v1, kind: Secret, metadata: {name: x}, stringData: {password: ${value}}}`
+  const json = `{"apiVersion":"v1","kind":"Secret","metadata":{"name":"x"},"stringData":{"password":"${value}"}}`
+  const quoted = (lines: string) =>
+    `{apiVersion: v1, kind: Secret, metadata: {name: x}, stringData: {password: "abc\n${lines}\n"}}\n`
+  const spaces = ['\u00a0', '\f', '\v', '\ufeff', '\u2028', '\u202f', '\u200a', '\u3000']
+  const manifests = [
+    `--- ${flow}\n`,
+    `--- ${json}\n`,
+    `---\t${flow}\n`,
+    `---\r${flow}\n`,
+    `---\f${flow}\n`,
+    `---\u00a0${flow}\n`,
+    `apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: c\n--- ${flow}\n---\nkind: Namespace\n`,
+    quoted(`kind: ${value}`),
+    quoted(`apiVersion: ${value}`),
+    quoted(`metadata:\n  name: ${value}`),
+    `apiVersion: v1\nkind: Secret\nmetadata:\n  name: x\nstringData:\n  password: "m\\x61de-up"\n`,
+    `apiVersion: v1\nkind: Secret\nmetadata:\n  name: &n ${value}\nstringData:\n  password: *n\n`,
+    ...spaces.flatMap((space) => [
+      `{kind: Secret, stringData: {password:\n---${space}${value}}}\n`,
+      `{apiVersion: v1, kind: Secret, metadata: {name: x}, stringData: {password: "abc\n---${space}${value}"}}\n`,
+      `{apiVersion: v1, kind: Secret, metadata: {name: x}, stringData: {password: abc\n---${space}${value}}}\n`,
+      `{apiVersion: v1, kind: Secret, stringData: {password: "abc\n---${space}# ${value}\n`,
+    ]),
+  ]
+  for (const manifest of manifests) {
+    const masked = maskedManifest(manifest)
+    expect(masked.includes(value)).toBe(false)
+    expect(masked.includes('m\\x61de-up')).toBe(false)
+    expect(masked.split('\n')).toHaveLength(manifest.split('\n').length)
+  }
+  // What names a Secret is kept as it was: from what it reads as, its marker and comment too.
+  const commented = `--- # the database\napiVersion: v1\nkind: Secret\nmetadata:\n  name: x\nstringData:\n  password: ${value}\n`
+  const masked = maskedManifest(commented)
+  expect(masked.includes(value)).toBe(false)
+  expect(masked).toContain('--- # the database')
+  expect(masked).toContain(`  password: ${MASK}`)
+  // And what isn't a Secret is as it was.
+  const map = `--- {apiVersion: v1, kind: ConfigMap, metadata: {name: c}, data: {a: b}}\n`
+  expect(maskedManifest(map)).toBe(map)
 })
 
 test('a manifest without a Secret is as it was', () => {

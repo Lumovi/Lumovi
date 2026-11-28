@@ -17,6 +17,7 @@ import {
   Fragment,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -51,6 +52,8 @@ import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 import { keepMovedFocus } from '@renderer/lib/focus-back'
 import { escapeIsSearchs } from '@renderer/lib/find'
+import { maskedManifest } from '@renderer/lib/helm-diff'
+import { SecretsHidden } from '../helm/SecretsHidden'
 
 type ApprovalsApi = NonNullable<LumoviApi['approvals']>
 
@@ -262,6 +265,15 @@ function ApprovalDialog({
     danger && (TYPE_TO_DELETE.includes(target.kind) || production) ? target.name : undefined
   const confirmed = typeToConfirm === undefined || typed === typeToConfirm
   const diff = unifiedDiff(forDiff(proposal.before), forDiff(proposal.after))
+  // A Secret's values in the manifest the assistant gave, masked until asked (as Lumovi's own YAML
+  // and manifests have them). (The change itself has none: Lumovi hides them as it reads it.)
+  const [revealed, setRevealed] = useState(false)
+  const masked = useMemo(
+    () => proposal.manifest && maskedManifest(proposal.manifest),
+    [proposal.manifest],
+  )
+  const hidesSome = masked !== proposal.manifest
+  const manifest = revealed ? proposal.manifest : masked
   const at = queue.indexOf(proposal)
   const layout = useLayout()
   const touch = useTouch()
@@ -425,13 +437,18 @@ function ApprovalDialog({
               </div>
             )}
 
-            {proposal.manifest && (
+            {manifest && (
               <details className="group rounded-lg border border-line">
                 <summary className="cursor-default px-3 py-2 text-xs font-medium text-ink-2 select-none hover:text-ink-1">
                   The manifest {client} gave
                 </summary>
+                {hidesSome && (
+                  <div className="flex items-center justify-end gap-2 border-t border-line px-3 py-1.5 text-xs">
+                    <SecretsHidden revealed={revealed} onReveal={setRevealed} />
+                  </div>
+                )}
                 <pre className="max-h-60 overflow-auto border-t border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink-2 selectable">
-                  {proposal.manifest.trim()}
+                  {manifest.trim()}
                 </pre>
               </details>
             )}

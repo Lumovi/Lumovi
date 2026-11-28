@@ -12,6 +12,8 @@ import { manifestObjects } from '@renderer/lib/helm'
 import { helm, kubectl } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
+import { maskedManifest } from '@renderer/lib/helm-diff'
+import { SecretsHidden } from '../helm/SecretsHidden'
 
 /** "namespaces, cluster roles and secrets". */
 const listed = (items: string[]) =>
@@ -95,7 +97,13 @@ export function InstallStackDialog({
       return result
     })
 
-  const diff = reviewed && unifiedDiff('', reviewed.manifest)
+  // What it makes, each Secret's values masked until asked (as a release's Manifest tab has them).
+  const [revealed, setRevealed] = useState(false)
+  const masked = reviewed ? maskedManifest(reviewed.manifest) : undefined
+  const hidesSome = reviewed !== undefined && masked !== reviewed.manifest
+  const diff =
+    reviewed &&
+    unifiedDiff('', reviewed.manifest, revealed ? undefined : { before: '', after: masked! })
   const objects = reviewed ? manifestObjects(reviewed.manifest) : []
   return (
     <ActionDialog
@@ -117,15 +125,19 @@ export function InstallStackDialog({
             <Button
               variant="ghost"
               className="h-7 px-2 text-xs"
-              onClick={() => setReviewed(undefined)}
+              onClick={() => {
+                setReviewed(undefined)
+                setRevealed(false)
+              }}
             >
               <ArrowLeft /> Back
             </Button>
-            <span className="text-xs text-ink-2">
+            <span className="flex-1 text-xs text-ink-2">
               The cluster accepts it · {objects.length} objects ·{' '}
               <span className="font-medium text-good-text tabular-nums">+{diff!.added}</span> lines
               of manifest
             </span>
+            {hidesSome && <SecretsHidden revealed={revealed} onReveal={setRevealed} />}
           </div>
           <div className="flex max-h-[45vh] min-h-0 flex-col overflow-hidden rounded-lg border border-line">
             <DiffView diff={diff!} label="What it makes" />
