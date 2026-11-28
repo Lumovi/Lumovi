@@ -4,9 +4,8 @@
  * far, and said so; saved searches a keystroke away; and the palette finding objects as you type.
  */
 import type { Page } from '@playwright/test'
-import { holds } from '../holds.ts'
 import { toasts } from './action-helpers.ts'
-import { CONTEXTS, expect, openCluster, panel, test } from './fixtures.ts'
+import { CONTEXTS, expect, lengthen, openCluster, panel, test } from './fixtures.ts'
 
 async function openSearch(page: Page, context: string = CONTEXTS.demo) {
   await page.evaluate(
@@ -161,34 +160,32 @@ test('a saved search is a keystroke away, in the palette too, and removed with U
   await expect(field(page)).toHaveValue('checkout')
 
   // Typed, and within the moment typing waits, a saved search run: the saved search, not what
-  // was typed, is what's searched, and stays.
+  // was typed, is what's searched, and stays. (That moment long enough for the steps below on a
+  // slow machine: what's tested is what's done in it.)
+  await lengthen(page, { typing: 5_000 })
   await page.evaluate(() => (location.hash = '#/cluster/demo/search?q=redis'))
   await expect(field(page)).toHaveValue('redis')
   await field(page).fill('checout')
-  await page.getByRole('main').getByRole('columnheader', { name: 'Name', exact: true }).click()
+  await expect(field(page)).toHaveAttribute('data-typing', 'true')
+  // (The keyboard out of the field, where the saved search's keys work: nothing the results
+  // redraw is in the way.)
+  await field(page).evaluate((typed) => typed.blur())
   await page.keyboard.press(
     process.platform === 'win32' ? 'Control+Shift+Digit1' : 'Alt+Shift+Digit1',
   )
   await expect(field(page)).toHaveValue('checkout')
   const address = () => page.evaluate(() => location.hash)
-  await holds(
-    async () =>
-      (await address()).includes('q=checkout') && (await field(page).inputValue()) === 'checkout',
-    600,
-    'the saved search stays, not what was typed',
-  )
+  // Nothing typed waits to be searched: what was typed never will be.
+  await expect(field(page)).not.toHaveAttribute('data-typing')
+  expect(await address()).toContain('q=checkout')
   // And ↵, then another search by its address within that moment: the address's stays.
   await field(page).fill('checout')
   await field(page).press('Enter')
   await expect.poll(address).toContain('q=checout')
   await page.evaluate(() => (location.hash = '#/cluster/demo/search?q=redis'))
   await expect(field(page)).toHaveValue('redis')
-  await holds(
-    async () =>
-      (await address()).includes('q=redis') && (await field(page).inputValue()) === 'redis',
-    600,
-    'the address’s search stays, not what was typed before it',
-  )
+  await expect(field(page)).not.toHaveAttribute('data-typing')
+  expect(await address()).toContain('q=redis')
 
   // Ctrl+Shift and a digit that types the digit (AZERTY's layouts) isn't the Go menu's Ctrl+1.
   await page.evaluate(() => (location.hash = '#/cluster/demo/pods'))

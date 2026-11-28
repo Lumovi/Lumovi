@@ -38,6 +38,8 @@ const TESTS_ONLY = [
   'LUMOVI_TEST_PLUGIN_SERVER_WAIT_MS',
   // The one that holds a terminal's PowerShell before its first line.
   'LUMOVI_TEST_POWERSHELL_HOLD_S',
+  // The one that lengthens how long keys to a window a link raised must stop to count.
+  'LUMOVI_TEST_KEYS_QUIET_MS',
   // The ones that make names resolve as a test says, and private addresses count as public.
   'LUMOVI_TEST_HOSTS',
   'LUMOVI_TEST_PUBLIC_ADDRESSES',
@@ -46,6 +48,8 @@ const TESTS_ONLY = [
   '__lumoviBox',
   // How many failed reads of a Secret's certificates the tests' build asks again for.
   '__lumoviCertificatePolls',
+  // Lumovi's waits, as a test lengthens them.
+  '__lumoviTimings',
   // And the box they open with nothing taken away by the worker's first lines: by its name,
   // by what makes its worker's text, and by that text's own first line.
   'openBoxBare',

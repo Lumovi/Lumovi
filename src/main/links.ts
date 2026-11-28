@@ -20,8 +20,17 @@ import {
 
 /** After a prompt, links are let go, not kept for later: a page can't queue them up. */
 const QUIET_MS = 2_000
-/** How long keys to a window raised for a link from another app must stop before they count. */
-export const KEYS_QUIET_MS = 500
+declare const LUMOVI_TEST_BUILD: boolean
+
+/**
+ * How long keys to a window raised for a link from another app must stop before they count. (The
+ * tests' build alone lets a test lengthen it, for a machine slower than its keys: LMV-410.)
+ */
+export const keysQuietMs = (): number =>
+  (typeof LUMOVI_TEST_BUILD !== 'undefined' &&
+    LUMOVI_TEST_BUILD &&
+    Number(process.env.LUMOVI_TEST_KEYS_QUIET_MS)) ||
+  500
 
 /** Where a context's cluster is, and the authority its certificate is checked by. */
 export interface ClusterAddress {
@@ -84,7 +93,7 @@ export interface LinksDeps {
   /** Whether Lumovi has any window open now. */
   anyWindow?(): boolean
   /**
-   * Keys to `win` are nothing until they stop for KEYS_QUIET_MS: it was raised for a link from
+   * Keys to `win` are nothing until they stop for `keysQuietMs()`: it was raised for a link from
    * another app, where the person may still be typing. From the raise, card or not.
    */
   holdKeys?(win: BrowserWindow): void

@@ -52,7 +52,7 @@ import { DesktopFiles } from './file-copies'
 import { registerIpc } from './ipc'
 import { DesktopRepositories } from './helm-repositories'
 import { KubeconfigFiles } from './kubeconfig-files'
-import { KEYS_QUIET_MS, linkIn, Links } from './links'
+import { keysQuietMs, linkIn, Links } from './links'
 import { AddedClusters, ownKubeconfigs } from './added-clusters'
 import { AwsClusters } from './aws-clusters'
 import { useConsentKey } from './consent'
@@ -786,7 +786,7 @@ if (stdio) {
       page.on('before-input-event', (event, input) => {
         // (Before anything of the page's hears it: a terminal's, a dialog's form, a card.)
         const held = keysHeld.get(page.id)
-        if (held !== undefined && Date.now() - held < KEYS_QUIET_MS) {
+        if (held !== undefined && Date.now() - held < keysQuietMs()) {
           if (input.type === 'keyDown') keysHeld.set(page.id, Date.now())
           event.preventDefault()
           return

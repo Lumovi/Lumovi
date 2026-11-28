@@ -27,6 +27,7 @@ import { SAVED_SEARCH_LENGTH, SAVED_SEARCHES_AT_MOST } from '@shared/preferences
 import { savedKeyCaps, savedKeysHere, useSavedSearches } from './saved'
 import { matchedLabels, searches, termsOf, type Terms } from './terms'
 import { useClusterSearch, type KindSearch } from './use-search'
+import { timing } from '@renderer/lib/timings'
 
 /** The address's parameters as they are now: the desktop keeps its place in the hash. */
 const liveParams = () =>
@@ -86,7 +87,7 @@ export function SearchPage() {
   useEffect(() => {
     if (typed.trim() === text) return
     const from = text
-    pending.current = setTimeout(() => run(typed, from), TYPING_MS)
+    pending.current = setTimeout(() => run(typed, from), timing('typing', TYPING_MS))
     return settle
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typed])
@@ -124,6 +125,9 @@ export function SearchPage() {
             <input
               ref={field}
               aria-label="Search the cluster"
+              // (Marked while what's typed waits for typing to stop: for the tests, which wait on
+              // it rather than on time.)
+              data-typing={typed.trim() !== text || undefined}
               value={typed}
               onChange={(event) => setTyped(event.target.value)}
               onKeyDown={(event) => {

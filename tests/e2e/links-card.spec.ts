@@ -8,9 +8,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import type { TestClusters } from '../mock-cluster/kubeconfig.ts'
-import { holds } from '../holds.ts'
 import { open } from './action-helpers.ts'
-import { CONTEXTS, DEMO, DEMO_TOKEN, expect, openCluster, panel, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  DEMO,
+  DEMO_TOKEN,
+  expect,
+  lengthen,
+  openCluster,
+  panel,
+  test,
+} from './fixtures.ts'
 
 /** A link handed to Lumovi, as the system hands one over. */
 const hand = (app: ElectronApplication, link: string) =>
@@ -352,8 +360,8 @@ test('a link to the cluster this window shows asks Go; Enter does nothing at fir
   await expect(page.getByPlaceholder('Filter pods')).toHaveValue('abc')
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+l' : 'Control+Shift+L')
   await expect(card(page).getByRole('button', { name: 'Cancel' })).toBeFocused()
-  // eslint-disable-next-line no-restricted-syntax -- Enter is dead for the card's first 500 ms: only time ends that
-  await page.waitForTimeout(500)
+  // (Enter is dead for the card's first moment: it says when that's over.)
+  await expect(card(page)).toHaveAttribute('data-answering', 'true')
   await card(page).getByRole('button', { name: 'Go' }).focus()
   await page.keyboard.press('Enter')
   await expect(card(page)).toHaveCount(0)
@@ -364,6 +372,9 @@ test('Enter, Space or Esc as the card comes up isn’t an answer; Esc after is C
 }) => {
   const { app, page } = lumovi
   await openCluster(page)
+  // (The card's first moment long enough for the presses below on a slow machine: what's tested
+  // is what they do in it.)
+  await lengthen(page, { answerAfter: 5_000 })
   const link = await copied(page)
   const before = await page.evaluate(() => window.location.hash)
   await inUse(app)
@@ -373,13 +384,10 @@ test('Enter, Space or Esc as the card comes up isn’t an answer; Esc after is C
   await page.keyboard.press('Enter')
   await page.keyboard.press(' ')
   await page.keyboard.press('Escape')
-  await holds(
-    async () =>
-      (await card(page).count()) === 1 &&
-      (await page.evaluate(() => window.location.hash)) === before,
-    700,
-    'the card still asks, and nothing was opened',
-  )
+  // Once it answers, nothing had: the card still asks, and nothing was opened.
+  await expect(card(page)).toHaveAttribute('data-answering', 'true')
+  expect(await card(page).count()).toBe(1)
+  expect(await page.evaluate(() => window.location.hash)).toBe(before)
   await page.keyboard.press('Escape')
   await expect(card(page)).toHaveCount(0)
 })
@@ -389,8 +397,13 @@ test('a link from another app: Cancel has the keyboard, and what the person goes
 }) => {
   // (Windows' PowerShell can take most of a minute to give its prompt.)
   test.slow(process.platform === 'win32')
-  const { app, page } = await launch({ env: { SHELL: '/bin/sh' } })
+  // (The windows in which keys are nothing, Lumovi's and the card's, longer than a slow machine's
+  // pauses between the keys below: what's tested is what's done with keys inside them.)
+  const { app, page } = await launch({
+    env: { SHELL: '/bin/sh', LUMOVI_TEST_KEYS_QUIET_MS: '3000' },
+  })
   await openCluster(page)
+  await lengthen(page, { answerAfter: 3_000 })
   const link = await linkFor(page, `/cluster/${CONTEXTS.sandbox}/pods`)
   // A terminal had the keyboard before the person went to another app.
   await page.keyboard.press('Control+Backquote')
@@ -418,8 +431,8 @@ test('a link from another app: Cancel has the keyboard, and what the person goes
   expect(await windows()).toBe(1)
   expect(await typed()).toEqual(['z'])
   // Typing stopped: the card's keys are its own, and Tab goes round its buttons alone.
-  // eslint-disable-next-line no-restricted-syntax -- typing stopped for more than 500 ms: only time says so
-  await page.waitForTimeout(600)
+  await expect(card(page)).not.toHaveAttribute('data-typing')
+  await expect(card(page)).toHaveAttribute('data-answering', 'true')
   await page.keyboard.press('Shift+Tab')
   await expect(card(page).getByRole('button', { name: 'Open', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
