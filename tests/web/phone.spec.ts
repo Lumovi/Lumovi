@@ -50,14 +50,20 @@ const watchApprove = (page: Page) =>
       attributeFilter: ['disabled'],
     })
   })
-/** How long (ms) the Approve button last shown couldn't be pressed, from when it appeared. */
+/**
+ * How long (ms) the Approve button last shown couldn't be pressed, from when it appeared: from the
+ * first look of its last stretch disabled to the first look after it. (Every change on the page
+ * is a look, the list behind the dialog redrawn too: the looks after that first one see it alive
+ * as well, and aren't when it came alive.)
+ */
 const approveCameAlive = (page: Page) =>
   page.evaluate(() => {
     const { approveSeen } = window as unknown as { approveSeen: [number, boolean][] }
-    const alive = approveSeen.findLastIndex(([, disabled]) => !disabled)
-    let from = alive
+    const dead = approveSeen.findLastIndex(([, disabled]) => disabled)
+    if (dead < 0 || dead === approveSeen.length - 1) return 0
+    let from = dead
     while (from > 0 && approveSeen[from - 1]![1]) from--
-    return from === alive ? 0 : approveSeen[alive]![0] - approveSeen[from]![0]
+    return approveSeen[dead + 1]![0] - approveSeen[from]![0]
   })
 
 const menu = (page: Page) => page.getByRole('button', { name: 'Menu' })
