@@ -26,10 +26,13 @@ import {
   trierByItsChild,
 } from '../e2e/plugin-box/first-lines.ts'
 import {
+  CATCHER_PORTS,
   gotOut,
   keeping,
+  lowPort,
   nameFor,
   startCatchers,
+  whose,
   type Catchers,
 } from '../e2e/plugin-box/catchers.ts'
 import { namedIn } from '../e2e/plugin-box/net-log.ts'
@@ -530,7 +533,8 @@ async function tryAll(
     if (page.isClosed()) break
   }
   // (What the catchers saw that no try answered for: come late, or naming none of them.)
-  return { tried: ways.length, out, saw, changed, unowned: await kept.end() }
+  const unowned = await kept.end()
+  return { tried: ways.length, out, saw, changed, unowned, explained: kept.explained() }
 }
 
 /**
@@ -653,6 +657,76 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   await catchers.close()
+})
+
+test('the catchers are at ports no Lumovi of a test is ever given, and a request no try answers for says whose page it came from', async ({
+  serve,
+}) => {
+  // Below the ports a system hands out (where every Lumovi a test serves is), so a page another
+  // test left behind can't reach one in its Lumovi's place (LMV-413).
+  const { other, same, otherPort, udpPort } = catchers.context('x') as Record<string, string>
+  const inRange = (port: number) => port >= CATCHER_PORTS.from && port <= CATCHER_PORTS.to
+  for (const port of [Number(otherPort), Number(new URL(same!).port), Number(udpPort)]) {
+    expect(inRange(port), `${port}`).toBe(true)
+  }
+  expect(new URL(other!).port).toBe(String(otherPort))
+  const served = await serve()
+  expect(inRange(served.port)).toBe(false)
+  // A port that's taken is passed over for another of the range, and after twenty it says so;
+  // what's wrong but a port taken is said at once. Never a port of the system's choosing.
+  const tried: number[] = []
+  const taken =
+    (times: number, code = 'EADDRINUSE') =>
+    async (port: number) => {
+      tried.push(port)
+      if (tried.length <= times) throw Object.assign(new Error('taken'), { code })
+    }
+  expect(inRange(await lowPort(taken(3)))).toBe(true)
+  expect(tried).toHaveLength(4)
+  expect(tried.every(inRange)).toBe(true)
+  // (A port Windows keeps for itself, in a range it excluded, is refused as EACCES: another too.)
+  tried.length = 0
+  expect(inRange(await lowPort(taken(2, 'EACCES')))).toBe(true)
+  expect(tried).toHaveLength(3)
+  tried.length = 0
+  await expect(lowPort(taken(20))).rejects.toThrow(
+    'No port of 20000–31999 was free for a catcher in 20 tries.',
+  )
+  expect(tried).toHaveLength(20)
+  await expect(
+    lowPort(async () => {
+      throw Object.assign(new Error('not a port at all'), { code: 'EINVAL' })
+    }),
+  ).rejects.toThrow('not a port at all')
+  // Whose page a request no try answers for came from: the test that served Lumovi there.
+  const page = new URL(served.url)
+  expect(
+    whose({ from: `${page.origin}/cluster/demo/pods`, agent: 'Mozilla/5.0 (a browser)' }),
+  ).toBe(
+    ` (from ${page.origin}/cluster/demo/pods; a page of the Lumovi “plugin-box.spec.ts:${test.info().line} › the catchers are at ports no Lumovi of a test is ever given, and a request no try answers for says whose page it came from” served; Mozilla/5.0 (a browser))`,
+  )
+  expect(whose({})).toBe('')
+  expect(whose({ from: 'not a page' })).toBe(' (from not a page)')
+  // And what's kept of one: still no try's, and it's explained beside, never in what a test
+  // excuses by. A not-held try's name only in its page's address excuses nothing.
+  catchers.reset()
+  const kept = keeping(catchers)
+  kept.next()
+  await fetch(`${other}/api/session`, { headers: { origin: page.origin } })
+  await fetch(`${other}/favicon.ico`, { headers: { referer: `${other}/link-preconnect-3f2a` } })
+  expect(kept.read('x')).toBe('a connection to another host')
+  const unowned = await kept.end(0)
+  expect(unowned).toEqual(['with x: GET other /api/session', 'with x: GET other /favicon.ico'])
+  expect(unowned.filter((what) => !['link-preconnect'].some((id) => what.includes(id)))).toEqual(
+    unowned,
+  )
+  const [session, icon] = kept.explained()
+  expect(session).toMatch(
+    new RegExp(
+      `^with x: GET other /api/session \\(from ${page.origin.replaceAll('.', '\\.')}; a page of the Lumovi “plugin-box\\.spec\\.ts:`,
+    ),
+  )
+  expect(icon).toContain(`with x: GET other /favicon.ico (from ${other}/link-preconnect-3f2a; `)
 })
 
 for (const [name, browsers] of [
@@ -927,16 +1001,21 @@ for (const [name, browsers] of [
       const { page, done, named, arrived, box } = await pageIn(serve)
       try {
         const loaded = arrived.length
-        const { tried, out, saw, changed, unowned } = await tryAll('worker', page, catchers, {
-          named: !!named,
-          box,
-        })
+        const { tried, out, saw, changed, unowned, explained } = await tryAll(
+          'worker',
+          page,
+          catchers,
+          {
+            named: !!named,
+            box,
+          },
+        )
         await test.info().attach('saw', { body: JSON.stringify({ out, changed, saw }, null, 2) })
         expect(tried).toBeGreaterThan(40)
         expect(out).toEqual({})
         // Nor did anything arrive that no try answered for: between two of them, or after the
         // last.
-        expect(unowned).toEqual([])
+        expect(unowned, explained.join('\n')).toEqual([])
         // Nor did anything of it reach the server that serves the box, which no stand-in
         // elsewhere would see: its own address asked for with something added, as a script or
         // as anything else. From first to last the server was asked for the box's document by
@@ -970,7 +1049,7 @@ for (const [name, browsers] of [
         console.log(`${name}, a worker without its first lines saw: ${JSON.stringify(stopped.saw)}`)
         expect(stopped.tried).toBe(THE_FIRST_LINES_STOP.length)
         expect(stopped.out).toEqual({})
-        expect(stopped.unowned).toEqual([])
+        expect(stopped.unowned, stopped.explained.join('\n')).toEqual([])
         // Each stopped as this engine stops it: none imported, none made, and none that
         // tried nothing.
         expect(notStopped(name, stopped.saw)).toEqual([])
@@ -988,7 +1067,7 @@ for (const [name, browsers] of [
           await test.info().attach('its child saw', { body: JSON.stringify(child.saw, null, 2) })
           expect(child.tried).toBeGreaterThan(5)
           expect(child.out).toEqual({})
-          expect(child.unowned).toEqual([])
+          expect(child.unowned, child.explained.join('\n')).toEqual([])
           expect(notRefused(child.saw)).toEqual([])
         }
         // Nor was the server that serves the box asked for anything by any of them.
@@ -1162,14 +1241,14 @@ for (const [name, browsers] of [
         try {
           // (Where an engine's list is exact, what's known to get out is waited for.)
           const exactly = Object.entries(EXACTLY_ON_THE_PAGE[name] ?? {})
-          const { out, saw, unowned } = await tryAll('page', page, catchers, {
+          const { out, saw, unowned, explained } = await tryAll('page', page, catchers, {
             only: group,
             named: !!named,
             awaited: Object.fromEntries(exactly.map(([id, { out }]) => [id, out])),
           })
           const log = named ? await named() : undefined
           await test.info().attach('saw', {
-            body: JSON.stringify({ out, unowned, log, saw }, null, 2),
+            body: JSON.stringify({ out, unowned: explained, log, saw }, null, 2),
           })
           if (Object.keys(out).length) {
             console.log(`${name}, on the box’s own page, got out: ${JSON.stringify(out)}`)
@@ -1180,6 +1259,7 @@ for (const [name, browsers] of [
           // (Come late or not: nothing but what's named.)
           expect(
             unowned.filter((what) => !NOT_HELD_ON_THE_PAGE[name]!.some((id) => what.includes(id))),
+            explained.join('\n'),
           ).toEqual([])
           if (log) {
             // In Chromium, whose log says what else a way did: exactly what's known of this

@@ -4,6 +4,7 @@
  */
 import http from 'node:http'
 import net from 'node:net'
+import { servedAt, thisTest } from '../temp-folders.ts'
 
 export interface Arrived {
   how: string
@@ -73,6 +74,7 @@ export async function recording(port: number, server: URL) {
     socket.on('error', () => onward.destroy())
   })
   await new Promise<void>((listening) => proxy.listen(port, '127.0.0.1', listening))
+  servedAt(port, `${thisTest() ?? 'a test'} (its proxy)`)
   return {
     url: `http://127.0.0.1:${port}/`,
     arrived,

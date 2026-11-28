@@ -4,13 +4,16 @@
  * port. What they saw is the truth of a try; what the code in the box thinks happened isn't.
  * All on this computer: nothing is looked up.
  */
-import { createSocket } from 'node:dgram'
+import { createSocket, type Socket } from 'node:dgram'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { servedBy } from '../../temp-folders.ts'
 
 export interface Caught {
-  /** Requests that arrived, by which stand-in and for what. */
-  http: { server: 'other' | 'same'; method: string; path: string }[]
+  /**
+   * Requests that arrived, by which stand-in and for what; with where the page that asked was
+   * (Origin, or Referer), and its browser, as it said them.
+   */
+  http: { server: 'other' | 'same'; method: string; path: string; from?: string; agent?: string }[]
   /** Connections made to the other host, whatever was sent on them. */
   connections: number
   /** UDP packets. */
@@ -37,10 +40,54 @@ export interface Catchers {
   close(): Promise<void>
 }
 
+/**
+ * Where the catchers listen: below every system's own ports, the ones a server asking for any
+ * port is given (Linux's 32768–60999, macOS's and Windows' 49152–65535), as every Lumovi a test
+ * serves is; and clear of every port Lumovi and its tests fix. So a page another test left
+ * behind, still asking its own Lumovi, can never reach a catcher that took that Lumovi's port
+ * after it (LMV-413). Another run's catchers may hold one, or Windows may keep it for itself
+ * (Hyper-V's and Docker's excluded ranges, refused as EACCES): then another is tried, and after
+ * `TRIES`, the run stops, saying so. Never a port of the system's choosing.
+ */
+export const CATCHER_PORTS = { from: 20_000, to: 31_999 } as const
+const TRIES = 20
+
+/** A port of CATCHER_PORTS that `listen` could have, or a failure saying none was free. */
+export async function lowPort(listen: (port: number) => Promise<void>): Promise<number> {
+  const { from, to } = CATCHER_PORTS
+  for (let tried = 0; tried < TRIES; tried++) {
+    const port = from + Math.floor(Math.random() * (to - from + 1))
+    try {
+      await listen(port)
+      return port
+    } catch (error) {
+      const { code } = error as NodeJS.ErrnoException
+      if (code !== 'EADDRINUSE' && code !== 'EACCES') throw error
+    }
+  }
+  throw new Error(`No port of ${from}–${to} was free for a catcher in ${TRIES} tries.`)
+}
+
+/** `server` listening on 127.0.0.1 at `port`, or why it can't. */
+const listening = (server: Server, port: number) =>
+  new Promise<void>((done, failed) => {
+    server.once('error', failed)
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', failed)
+      done()
+    })
+  })
+
 export async function startCatchers(): Promise<Catchers> {
   let caught: Caught = { http: [], connections: 0, packets: 0 }
   const seen = (server: 'other' | 'same', req: IncomingMessage, method = req.method ?? '') =>
-    caught.http.push({ server, method, path: req.url ?? '' })
+    caught.http.push({
+      server,
+      method,
+      path: req.url ?? '',
+      from: req.headers.origin ?? req.headers.referer,
+      agent: req.headers['user-agent'],
+    })
   const stand = (server: 'other' | 'same'): Server => {
     const made = createServer((req, res) => {
       seen(server, req)
@@ -61,15 +108,25 @@ export async function startCatchers(): Promise<Catchers> {
   const other = stand('other')
   other.on('connection', () => caught.connections++)
   const same = stand('same')
-  const udp = createSocket('udp4')
+  const otherPort = await lowPort((port) => listening(other, port))
+  const sameUrl = `http://127.0.0.1:${await lowPort((port) => listening(same, port))}`
+  // (A UDP socket whose bind failed is done with: each try is a socket of its own.)
+  let udp!: Socket
+  await lowPort(
+    (port) =>
+      new Promise<void>((done, failed) => {
+        udp = createSocket('udp4')
+        udp.once('error', (error) => {
+          udp.close()
+          failed(error)
+        })
+        udp.bind(port, '127.0.0.1', () => {
+          udp.removeAllListeners('error')
+          done()
+        })
+      }),
+  )
   udp.on('message', () => caught.packets++)
-  await Promise.all([
-    new Promise<void>((done) => other.listen(0, '127.0.0.1', done)),
-    new Promise<void>((done) => same.listen(0, '127.0.0.1', done)),
-    new Promise<void>((done) => udp.bind(0, '127.0.0.1', done)),
-  ])
-  const otherPort = (other.address() as AddressInfo).port
-  const sameUrl = `http://127.0.0.1:${(same.address() as AddressInfo).port}`
   return {
     context: (id, role, named = false) => {
       const otherName = named ? nameFor(id) : 'localhost'
@@ -120,6 +177,28 @@ export function gotOut(id: string, caught: Caught): string {
 }
 
 /**
+ * Where a request came from, as its page said, and whose that page was where the run can tell
+ * (the test that served Lumovi at its port): what explains a request no try answers for, and
+ * never excuses one.
+ */
+export function whose({ from, agent }: { from?: string; agent?: string }): string {
+  if (from === undefined && agent === undefined) return ''
+  let port: number | undefined
+  try {
+    port = from === undefined ? undefined : Number(new URL(from).port) || undefined
+  } catch {
+    port = undefined
+  }
+  const by = port === undefined ? undefined : servedBy(port)
+  const parts = [
+    from === undefined ? undefined : `from ${from}`,
+    by === undefined ? undefined : `a page of the Lumovi “${by}” served`,
+    agent === undefined ? undefined : agent.slice(0, 80),
+  ].filter((part) => part !== undefined)
+  return ` (${parts.join('; ')})`
+}
+
+/**
  * A run of tries, with nothing of what's caught lost between them. Each try's catch is read a
  * moment after it and cleared before the next: so whatever comes after a reading, and a request
  * that comes with a try and doesn't name it (another's come late, or nobody's), would be no
@@ -128,6 +207,13 @@ export function gotOut(id: string, caught: Caught): string {
  */
 export function keeping(catchers: Catchers) {
   const unowned: string[] = []
+  // (Each of them with where its page was, and whose: for whoever reads a failure, never for
+  // what a test excuses, which reads `unowned` alone. A page's address can hold a try's name.)
+  const explained: string[] = []
+  const keep = (what: string, hit?: Caught['http'][number]) => {
+    unowned.push(what)
+    explained.push(hit ? `${what}${whose(hit)}` : what)
+  }
   let last: { id: string; read: Caught } | undefined
   const said = (hit: Caught['http'][number]) => `${hit.method} ${hit.server} ${hit.path}`
   /** What came since the last try was read. */
@@ -135,9 +221,9 @@ export function keeping(catchers: Catchers) {
     if (!last) return
     const { id, read } = last
     const now = catchers.caught()
-    for (const hit of now.http.slice(read.http.length)) unowned.push(`after ${id}: ${said(hit)}`)
-    if (now.connections > read.connections) unowned.push(`after ${id}: a connection`)
-    if (now.packets > read.packets) unowned.push(`after ${id}: a UDP packet`)
+    for (const hit of now.http.slice(read.http.length)) keep(`after ${id}: ${said(hit)}`, hit)
+    if (now.connections > read.connections) keep(`after ${id}: a connection`)
+    if (now.packets > read.packets) keep(`after ${id}: a UDP packet`)
     last = undefined
   }
   return {
@@ -151,7 +237,7 @@ export function keeping(catchers: Catchers) {
       const now = catchers.caught()
       const read = { http: [...now.http], connections: now.connections, packets: now.packets }
       for (const hit of read.http) {
-        if (!hit.path.includes(id)) unowned.push(`with ${id}: ${said(hit)}`)
+        if (!hit.path.includes(id)) keep(`with ${id}: ${said(hit)}`, hit)
       }
       last = { id, read }
       return gotOut(id, read)
@@ -165,6 +251,10 @@ export function keeping(catchers: Catchers) {
       await new Promise((done) => setTimeout(done, waitMs))
       since()
       return unowned
+    },
+    /** The same, each with where its page was and whose (`whose`): to read, never to match. */
+    explained(): string[] {
+      return [...explained]
     },
   }
 }
