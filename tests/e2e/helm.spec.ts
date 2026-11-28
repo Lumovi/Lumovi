@@ -860,6 +860,9 @@ test('without helm, or on a read-only cluster, releases can still be read', asyn
   await page.getByRole('switch', { name: 'Read-only' }).click()
   await page.keyboard.press('Escape')
   await expect(storefront.getByRole('button', { name: 'Read-only' })).toBeVisible()
+  // (The closed popover gives the keyboard back to its button: once it has, the next focus is
+  // the test's own, and not taken back from it.)
+  await expect(page.getByRole('button', { name: 'Switch cluster' })).toBeFocused()
   await focusDisabled(storefront.getByRole('button', { name: 'Uninstall…' }))
   await expect(page.getByRole('tooltip')).toContainText('Changes are turned off for this cluster.')
   // The main process refuses too.
@@ -1145,7 +1148,9 @@ test('upgrade and install from a chart on this computer', async ({ launch }) => 
   await expect(upgrade.getByRole('alert')).toHaveText('no network')
   scriptHelm(lumovi, {})
   await upgrade.getByRole('button', { name: 'Download dependencies' }).click()
-  await expect(upgrade).not.toContainText('Its charts/ folder is missing')
+  // (After the download, helm reads and checks the chart again, three runs of it: on Windows,
+  // seconds each.)
+  await expect(upgrade).not.toContainText('Its charts/ folder is missing', { timeout: 60_000 })
   expect(existsSync(join(home, 'deps', 'charts', 'common-2.0.0.tgz'))).toBe(true)
 
   // One helm lint finds problems in: listed, errors first, and in the review.

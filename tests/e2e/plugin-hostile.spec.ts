@@ -898,8 +898,10 @@ test('a follow never outlives its part: taken off the page by its code, or with 
   await expect(log).toHaveCount(0)
   await expect.poll(() => clusters.demo.logFollowers()).toBe(0)
   // The page opened again, the part with it; then its code sends what no plugin may, and
-  // Lumovi stops the page: what was followed for it ends with it.
+  // Lumovi stops the page: what was followed for it ends with it. (Left first, and gone, before
+  // it's opened again: two changes of address at once are one, and the page would stay.)
   await go(page, `#/cluster/${CONTEXTS.demo}/pods`)
+  await expect(body(page)).toHaveCount(0)
   await go(page, toys)
   await expect(log).toBeVisible({ timeout: 20_000 })
   await expect.poll(() => clusters.demo.logFollowers()).toBeGreaterThan(0)
