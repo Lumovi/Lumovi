@@ -105,8 +105,9 @@ test('appearance applies at once, in every window, and is kept across a restart'
 })
 
 test('the time zone and clock are every date’s', async ({ launch }) => {
-  // (A zone west of UTC, and not on the hour: as this computer's is said.)
-  const { page, app } = await launch({ env: { TZ: 'America/St_Johns' } })
+  // (A zone west of UTC, and not on the hour: as this computer's is said. It has no summer
+  // time, so its offset is the same on any date the test runs.)
+  const { page, app } = await launch({ env: { TZ: 'Pacific/Marquesas' } })
   // From the start screen, the menu's Settings… is a page of its own, with Back.
   await expect(page.getByRole('combobox', { name: 'Clusters' })).toBeVisible()
   await app.evaluate(({ Menu, BrowserWindow }) =>
@@ -117,7 +118,7 @@ test('the time zone and clock are every date’s', async ({ launch }) => {
   await expect(page.getByText('This computer', { exact: true })).toBeVisible()
   await nav(page).getByRole('button', { name: 'Time' }).click()
   await expect(page.getByRole('combobox', { name: 'Time zone' })).toContainText(
-    'This computer’s (UTC−2:30, America/St_Johns)',
+    'This computer’s (UTC−9:30, Pacific/Marquesas)',
   )
   await page.getByRole('button', { name: 'Back', exact: true }).click()
   await openCluster(page)
