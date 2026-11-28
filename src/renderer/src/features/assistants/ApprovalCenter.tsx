@@ -52,7 +52,7 @@ import { TYPE_TO_DELETE } from '../actions/DeleteDialog'
 import { useApprovals } from './approvals'
 import { keepMovedFocus } from '@renderer/lib/focus-back'
 import { escapeIsSearchs } from '@renderer/lib/find'
-import { maskedManifest } from '@renderer/lib/helm-diff'
+import { masking } from '@renderer/lib/helm-diff'
 import { SecretsHidden } from '../helm/SecretsHidden'
 
 type ApprovalsApi = NonNullable<LumoviApi['approvals']>
@@ -269,11 +269,11 @@ function ApprovalDialog({
   // and manifests have them). (The change itself has none: Lumovi hides them as it reads it.)
   const [revealed, setRevealed] = useState(false)
   const masked = useMemo(
-    () => proposal.manifest && maskedManifest(proposal.manifest),
+    () => (proposal.manifest ? masking(proposal.manifest) : undefined),
     [proposal.manifest],
   )
-  const hidesSome = masked !== proposal.manifest
-  const manifest = revealed ? proposal.manifest : masked
+  const hidesSome = masked !== undefined && masked.text !== proposal.manifest
+  const manifest = revealed || !masked ? proposal.manifest : masked.text
   const at = queue.indexOf(proposal)
   const layout = useLayout()
   const touch = useTouch()
@@ -444,7 +444,11 @@ function ApprovalDialog({
                 </summary>
                 {hidesSome && (
                   <div className="flex items-center justify-end gap-2 border-t border-line px-3 py-1.5 text-xs">
-                    <SecretsHidden revealed={revealed} onReveal={setRevealed} />
+                    <SecretsHidden
+                      revealed={revealed}
+                      onReveal={setRevealed}
+                      hidden={masked!.hidden}
+                    />
                   </div>
                 )}
                 <pre className="max-h-60 overflow-auto border-t border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink-2 selectable">

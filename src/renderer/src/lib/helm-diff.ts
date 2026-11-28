@@ -7,19 +7,47 @@
 import {
   isMap,
   isScalar,
+  isSeq,
   parse,
   parseAllDocuments,
   visit,
   type Document,
   type Node,
   type Pair,
+  type YAMLMap,
 } from 'yaml'
 
 /** What a masked value shows. */
 export const MASK = '••••••••'
 
 /** How a manifest is read: as Helm's and the cluster's readers read it, aliases bounded. */
-const READ = { maxAliasCount: 100, uniqueKeys: false } as const
+const READ = { maxAliasCount: 100, uniqueKeys: false, merge: true } as const
+
+/** Characters that readers can't all be counted on to read alike (a line's own end aside). */
+const UNREADABLE =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\ufffd-\uffff]|\r(?!$)/
+
+/** What a document masked whole for how it reads says of it, on its first masked line. */
+export const HIDDEN_WHOLE = 'Hidden whole: Lumovi can’t tell what’s secret here.'
+
+/** What a masked manifest hides: Secrets' values, and how many documents whole. */
+export interface Hidden {
+  values: boolean
+  documents: number
+}
+
+/** A manifest masked, and what of it is hidden. */
+export interface Masked {
+  text: string
+  hidden: Hidden
+}
+
+/** One document's lines, masked, and whether it's masked whole for how it reads. */
+interface Shown {
+  lines: string[]
+  whole?: true
+}
 
 /** kubectl's annotation of what it applied: the whole object, values and all. */
 const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration'
@@ -50,12 +78,35 @@ function lineOf(source: Source, at: number): number {
  *
  * It fails closed, and goes by what the YAML reader reads, never by how a line looks: the
  * documents are where it says they are, and what's kept of one masked whole is what its nodes say
- * names it. A document it can't read shows nothing of its own. A Secret's values are first masked
- * line by line, where reading the result back shows every one masked; otherwise the document is
- * masked whole but for what names it. Last, every line one of its values is written on must show
- * nothing of it, or the document shows nothing of its own at all.
+ * names it. A document it can't read shows nothing of its own. One that isn't plainly something
+ * other than a Secret, read as every reader reads it, is read as one, and masked whole but for what
+ * names it. A Secret's values are first masked line by line, where reading the result back shows
+ * every one masked; otherwise the document is masked whole but for what names it. Last, every line
+ * one of its values is written on must show nothing of it, or the document shows nothing of its
+ * own at all.
  */
 export function maskedManifest(manifest: string): string {
+  return masking(manifest).text
+}
+
+/** Two manifests masked, as a diff of them shows them, and what's hidden of either. */
+export function maskedPair(
+  before: string,
+  after: string,
+): { before: string; after: string; hidden: Hidden } {
+  const [a, b] = [masking(before), masking(after)]
+  return {
+    before: a.text,
+    after: b.text,
+    hidden: {
+      values: a.hidden.values || b.hidden.values,
+      documents: Math.max(a.hidden.documents, b.hidden.documents),
+    },
+  }
+}
+
+/** A manifest masked as `maskedManifest` masks it, and what of it is hidden. */
+export function masking(manifest: string): Masked {
   const lines = manifest.split('\n')
   const starts: number[] = []
   let offset = 0
@@ -65,16 +116,20 @@ export function maskedManifest(manifest: string): string {
   }
   const source: Source = { text: manifest, lines, starts }
   const documents = parseAllDocuments(manifest, READ)
+  const hidden: Hidden = { values: false, documents: 0 }
   // (Nothing but comments and markers: no document, nothing to mask.)
-  if (!Array.isArray(documents)) return manifest
+  if (!Array.isArray(documents)) return { text: manifest, hidden }
   const shown = [...lines]
   for (const document of documents) {
     const [from, , to] = document.range
     const first = lineOf(source, from)
     const last = lineOf(source, Math.max(from, to - 1))
-    shown.splice(first, last - first + 1, ...maskedDocument(source, document, first, last))
+    const masked = maskedDocument(source, document, first, last)
+    if (masked.whole) hidden.documents++
+    else if (masked.lines.some((line, i) => line !== lines[first + i])) hidden.values = true
+    shown.splice(first, last - first + 1, ...masked.lines)
   }
-  return shown.join('\n')
+  return { text: shown.join('\n'), hidden }
 }
 
 /** One document's lines, as `maskedManifest` masks them. */
@@ -83,24 +138,101 @@ function maskedDocument(
   document: Document.Parsed,
   first: number,
   last: number,
-): string[] {
+): Shown {
   const own = source.lines.slice(first, last + 1)
-  const nothing = () => nothingShown(source, document, first, last)
-  if (document.errors.length > 0) return nothing()
+  const nothing = () => noted(own, nothingShown(source, document, first, last))
+  if (document.errors.length > 0 || own.some((line) => UNREADABLE.test(line))) return nothing()
   let read: unknown
   try {
     read = document.toJS(READ)
   } catch {
     return nothing()
   }
+  // (Nothing but comments, or nothing at all, as an empty template's: nothing of its own.)
+  const contents = document.contents
+  if (contents === null || (isScalar(contents) && contents.value === null)) return { lines: own }
+  const whole = () => named(source, document, first, last)
+  if (!plainlyRead(document)) return noted(own, whole())
   const secrets = secretsIn(read)
-  if (secrets.length === 0) return own
   const values = secretValues(document)
-  // (A Secret read that its nodes don't show, as one an alias makes: nothing of it is shown.)
   if (values === undefined || values.secrets !== secrets.length) return nothing()
-  const masked =
-    (!aliased(document) && lineMaskedRead(own, secrets)) || named(source, document, first, last)
-  return values.nodes.every((node) => maskedWhere(source, node, first, masked)) ? masked : nothing()
+  if (secrets.length === 0) return { lines: own }
+  for (const masked of [lineMaskedRead(own, secrets), whole()]) {
+    if (masked && values.nodes.every((node) => maskedWhere(source, node, first, masked))) {
+      return { lines: masked }
+    }
+  }
+  return nothing()
+}
+
+/** A document's lines masked whole for how it reads, saying so after the first line's mask. */
+function noted(own: string[], masked: string[]): Shown {
+  const at = masked.findIndex((line, i) => line !== own[i] && line.endsWith(MASK))
+  if (at < 0) return { lines: masked }
+  masked[at] = `${masked[at]} # ${HIDDEN_WHOLE}`
+  return { lines: masked, whole: true }
+}
+
+/** A kind that may be a Secret's, as the cluster may read it. */
+const secretKind = (kind: unknown) =>
+  typeof kind === 'string' && kind.trim().toLowerCase() === 'secret'
+
+/**
+ * Whether a document reads alike to every reader that matters (Lumovi's, Helm's, the cluster's):
+ * nothing in it written once and read in another place, and an object as `plainObject` says.
+ */
+function plainlyRead(document: Document.Parsed): boolean {
+  let plain = true
+  visit(document, {
+    Alias: () => {
+      plain = false
+      return visit.BREAK
+    },
+    Node: (_, node) => {
+      if (!node.anchor) return
+      plain = false
+      return visit.BREAK
+    },
+    Pair: (_, pair) => {
+      if (!isScalar(pair.key) || typeof pair.key.value !== 'symbol') return
+      plain = false
+      return visit.BREAK
+    },
+  })
+  return plain && plainObject(document.contents)
+}
+
+/**
+ * Whether a node is plainly an object: a mapping, untagged, each of its keys a string written once,
+ * with a kind that's an untagged string, an untagged apiVersion and metadata (whose keys are the
+ * same), and, where it holds items, items each the same.
+ */
+function plainObject(node: unknown): boolean {
+  if (!isMap(node) || node.tag) return false
+  const keys = plainKeys(node)
+  const kind = node.get('kind', true)
+  if (!keys || !isScalar(kind) || kind.tag || typeof kind.value !== 'string') return false
+  const apiVersion = node.get('apiVersion', true) as Node | null | undefined
+  const metadata = node.get('metadata', true) as Node | null | undefined
+  if (apiVersion?.tag || metadata?.tag || (isMap(metadata) && !plainKeys(metadata))) return false
+  const items = keys.get('items')?.value as Node | null | undefined
+  if (items === undefined || items === null || (isScalar(items) && items.value === null)) {
+    return true
+  }
+  return isSeq(items) && !items.tag && items.items.every(plainObject)
+}
+
+/** A mapping's keys, by name, where each is an untagged string written once. */
+function plainKeys(map: YAMLMap): Map<string, Pair> | undefined {
+  const keys = new Map<string, Pair>()
+  for (const pair of map.items) {
+    const key = pair.key
+    if (!isScalar(key) || key.tag || typeof key.value !== 'string') return undefined
+    const name = key.value.toLowerCase()
+    if (keys.has(name)) return undefined
+    keys.set(name, pair as Pair)
+  }
+  return keys
 }
 
 /** The line-by-line masking, where reading it back shows every value masked. */
@@ -126,11 +258,13 @@ function secretValues(document: Document.Parsed): { nodes: Node[]; secrets: numb
   let unknown = false
   visit(document, {
     Map: (_, map) => {
-      if (map.get('kind') !== 'Secret') return
+      if (!secretKind(map.get('kind'))) return
       secrets++
-      for (const field of ['data', 'stringData']) {
-        const values = map.get(field, true) as Node | null | undefined
-        if (values === undefined || values === null) continue
+      for (const field of map.items) {
+        const name = isScalar(field.key) ? String(field.key.value).toLowerCase() : ''
+        if (name !== 'data' && name !== 'stringdata') continue
+        const values = field.value as Node | null
+        if (values === null) continue
         if (isMap(values)) {
           for (const pair of values.items) if (pair.value) nodes.push(pair.value as Node)
         } else nodes.push(values)
@@ -181,11 +315,12 @@ function named(source: Source, document: Document.Parsed, first: number, last: n
   const contents = document.contents as Node | null
   const opens = contents?.range ? lineOf(source, contents.range[0]) : last + 1
   for (let line = first; line < opens; line++) keep.add(line)
-  if (isMap(contents)) {
+  // (Never inside a mapping an alias may name: its names may be what a Secret holds.)
+  if (isMap(contents) && !contents.anchor) {
     for (const pair of contents.items) {
       const key = keyOf(pair)
       if (key === 'apiVersion' || key === 'kind') keepAlone(source, pair, keep)
-      if (key === 'metadata' && isMap(pair.value)) {
+      if (key === 'metadata' && isMap(pair.value) && !pair.value.anchor) {
         keepKeyAlone(source, pair, keep)
         for (const inner of pair.value.items) {
           if (['name', 'namespace'].includes(keyOf(inner) ?? '')) keepAlone(source, inner, keep)
@@ -198,13 +333,16 @@ function named(source: Source, document: Document.Parsed, first: number, last: n
     .map((text, i) => (keep.has(first + i) ? text : maskedLine(source, document, first + i)))
 }
 
-/** A pair's key, where it's a plain one. */
-const keyOf = (pair: Pair) => (isScalar(pair.key) ? String(pair.key.value) : undefined)
+/** A pair's key, where it's a plain one: a string, with no tag or anchor. */
+const keyOf = (pair: Pair) =>
+  isScalar(pair.key) && !pair.key.tag && !pair.key.anchor && typeof pair.key.value === 'string'
+    ? pair.key.value
+    : undefined
 
-/** Its line kept, where a pair of a key and a plain value (no anchor) is all that's on it. */
+/** Its line kept, where a pair of a key and a plain value (no tag or anchor) is all that's on it. */
 function keepAlone(source: Source, pair: Pair, keep: Set<number>) {
   const [key, value] = [pair.key as Node, pair.value as Node | null]
-  if (!isScalar(value) || value.anchor || !key.range || !value.range) return
+  if (!isScalar(value) || value.tag || value.anchor || !key.range || !value.range) return
   const line = lineOf(source, key.range[0])
   if (line !== lineOf(source, Math.max(value.range[0], value.range[1] - 1))) return
   const text = source.lines[line]!
@@ -253,18 +391,6 @@ function nothingShown(
   return lines
 }
 
-/** Whether a document names anything by an alias (`*x`, a merge's `<<: *x` too). */
-function aliased(document: Document.Parsed): boolean {
-  let found = false
-  visit(document, {
-    Alias: () => {
-      found = true
-      return visit.BREAK
-    },
-  })
-  return found
-}
-
 /** Every Secret in what a document reads as, however deep (a List's items, say). */
 function secretsIn(
   value: unknown,
@@ -273,7 +399,7 @@ function secretsIn(
   if (Array.isArray(value)) for (const each of value) secretsIn(each, found)
   else if (value !== null && typeof value === 'object') {
     const object = value as Record<string, unknown>
-    if (object.kind === 'Secret') found.push(object)
+    if (secretKind(object.kind)) found.push(object)
     for (const each of Object.values(object)) secretsIn(each, found)
   }
   return found

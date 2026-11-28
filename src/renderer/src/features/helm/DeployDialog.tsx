@@ -17,7 +17,7 @@ import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { useHelmChange, useHelmRepositories } from '@renderer/hooks/helm'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { maskedManifest, undoneBy } from '@renderer/lib/helm-diff'
+import { maskedPair, undoneBy } from '@renderer/lib/helm-diff'
 import { helm } from '@renderer/lib/kubectl'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
@@ -209,10 +209,7 @@ export function DeployDialog({
   // The diff worked out on the manifests' text, shown with each Secret's values masked until
   // asked: an unchanged one's lines too, folded away, which a find can unfold.
   const before = current?.manifest ?? ''
-  const masked = reviewed && {
-    before: maskedManifest(before),
-    after: maskedManifest(reviewed.manifest),
-  }
+  const masked = reviewed && maskedPair(before, reviewed.manifest)
   const hidesSome =
     masked !== undefined && (masked.before !== before || masked.after !== reviewed!.manifest)
   const diff =
@@ -264,7 +261,11 @@ export function DeployDialog({
             <div className="flex max-h-[45vh] min-h-0 flex-col overflow-hidden rounded-lg border border-line">
               {hidesSome && (
                 <div className="flex items-center justify-end gap-2 border-b border-line px-3 py-1.5 text-xs">
-                  <SecretsHidden revealed={revealed} onReveal={setRevealed} />
+                  <SecretsHidden
+                    revealed={revealed}
+                    onReveal={setRevealed}
+                    hidden={masked!.hidden}
+                  />
                 </div>
               )}
               <DiffView diff={diff!} label="Manifest changes" />

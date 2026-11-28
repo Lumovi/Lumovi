@@ -35,7 +35,7 @@ import { cn } from '@renderer/lib/cn'
 import { age, formatDateTime } from '@renderer/lib/format'
 import { statusFor } from '@renderer/lib/health'
 import { coalesce, manifestObjects, releaseStatus, type ManifestObject } from '@renderer/lib/helm'
-import { maskedManifest } from '@renderer/lib/helm-diff'
+import { masking, maskedPair, type Hidden } from '@renderer/lib/helm-diff'
 import { formatRef, kindPath } from '@renderer/lib/routes'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
@@ -510,13 +510,14 @@ function ReleaseValues({ release }: { release: HelmReleaseDetail }) {
   )
 }
 
-/** Over a manifest that holds a Secret's values, a line of its own with Reveal values. */
+/** Over a manifest that hides something, a line of its own with Reveal values. */
 function SecretsBar({
   find,
   ...props
 }: {
   revealed: boolean
   onReveal: (revealed: boolean) => void
+  hidden: Hidden
   find?: FindControl
 }) {
   return (
@@ -530,13 +531,15 @@ function SecretsBar({
 /** What Helm applied, each Secret's values masked until asked, as an object's YAML tab has them. */
 function ReleaseManifest({ manifest }: { manifest: string }) {
   const [revealed, setRevealed] = useState(false)
-  const masked = useMemo(() => maskedManifest(manifest), [manifest])
-  // (Its toolbar, and Find in it, only where there's a Secret to reveal: ⌘F finds otherwise.)
+  const masked = useMemo(() => masking(manifest), [manifest])
+  // (Its toolbar, and Find in it, only where there's something to reveal: ⌘F finds otherwise.)
   const find = useFindControl()
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {masked !== manifest && <SecretsBar revealed={revealed} onReveal={setRevealed} find={find} />}
-      <YamlText text={revealed ? manifest : masked} label="Manifest" find={find} />
+      {masked.text !== manifest && (
+        <SecretsBar revealed={revealed} onReveal={setRevealed} hidden={masked.hidden} find={find} />
+      )}
+      <YamlText text={revealed ? manifest : masked.text} label="Manifest" find={find} />
     </div>
   )
 }
@@ -554,10 +557,7 @@ function ReleaseHistory({ release }: { release: HelmReleaseDetail }) {
   }
   const [before, after] = [text(from), text(to)]
   const masked = useMemo(
-    () =>
-      what === 'manifest'
-        ? { before: maskedManifest(before), after: maskedManifest(after) }
-        : undefined,
+    () => (what === 'manifest' ? maskedPair(before, after) : undefined),
     [what, before, after],
   )
   const hidesSome = !!masked && (masked.before !== before || masked.after !== after)
@@ -623,7 +623,9 @@ function ReleaseHistory({ release }: { release: HelmReleaseDetail }) {
           <span className="text-critical-text">−{diff.removed}</span>
         </span>
       </div>
-      {hidesSome && <SecretsBar revealed={revealed} onReveal={setRevealed} />}
+      {hidesSome && (
+        <SecretsBar revealed={revealed} onReveal={setRevealed} hidden={masked!.hidden} />
+      )}
       {diff.added + diff.removed === 0 ? (
         <p className="px-5 py-6 text-[13px] text-ink-3">No differences.</p>
       ) : (
