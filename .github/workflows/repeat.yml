@@ -46,15 +46,21 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # apt's downloads and the plugins release, kept between runs, as CI's E2E job keeps them.
+      - if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: apt-${{ runner.os }}-${{ runner.arch }}-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .cache/plugins
+          key: plugins-release-${{ hashFiles('plugins.lock.json') }}
       - name: Install Chromium
         shell: bash
         timeout-minutes: 12
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            npx playwright install --with-deps chromium
-          else
-            npx playwright install chromium
-          fi
+        run: scripts/ci-browsers.sh chromium
       - name: Allow Chromium's sandbox
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

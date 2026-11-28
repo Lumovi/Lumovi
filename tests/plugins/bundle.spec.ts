@@ -511,14 +511,21 @@ test('a tag that points at another commit than the lock’s, or isn’t there, s
       download: github(made, { tags: pointing }),
     }),
   ).rejects.toThrow(`tag points at ${'b'.repeat(40)}`)
-  // Refs that can't be read stop it, saying where.
-  const down = (async () => new Response('', { status: 503 })) as unknown as typeof fetch
+  // Refs that can't be read stop it, saying where: once asked three times, as a 503 says nothing
+  // of the release.
+  let tries = 0
+  const down = (async () => {
+    tries++
+    return new Response('', { status: 503 })
+  }) as unknown as typeof fetch
   await expect(
     takePlugins(lock, trust, {
       cache: mkdtempSync(join(tmpdir(), 'plugins-cache-')),
       download: down,
+      triedAgainAfter: [0, 0],
     }),
   ).rejects.toThrow(`v1.0.0: couldn’t be downloaded: ${REFS_URL} answered 503`)
+  expect(tries).toBe(3)
 })
 
 test('a list of tags cut short, or not git’s, stops the first download', async () => {
@@ -573,14 +580,18 @@ test('a download that fails, is cut short or doesn’t pass a check leaves nothi
       }),
     )
   }) as typeof fetch
-  await expect(takePlugins(lock, trust, { cache, download: interrupted })).rejects.toThrow(
+  await expect(
+    takePlugins(lock, trust, { cache, download: interrupted, triedAgainAfter: [0, 0] }),
+  ).rejects.toThrow(
     `${NAMES.attestation}: couldn’t be downloaded from ${RELEASE_URL}/${NAMES.attestation}: the connection was reset`,
   )
   expect(contents(cache)).toEqual({})
   // A file the release answers with an error.
   const broken = (async (url: string) =>
     url.endsWith(NAMES.bundle) ? new Response('', { status: 500 }) : answered(url)) as typeof fetch
-  await expect(takePlugins(lock, trust, { cache, download: broken })).rejects.toThrow(
+  await expect(
+    takePlugins(lock, trust, { cache, download: broken, triedAgainAfter: [0, 0] }),
+  ).rejects.toThrow(
     `${NAMES.bundle}: couldn’t be downloaded: ${RELEASE_URL}/${NAMES.bundle} answered 500`,
   )
   expect(contents(cache)).toEqual({})
@@ -590,6 +601,74 @@ test('a download that fails, is cut short or doesn’t pass a check leaves nothi
     `${NAMES.attestation}: isn’t in Lumovi/Lumovi-plugins’s release 1.0.0`,
   )
   expect(contents(cache)).toEqual({})
+})
+
+test('what GitHub fails to answer for nothing of the release’s is asked again, twice, each after its wait; what it refuses isn’t', async () => {
+  const { release: made, lock } = await release()
+  const answered = github(made)
+  const fresh = () => mkdtempSync(join(tmpdir(), 'plugins-cache-'))
+  // A 504 for the bundle, once: the release is asked again, and taken.
+  const asked: string[] = []
+  let failed = 0
+  const once = (async (url: string) => {
+    asked.push(url)
+    if (url.endsWith(NAMES.bundle) && failed++ === 0) return new Response('', { status: 504 })
+    return answered(url)
+  }) as typeof fetch
+  expect(
+    await takePlugins(lock, trust, { cache: fresh(), download: once, triedAgainAfter: [0, 0] }),
+  ).toEqual(taken)
+  expect(asked.filter((url) => url.endsWith(NAMES.bundle))).toHaveLength(2)
+  // Each try after its own wait, in order; then what GitHub said.
+  const at: number[] = []
+  const bad = (async () => {
+    at.push(performance.now())
+    return new Response('', { status: 502 })
+  }) as unknown as typeof fetch
+  await expect(
+    takePlugins(lock, trust, { cache: fresh(), download: bad, triedAgainAfter: [50, 150] }),
+  ).rejects.toThrow(`couldn’t be downloaded: ${REFS_URL} answered 502`)
+  expect(at).toHaveLength(3)
+  // (A timer may come a millisecond early by the clock.)
+  expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(49)
+  expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(149)
+  // No answer in time: asked again too.
+  let late = 0
+  const silent = ((_: string, init?: RequestInit) => {
+    late++
+    return new Promise<Response>((_, refuse) =>
+      init?.signal?.addEventListener('abort', () => refuse(init.signal!.reason)),
+    )
+  }) as typeof fetch
+  await expect(
+    takePlugins(lock, trust, {
+      cache: fresh(),
+      download: silent,
+      timeLimit: 50,
+      triedAgainAfter: [0, 0],
+    }),
+  ).rejects.toThrow('no answer in time (0.05 s)')
+  expect(late).toBe(3)
+  // What GitHub refuses for what it is, asked once: no list of tags, a file too large.
+  let refused = 0
+  const missing = (async () => {
+    refused++
+    return new Response('Not Found', { status: 404 })
+  }) as unknown as typeof fetch
+  await expect(
+    takePlugins(lock, trust, { cache: fresh(), download: missing, triedAgainAfter: [0, 0] }),
+  ).rejects.toThrow(`v1.0.0: couldn’t be read: ${REFS_URL} answered 404`)
+  expect(refused).toBe(1)
+  const large: string[] = []
+  await expect(
+    takePlugins(lock, trust, {
+      cache: fresh(),
+      download: github(made, { asked: large }),
+      limit: 10,
+      triedAgainAfter: [0, 0],
+    }),
+  ).rejects.toThrow('is larger than')
+  expect(large.filter((url) => url === REFS_URL)).toHaveLength(1)
 })
 
 test('a cached copy that’s wrong is downloaded again, once, before anything is refused', async () => {

@@ -71,6 +71,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The plugins release the build takes (plugins.lock.json's), kept between runs: checked
+      # against the lock and its signatures every time, wherever it comes from, and spared GitHub's
+      # occasional errors (scripts/plugins-bundle.ts).
+      - &plugins-release
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .cache/plugins
+          key: plugins-release-${{ hashFiles('plugins.lock.json') }}
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -304,26 +312,24 @@ jobs:
             ~/Library/Caches/ms-playwright
             ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.versions.outputs.playwright }}
-      # apt drops a mirror that stalls (30 s without a byte) and tries again, three times, rather
-      # than waiting on it for hours; a slow one that keeps going is left to finish (it has taken
-      # 7 minutes). The step stops within its own time whatever happens, and says so.
+      # apt's downloads for the browsers, kept between runs (scripts/ci-browsers.sh).
+      - &apt-archives
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: apt-${{ runner.os }}-${{ runner.arch }}-
+      # (Said within the step's time, whatever happens: a stalled apt mirror is tried again.)
       - name: Install Chromium
         shell: bash
         timeout-minutes: 12
-        run: |
-          if [ "$RUNNER_OS" != "Linux" ]; then
-            npx playwright install chromium
-            exit
-          fi
-          printf 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n' |
-            sudo tee /etc/apt/apt.conf.d/80-ci-timeouts > /dev/null
-          timeout 600 npx playwright install --with-deps chromium && exit 0
-          echo "::error::Chromium couldn't be installed in 10 minutes: apt (or Playwright's download) stalled or failed. Run the job again."
-          exit 1
+        run: scripts/ci-browsers.sh chromium
       - name: Allow Chromium's sandbox
         # Ubuntu 24.04 restricts the unprivileged user namespaces Electron's sandbox needs.
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - *plugins-release
       - name: Build with coverage instrumentation
         env:
           # The instrumented build is near Node's own heap limit: it ran out of memory on macOS
@@ -365,8 +371,9 @@ jobs:
         with:
           name: coverage-${{ runner.os }}-${{ matrix.part }}
           path: coverage-${{ runner.os }}-${{ matrix.part }}.json
-          # Main's are borrowed by later runs (the coverage job): kept for a quiet month.
-          retention-days: ${{ github.ref == 'refs/heads/main' && 30 || 7 }}
+          # Main's are borrowed by later runs (the coverage job): kept as long as GitHub keeps
+          # anything, since a month without a green run would leave nothing to borrow.
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
       - name: Upload test report
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -515,6 +522,7 @@ jobs:
             ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
       - run: npm ci
+      - *plugins-release
       - run: npm run build
       # Its bill of materials lists the helm it ships, the Go modules that helm is built from
       # (as helm itself says, from the binary pinned in scripts/helm.ts), and its Go.
@@ -767,7 +775,11 @@ jobs:
           install_only: true
           version: v0.33.0
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: npx playwright install --with-deps chromium
+      - *apt-archives
+      - name: Install Chromium
+        timeout-minutes: 12
+        run: scripts/ci-browsers.sh chromium
+      - *plugins-release
       - run: npm run build
       # The image, as released, for Lumovi served from the cluster (cluster.ts installs it).
       - name: Build the image
@@ -811,9 +823,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - *apt-archives
       - name: Install the three browsers
         timeout-minutes: 12
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: scripts/ci-browsers.sh chromium firefox webkit
+      - *plugins-release
       # (The tests' build: the piece of the page that opens a plugin's box is in no other.)
       - run: npm run build:coverage
         env:
@@ -887,3 +901,31 @@ jobs:
         run: |
           PR_TEXT=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.body // ""') \
             scripts/judge.sh changelog.ts check
+
+  # Main red, said where it's seen (scripts/main-red.ts): the `main-red` issue, opened and
+  # commented on by main's red runs and closed by a green one; and its flaky tests on `ci-flaky`.
+  # Never for a pull request, which its own jobs judge ("CI passed"); and never main's failure
+  # itself, so a release waits on nothing but the tests.
+  told:
+    name: Whether main is red, said
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # To read its jobs, their logs and annotations; and to say so on the issues.
+      actions: read
+      checks: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # Only a green run of everything closes the issue.
+          FULL: ${{ needs.changes.outputs.macos == 'full' }}
+        run: node scripts/main-red.ts
