@@ -9,11 +9,20 @@ import { parseAllDocuments } from 'yaml'
 import { expect, test } from '../temp-folders.ts'
 import { fetchHelm } from '../../scripts/helm.ts'
 import {
+  asHelmKeeps,
+  FORMS,
+  MORE_SHAPES,
+  olderKubernetesDocuments,
+  SEPARATORS,
+  separated,
+  shows,
+  VALUE,
+} from '../manifest-forms.ts'
+import {
   HIDDEN_WHOLE,
   helm3Manifests,
   helmManifests,
   kubernetesDocuments,
-  olderKubernetesDocuments,
   MASK,
   maskedManifest,
   maskedPair,
@@ -367,280 +376,13 @@ test('a Secret’s values are masked however its manifest is written', () => {
   )
 })
 
-/** A made-up value, as stringData holds it and as data does (base64): whether a text shows it. */
-const VALUE = 'madeUpValue42'
-const shows = (text: string) =>
-  [VALUE, Buffer.from(VALUE).toString('base64')].some((value) =>
-    text.replaceAll('\u0000', '').includes(value),
-  )
-
-/** A template's text, as a template file saved in UTF-16 holds it, with its byte-order mark. */
-const utf16 = (text: string, order: 'le' | 'be') => {
-  const bytes = Buffer.from(text, 'utf16le')
-  if (order === 'be') bytes.swap16()
-  return Buffer.concat([Buffer.from(order === 'le' ? [0xff, 0xfe] : [0xfe, 0xff]), bytes])
-}
-
-/** A template, and where helm puts it in its install order. */
-interface Form {
-  name: string
-  template: Buffer
-  helm: 'secret' | 'elsewhere' | 'refused'
-}
-
-/**
- * Templates that Kubernetes reads as a Secret holding the made-up value (or, where its kind is
- * Pod or isn't one, as something else), each as a chart's template file holds it, and where helm
- * 4.3.0 puts it in its install order: a Secret's place, elsewhere (a kind it doesn't sort as one,
- * a List's included, whose items are installed each as itself), or nowhere (it refuses the chart).
- */
-const FORMS: Form[] = (
-  [
-    [
-      'anchor-kind',
-      'apiVersion: v1\nkind: &k Secret\nmetadata: {name: z, labels: {a: *k}}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'bom-kind-first',
-      '\ufeffkind: Secret\napiVersion: v1\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'bom-start',
-      '\ufeffapiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'directive-11',
-      '%YAML 1.1\n---\napiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'refused',
-    ],
-    [
-      'dup-last-secret',
-      'apiVersion: v1\nkind: Pod\nkind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'dup-stringdata',
-      'apiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData: {a: b}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'json-dup',
-      '{"apiVersion":"v1","kind":"Pod","kind":"Secret","metadata":{"name":"z"},"stringData":{"password":"%v"}}\n',
-      'secret',
-    ],
-    [
-      'json',
-      '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"z"},"stringData":{"password":"%v"}}\n',
-      'secret',
-    ],
-    [
-      'key-escaped',
-      'apiVersion: v1\n"k\\x69nd": Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'key-tagged',
-      'apiVersion: v1\n!!str kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-binary',
-      'apiVersion: v1\nkind: !!binary U2VjcmV0\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-block-scalar',
-      'apiVersion: v1\nkind: >-\n  Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-escaped',
-      'apiVersion: v1\n"kind": "Secr\\x65t"\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-explicit-key',
-      'apiVersion: v1\n? kind\n: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-local-tag',
-      'apiVersion: v1\nkind: !x Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-quoted',
-      'apiVersion: v1\n"kind": "Secret"\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-str',
-      'apiVersion: v1\nkind: !!str Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-verbatim-tag',
-      'apiVersion: v1\nkind: !<tag:yaml.org,2002:str> Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'list',
-      'apiVersion: v1\nkind: List\nitems:\n- {apiVersion: v1, kind: Secret, metadata: {name: z}, stringData: {password: %v}}\n',
-      'elsewhere',
-    ],
-    [
-      'merge-flow',
-      '<<: {apiVersion: v1, kind: Secret}\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'merge-block',
-      '<<:\n  apiVersion: v1\n  kind: Secret\nmetadata:\n  name: z\ndata:\n  password: %b\n',
-      'secret',
-    ],
-    [
-      'merge-in-data',
-      'apiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData:\n  <<: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'merge-list',
-      '<<: [{apiVersion: v1}, {kind: Secret}]\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'merge-quoted',
-      '"<<": {apiVersion: v1, kind: Secret}\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'elsewhere',
-    ],
-    [
-      'merge-tag',
-      '? !!merge <<\n: {apiVersion: v1, kind: Secret}\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'merge-then-kind',
-      '<<: {apiVersion: v1, kind: Secret}\nkind: Pod\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'elsewhere',
-    ],
-    [
-      'value-binary',
-      'apiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData: {password: !!binary bWFkZVVwVmFsdWU0Mg==}\n',
-      'secret',
-    ],
-    [
-      'line-separator',
-      'apiVersion: v1\nkind: ConfigMap # c\u2028kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'paragraph-separator',
-      'apiVersion: v1\nkind: ConfigMap # c\u2029kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'carriage-return',
-      'apiVersion: v1\nkind: ConfigMap # c\rkind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'carriage-return-value',
-      'apiVersion: v1\nkind: ConfigMap\rkind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'line-separator-value',
-      'apiVersion: v1\nkind: ConfigMap\u2028kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'next-line',
-      'apiVersion: v1\nkind: ConfigMap # c\u0085kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'items-any-case',
-      'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: z}\nItems:\n- {apiVersion: v1, kind: Secret, metadata: {name: y}, stringData: {password: %v}}\n',
-      'elsewhere',
-    ],
-    [
-      'kind-key-case',
-      'apiVersion: v1\nKind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'kind-case',
-      'apiVersion: v1\nkind: secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'elsewhere',
-    ],
-    [
-      'typed-list',
-      'apiVersion: v1\nkind: SecretList\nitems:\n- metadata: {name: y}\n  stringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'list-empty-kind',
-      'apiVersion: v1\nkind: List\nitems:\n- kind: ""\n  metadata: {name: z}\n  stringData: {password: %v}\n',
-      'elsewhere',
-    ],
-    [
-      'secret-with-items',
-      'apiVersion: v1\nkind: Secret\nmetadata: {name: x}\nitems:\n- kind: ""\n  metadata: {name: z}\n  stringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'secretlist-empty-both',
-      'apiVersion: v1\nkind: SecretList\nitems:\n- {kind: "", apiVersion: "", metadata: {name: z}, stringData: {password: %v}}\n',
-      'secret',
-    ],
-    [
-      'secretlist-empty-kind-data',
-      'apiVersion: v1\nkind: SecretList\nitems:\n- kind: ""\n  metadata: {name: z}\n  data:\n    password: %b\n',
-      'secret',
-    ],
-    [
-      'secretlist-empty-kind',
-      'apiVersion: v1\nkind: SecretList\nitems:\n- kind: ""\n  metadata: {name: z}\n  stringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'glued-marker',
-      'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: y}\n---kind: Secret\nmetadata: {name: z}\nstringData: {password: %v}\n',
-      'secret',
-    ],
-    [
-      'errored-merge',
-      '<<: [{kind: Secret}, \n{apiVersion: v1}]\nstringData: {password: %v}\n',
-      'secret',
-    ],
-  ] as const
-)
-  .map(([name, text, helm]): Form => ({
-    name,
-    template: Buffer.from(
-      text.replaceAll('%v', VALUE).replaceAll('%b', Buffer.from(VALUE).toString('base64')),
-    ),
-    helm,
-  }))
-  .concat(
-    (['le', 'be'] as const).map((order) => ({
-      name: `utf16${order}-bom`,
-      template: utf16(
-        `apiVersion: v1\nkind: Secret\nmetadata: {name: z}\nstringData: {password: ${VALUE}}\n`,
-        order,
-      ),
-      helm: 'secret',
-    })),
-  )
-
-/** A form's manifest, as Helm keeps it: each template's documents after its `# Source:`. */
-const asHelmKeeps = (template: Buffer) =>
-  `---\n# Source: probe/templates/z.yaml\n${template.toString('utf8')}\n---\n# Source: probe/templates/c.yaml\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: c\n\n`
-
 test('a Secret’s values are masked in every form a template can give it', () => {
+  // (And in what reaches the rest of the masking: what it fails closed on, and how.)
+  for (const shape of MORE_SHAPES) {
+    const masked = maskedManifest(shape)
+    expect.soft(shows(masked), JSON.stringify(shape.replaceAll(VALUE, '…'))).toBe(false)
+    expect(masked.split('\n')).toHaveLength(shape.split('\n').length)
+  }
   for (const form of FORMS) {
     const manifest = asHelmKeeps(form.template)
     const masked = maskedManifest(manifest)
@@ -693,36 +435,6 @@ withHelm(
     expect(kept.length).toBeGreaterThan(5)
   },
 )
-
-/**
- * Lines that may cut a manifest into documents, as Helm's splitter, the cluster's reader or the
- * YAML library may take them, each set among documents named for which they are.
- */
-const SEPARATORS = [
-  '---',
-  '--- ',
-  '---\t',
-  '--- # c',
-  '---# c',
-  '---\t# c',
-  '---x: y',
-  '---\u00a0',
-  '---\u00a0# c',
-  '---\f',
-  '---\v',
-  '---\r',
-  '---\u0085',
-  '---\u2028',
-  '---\ufeff',
-  ' ---',
-  '...',
-  '',
-]
-const separated = (separator: string) => [
-  `apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n${separator}\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n`,
-  `${separator}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n${separator}\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n${separator}\n`,
-  `\n  \n${separator}\n${separator}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n`,
-]
 
 withHelm(
   'Helm’s split of a manifest, as Lumovi has it, is the shipped helm’s own',

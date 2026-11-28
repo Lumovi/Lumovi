@@ -115,9 +115,8 @@ export function masking(manifest: string): Masked {
     offset += line.length + 1
   }
   const source: Source = { text: manifest, lines, starts }
-  const parsed = parseAllDocuments(manifest, READ)
   // (Nothing but comments and markers: no document.)
-  const documents = Array.isArray(parsed) ? parsed : []
+  const documents: Document.Parsed[] = [...parseAllDocuments(manifest, READ)]
   const spans = documents.map(({ range: [from, , to] }): Span => [
     lineOf(source, from),
     lineOf(source, Math.max(from, to - 1)),
@@ -247,31 +246,6 @@ export function kubernetesDocuments(text: string): Span[] | undefined {
   return documents
 }
 
-/**
- * Where the cluster's reader as it was before apimachinery 0.21 (in Helm 3.0 to 3.5, and kubectl
- * then) cuts a manifest: as now, but only at a line that has nothing after the `---` but white space
- * (Go's), and refusing none of them; a manifest that starts with `{` is one JSON value, or refused.
- * The first document of each run of lines is all it reads of it.
- */
-export function olderKubernetesDocuments(text: string): Span[] | undefined {
-  // (Each line, as Go reads it: an empty manifest has none, and the end of the last one no other.)
-  const lines = text === '' ? [] : text.split('\n')
-  if (text.endsWith('\n')) lines.pop()
-  if (text.replace(GO_LEADING, '').startsWith('{')) return kubernetesDocuments(text)
-  const documents: Span[] = []
-  let from: number | undefined
-  for (const [at, line] of lines.entries()) {
-    if (line.startsWith('---') && goTrimmed(line.slice(3)) === '' && from !== undefined) {
-      documents.push([from, at - 1])
-      from = undefined
-      continue
-    }
-    from ??= at
-  }
-  if (from !== undefined) documents.push([from, lines.length - 1])
-  return documents
-}
-
 /** A line no reader reads anything in: blank, a comment, or a bare document marker. */
 const IDLE = /^(---(?=[ \t]|\r?$))?[ \t]*(#.*)?\r?$/
 
@@ -335,10 +309,9 @@ function unsureLines(source: Source, library: Span[]): boolean[] {
   return unsure
 }
 
-/** A line in no document masked, as nothing of it is shown: a marker as it's always written. */
+/** A line in no document masked, as nothing of it is shown. */
 function looseMasked(text: string): string {
   if (text.trim() === '') return text
-  if (/^---([ \t]|\r?$)/.test(text)) return /^---[ \t]*\r?$/.test(text) ? '---' : `--- ${MASK}`
   return `${' '.repeat(text.length - text.trimStart().length)}${MASK}`
 }
 
@@ -570,13 +543,12 @@ function keepAlone(source: Source, pair: Pair, keep: Set<number>) {
 /** A key's line kept, where the key and its colon are all that's on it (its value is below). */
 function keepKeyAlone(source: Source, pair: Pair, keep: Set<number>) {
   const [key, value] = [pair.key as Node, pair.value as Node]
-  if (!key.range || !value.range) return
-  const line = lineOf(source, key.range[0])
-  if (lineOf(source, value.range[0]) === line) return
+  const line = lineOf(source, key.range![0])
+  if (lineOf(source, value.range![0]) === line) return
   const text = source.lines[line]!
   const lineStart = source.starts[line]!
-  if (text.slice(0, key.range[0] - lineStart).trim() !== '') return
-  if (text.slice(key.range[1] - lineStart).trim() !== ':') return
+  if (text.slice(0, key.range![0] - lineStart).trim() !== '') return
+  if (text.slice(key.range![1] - lineStart).trim() !== ':') return
   keep.add(line)
 }
 

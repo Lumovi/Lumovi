@@ -8,6 +8,7 @@ import type { Locator, Page } from '@playwright/test'
 import { encodeRelease, HELM, releaseRecord } from '../mock-cluster/fixtures/helm.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { dialog, focusDisabled, toasts } from './action-helpers.ts'
+import { asHelmKeeps, FORMS, MORE_SHAPES, SEPARATORS, separated, shows } from '../manifest-forms.ts'
 import { CONTEXTS, expect, openCluster, panel, row, rows, test, type Lumovi } from './fixtures.ts'
 
 const releasePanel = (page: Page, name: string) =>
@@ -557,6 +558,54 @@ stringData:
   } finally {
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.odd-app.v1')
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.odd-app.v2')
+  }
+})
+
+test('a release’s manifests in every shape the masking reads are compared with no Secret’s value shown', async ({
+  page,
+  clusters,
+}) => {
+  test.setTimeout(240_000)
+  // Each shape, a revision of its own; and documents however they're cut.
+  const manifests = [
+    ...FORMS.map((form) => asHelmKeeps(form.template)),
+    ...SEPARATORS.flatMap(separated),
+    ...MORE_SHAPES,
+  ]
+  manifests.forEach((manifest, i) =>
+    addRelease(clusters.demo, 'shapes', {
+      revision: i + 1,
+      status: i === manifests.length - 1 ? 'deployed' : 'superseded',
+      manifest,
+    }),
+  )
+  try {
+    await openCluster(page)
+    await openHelm(page)
+    const release = await openRelease(page, 'shapes')
+    await release.getByRole('tab', { name: 'Manifest' }).click()
+    await expect(yaml(release, 'Manifest')).toBeVisible()
+    await release.getByRole('tab', { name: 'History' }).click()
+    await release
+      .getByRole('group', { name: 'Compare' })
+      .getByRole('button', { name: 'manifest' })
+      .click()
+    const differences = release.getByLabel('Differences')
+    await release.getByRole('combobox', { name: 'From' }).selectOption('1')
+    for (let to = 2; to <= manifests.length; to++) {
+      await release.getByRole('combobox', { name: 'To' }).selectOption(String(to))
+      // (Whether the value is there, said yes or no: a failure prints none.)
+      await expect
+        .poll(() => differences.evaluate((at) => at.textContent ?? ''), { message: String(to) })
+        .not.toBe('')
+      expect(shows(await differences.evaluate((at) => at.textContent ?? '')), String(to)).toBe(
+        false,
+      )
+    }
+  } finally {
+    manifests.forEach((_, i) =>
+      clusters.demo.remove('Secret', 'default', `sh.helm.release.v1.shapes.v${i + 1}`),
+    )
   }
 })
 
