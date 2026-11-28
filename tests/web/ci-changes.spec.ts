@@ -31,6 +31,15 @@ import {
   ranMacosInFull,
 } from '../../scripts/ci-changes.ts'
 import { redOf, sentence, told, warningOf, type Gh } from '../../scripts/main-is-green.ts'
+import {
+  flakyComment,
+  redComment,
+  tell,
+  testsOf,
+  verdictOf,
+  type Api,
+  type Job,
+} from '../../scripts/main-red.ts'
 import { filesOf, missingFrom, newerThan, whyNot } from '../../scripts/release-starts.ts'
 
 /** A pull request changing `changed`, on `branch`, with `labels`. */
@@ -944,4 +953,277 @@ test('every spec that has a test for each browser engine is in CI’s Browsers j
       `${file}: titles the job’s ${asked} doesn’t ask for`,
     ).toEqual([])
   }
+})
+
+test('a job’s log says which tests failed on every try and which passed only when tried again, as Playwright sums them up', () => {
+  const at = (line: string) => `2026-11-27T11:04:11.0000000Z ${line}`
+  const log = [
+    '  ✘   63 [desktop] › tests/e2e/settings.spec.ts:107:1 › the time zone and clock are every date’s (19.8s)',
+    '  1 failed',
+    '    [desktop] › tests/e2e/settings.spec.ts:107:1 › the time zone and clock are every date’s ───────',
+    '  2 flaky',
+    '    [desktop] › tests\\e2e\\helm.spec.ts:284:1 › install and upgrade options, each said ──',
+    '    [web] › tests/web/phone.spec.ts:803:3 › on a touch screen › Approve waits its moment',
+    '  33 skipped',
+    '    [web] › tests/web/plugin-box.spec.ts:1160:7 › a plugin’s box in Firefox',
+    '  100 passed (6.2m)',
+  ]
+    .map(at)
+    .join('\n')
+  // Each as its project, file and line, and title: a Windows path with slashes, the line's rule
+  // gone; what was skipped isn't either.
+  expect(testsOf(log)).toEqual({
+    failed: [
+      '[desktop] › tests/e2e/settings.spec.ts:107 › the time zone and clock are every date’s',
+    ],
+    flaky: [
+      '[desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options, each said',
+      '[web] › tests/web/phone.spec.ts:803 › on a touch screen › Approve waits its moment',
+    ],
+  })
+  // A job that stopped before its tests: none.
+  expect(testsOf(at('##[error]Process completed with exit code 1.'))).toEqual({
+    failed: [],
+    flaky: [],
+  })
+})
+
+test('a run of main is red where a job failed or ran out of its time, green where all passed, and says nothing where somebody cancelled it', () => {
+  expect(verdictOf(['success', 'failure', 'skipped'], false)).toBe('red')
+  expect(verdictOf(['success', 'cancelled'], true)).toBe('red')
+  expect(verdictOf(['success', 'cancelled'], false)).toBe('nothing')
+  expect(verdictOf(['success', 'skipped'], false)).toBe('green')
+})
+
+test('main red opens an issue, or says so on the open one; green closes it; flaky tests go on their own; a pull request’s run never asks', () => {
+  const said = {
+    what: 'Main’s nightly run',
+    sha: 'abcdef0123456789',
+    url: 'https://github.com/Lumovi/Lumovi/actions/runs/9',
+    failedJobs: ['E2E (ubuntu-latest, 2/16)'],
+    failed: ['[desktop] › tests/e2e/settings.spec.ts:107 › the time zone'],
+    flaky: ['[desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options'],
+  }
+  expect(redComment(said)).toBe(
+    [
+      '**Main’s nightly run is red at abcdef0:** https://github.com/Lumovi/Lumovi/actions/runs/9',
+      '',
+      '- E2E (ubuntu-latest, 2/16)',
+      '',
+      'Failed on every try:',
+      '',
+      '- [desktop] › tests/e2e/settings.spec.ts:107 › the time zone',
+    ].join('\n'),
+  )
+  expect(flakyComment(said)).toBe(
+    [
+      '**Main’s nightly run at abcdef0**, passed only when tried again: https://github.com/Lumovi/Lumovi/actions/runs/9',
+      '',
+      '- [desktop] › tests/e2e/helm.spec.ts:284 › install and upgrade options',
+    ].join('\n'),
+  )
+  // GitHub as asked here: this run's jobs, the issues open by label and their text, a job's
+  // annotations, how two commits compare; and an issue made with the labels asked for, unless it
+  // drops them.
+  const RED_SHA = said.sha.padEnd(40, '0')
+  const github = (
+    jobs: Job[],
+    {
+      open = {},
+      texts = {},
+      annotations = {},
+      compared = 'ahead',
+      drops = false,
+    }: {
+      open?: Record<string, number>
+      texts?: Record<number, string>
+      annotations?: Record<number, string>
+      compared?: string | ((base: string, head: string) => string)
+      drops?: boolean
+    } = {},
+  ) => {
+    const calls: unknown[][] = []
+    const api: Api = (method, path, body) => {
+      calls.push(body === undefined ? [method, path] : [method, path, body])
+      if (path.includes('/attempts/2/jobs')) return { jobs }
+      const label = /labels=([\w-]+)/.exec(path)?.[1]
+      if (label) return open[label] === undefined ? [] : [{ number: open[label] }]
+      const issue = /\/issues\/(\d+)$/.exec(path)?.[1]
+      if (method === 'GET' && issue) return { body: texts[Number(issue)] }
+      const comparing = /\/compare\/(\w+)\.\.\.(\w+)$/.exec(path)
+      if (comparing) {
+        const [, base, head] = comparing
+        return { status: typeof compared === 'string' ? compared : compared(base!, head!) }
+      }
+      const annotated = /check-runs\/(\d+)\/annotations/.exec(path)
+      if (annotated) return [{ message: annotations[Number(annotated[1])] ?? 'A step failed.' }]
+      if (method !== 'POST' || !path.endsWith('/issues')) return {}
+      const labels = drops ? [] : (body!.labels as string[]).map((name) => ({ name }))
+      return { number: 40, labels }
+    }
+    const made = () => calls.filter(([method]) => method !== 'GET')
+    return { api, calls, made }
+  }
+  const logs: Record<number, string> = {
+    1: '  1 failed\n    [desktop] › tests/e2e/settings.spec.ts:107:1 › the time zone ──',
+    2: '  1 flaky\n    [desktop] › tests/e2e/helm.spec.ts:284:1 › install and upgrade options',
+  }
+  const run = {
+    repository: 'Lumovi/Lumovi',
+    run: '9',
+    attempt: '2',
+    sha: RED_SHA,
+    what: said.what,
+    url: said.url,
+  }
+  const job = (id: number, name: string, conclusion: string | null): Job => ({
+    id,
+    name,
+    conclusion,
+  })
+  const red = [
+    job(1, 'E2E (ubuntu-latest, 2/16)', 'failure'),
+    job(2, 'E2E (windows-latest, 1/4)', 'success'),
+    job(3, 'Coverage (all platforms)', 'skipped'),
+    job(4, 'CI passed', 'failure'),
+    // (Its own, still running.)
+    job(5, 'Whether main is red, said', null),
+  ]
+  const read: number[] = []
+  const logOf = ({ id }: Job) => (read.push(id), logs[id] ?? '')
+  const saidHere = { ...said, sha: RED_SHA }
+  const note = `<!-- main-red at ${RED_SHA} -->`
+  // Red, with none open: one opened, with what failed and its commit kept hidden in its text; the
+  // flaky test on an issue of its own.
+  const first = github(red)
+  expect(tell(first.api, run, logOf, true)).toEqual(['Red: opened #40', 'Flaky: opened #40'])
+  expect(first.made()).toEqual([
+    [
+      'POST',
+      'repos/Lumovi/Lumovi/issues',
+      { title: 'Main is red', body: `${redComment(saidHere)}\n\n${note}`, labels: ['main-red'] },
+    ],
+    [
+      'POST',
+      'repos/Lumovi/Lumovi/issues',
+      {
+        title: 'Tests that passed only when tried again',
+        body: flakyComment(saidHere),
+        labels: ['ci-flaky'],
+      },
+    ],
+  ])
+  // Only the logs of jobs that ran tests, and ran.
+  expect(read).toEqual([1, 2])
+  // Red again, of any commit, with both open: said on each, and the issue's note now this commit.
+  const older = `<!-- main-red at ${'1'.repeat(40)} -->`
+  const again = github(red, {
+    open: { 'main-red': 12, 'ci-flaky': 7 },
+    texts: { 12: `It began here.\n\n${older}` },
+  })
+  expect(tell(again.api, run, logOf, true)).toEqual(['Red: said on #12', 'Flaky: said on #7'])
+  expect(again.made()).toEqual([
+    ['POST', 'repos/Lumovi/Lumovi/issues/12/comments', { body: redComment(saidHere) }],
+    ['PATCH', 'repos/Lumovi/Lumovi/issues/12', { body: `It began here.\n\n${note}` }],
+    ['POST', 'repos/Lumovi/Lumovi/issues/7/comments', { body: flakyComment(saidHere) }],
+  ])
+  // Green, of everything and of the red commit or one after it: the issue closed, saying where.
+  const green = [
+    job(2, 'E2E (windows-latest, 1/4)', 'success'),
+    job(3, 'Coverage (all platforms)', 'success'),
+  ]
+  const greenRun = { ...run, sha: 'b'.repeat(40) }
+  const withRed = { open: { 'main-red': 12, 'ci-flaky': 7 }, texts: { 12: `Red.\n\n${note}` } }
+  const closing = github(green, withRed)
+  expect(tell(closing.api, greenRun, logOf, true)).toEqual([
+    'Green: closed #12',
+    'Flaky: said on #7',
+  ])
+  expect(closing.calls).toContainEqual([
+    'GET',
+    `repos/Lumovi/Lumovi/compare/${RED_SHA}...${'b'.repeat(40)}`,
+  ])
+  expect(closing.made().slice(0, 2)).toEqual([
+    [
+      'POST',
+      'repos/Lumovi/Lumovi/issues/12/comments',
+      { body: `**Green again at bbbbbbb:** ${said.url}` },
+    ],
+    ['PATCH', 'repos/Lumovi/Lumovi/issues/12', { state: 'closed', state_reason: 'completed' }],
+  ])
+  // Runs of two merges end in either order: a green of a commit before the newest red one leaves
+  // it open. So does a green of less than everything, and an issue that names no red commit.
+  for (const [compared, full, texts, left] of [
+    [
+      'behind',
+      true,
+      withRed.texts,
+      `Green, of a commit before #12’s newest red (${RED_SHA.slice(0, 7)}): left open.`,
+    ],
+    [
+      'diverged',
+      true,
+      withRed.texts,
+      `Green, of a commit before #12’s newest red (${RED_SHA.slice(0, 7)}): left open.`,
+    ],
+    [
+      'ahead',
+      false,
+      withRed.texts,
+      'Green, of what ran here only: #12 left open for a run of everything.',
+    ],
+    ['ahead', true, { 12: 'Made by hand.' }, 'Green: #12 names no red commit, so it’s left open.'],
+  ] as const) {
+    const leaving = github(green, { ...withRed, texts, compared })
+    expect(tell(leaving.api, greenRun, logOf, full)[0]).toBe(left)
+    expect(leaving.made().filter(([, path]) => String(path).includes('/issues/12'))).toEqual([])
+  }
+  // Three commits of main, A before B before C, whose runs end C's red, A's red, B's green: A's
+  // red doesn't put the issue's note back to A, so B's green, before C, leaves it open.
+  const [A, B, C] = ['a', 'b', 'c'].map((letter) => letter.repeat(40)) as [string, string, string]
+  const order = (base: string, head: string) =>
+    head === base ? 'identical' : head > base ? 'ahead' : 'behind'
+  const noted = (sha: string) => ({ 12: `Red.\n\n<!-- main-red at ${sha} -->` })
+  const aRed = github(red, { open: { 'main-red': 12 }, texts: noted(C), compared: order })
+  expect(tell(aRed.api, { ...run, sha: A }, logOf, true)[0]).toBe('Red: said on #12')
+  expect(aRed.made().filter(([method]) => method === 'PATCH')).toEqual([])
+  const bGreen = github(green, { open: { 'main-red': 12 }, texts: noted(C), compared: order })
+  expect(tell(bGreen.api, { ...run, sha: B }, logOf, true)[0]).toBe(
+    `Green, of a commit before #12’s newest red (ccccccc): left open.`,
+  )
+  // (And C's red after A's: the note moves on to C.)
+  const cRed = github(red, { open: { 'main-red': 12 }, texts: noted(A), compared: order })
+  tell(cRed.api, { ...run, sha: C }, logOf, true)
+  expect(cRed.made().filter(([method]) => method === 'PATCH')).toEqual([
+    ['PATCH', 'repos/Lumovi/Lumovi/issues/12', { body: `Red.\n\n<!-- main-red at ${C} -->` }],
+  ])
+  const quiet = github([job(3, 'Coverage (all platforms)', 'success')])
+  expect(tell(quiet.api, greenRun, logOf, true)).toEqual(['Green.'])
+  expect(quiet.made()).toEqual([])
+  // Cancelled by somebody: nothing said, not even its flaky tests. Out of its time: red.
+  const cancelled = [
+    job(2, 'E2E (windows-latest, 1/4)', 'success'),
+    job(6, 'E2E (macos-latest, 2/4)', 'cancelled'),
+  ]
+  const stopped = github(cancelled)
+  expect(tell(stopped.api, run, logOf, true)).toEqual(['Cancelled by somebody: nothing said.'])
+  expect(stopped.made()).toEqual([])
+  const late = github(cancelled, {
+    annotations: { 6: 'The job has exceeded the maximum execution time of 1h0m0s' },
+  })
+  expect(tell(late.api, run, logOf, true)[0]).toBe('Red: opened #40')
+  // An issue GitHub made without its label: said, as later runs wouldn't find it.
+  const dropped = github(red, { drops: true })
+  expect(tell(dropped.api, run, logOf, true)[0]).toBe(
+    'Red: opened #40\n::warning::#40 hasn’t the label main-red: later runs won’t find it. Is the label there, and may this token set it?',
+  )
+  // And a pull request's run never asks: the workflow's job is main's alone.
+  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8')
+  expect(workflow).toContain(
+    "if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n    needs: [changes, checks, e2e, borrowed, coverage, package, integration, browsers]\n    continue-on-error: true",
+  )
+  // And it's told whether this run ran everything.
+  expect(workflow).toContain(
+    "FULL: ${{ needs.changes.outputs.macos == 'full' }}\n        run: node scripts/main-red.ts",
+  )
 })

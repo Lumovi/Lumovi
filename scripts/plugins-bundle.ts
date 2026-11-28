@@ -39,6 +39,7 @@ import { join, resolve } from 'node:path'
 import type { TrustRoot } from '../src/main/kubectl-signature.ts'
 import {
   checkRelease,
+  DownloadError,
   downloadRelease as download,
   PLUGINS_REPOSITORY,
   PLUGINS_SIGNER,
@@ -186,6 +187,35 @@ export const downloadRelease = (lock: Lock, asking: Asking = {}): Promise<Releas
 /** Where checked releases are kept between builds. */
 export const CACHE = resolve('.cache/plugins')
 
+/**
+ * How long a download GitHub failed waits before it's tried again, each time: so it's tried three
+ * times in all. Only where GitHub's answer says nothing of the release (a 5xx, no answer in time,
+ * a connection lost: one 504 failed every job of a nightly run); what it refuses for what it is (a
+ * 404, a file too large, a check that fails) is never tried again.
+ */
+export const TRIED_AGAIN_AFTER_MS = [2_000, 10_000] as const
+
+/** How a release is taken: where it's kept, and how GitHub is asked. */
+export type Taking = Asking & { cache?: string; triedAgainAfter?: readonly number[] }
+
+/** Whether GitHub's answer says nothing of the release, so another try may get it. */
+const passing = (error: unknown) =>
+  error instanceof DownloadError &&
+  ('late' in error.why || 'said' in error.why || ('status' in error.why && error.why.status >= 500))
+
+/** `attempt`'s answer, tried again after each of `after`'s waits while GitHub's failure passes. */
+async function tried<T>(attempt: () => Promise<T>, after: readonly number[]): Promise<T> {
+  for (const wait of after) {
+    try {
+      return await attempt()
+    } catch (error) {
+      if (!passing(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, wait))
+    }
+  }
+  return attempt()
+}
+
 /** The cache's entry for `lock`: named by its version, and the SHA-256 of all it pins. */
 export function cacheEntry(lock: Lock, cache = CACHE): string {
   const pinned = JSON.stringify([lock.version, lock.commit, lock.bundle, lock.index])
@@ -226,12 +256,13 @@ function keep(entry: string, lock: Lock, release: Release) {
  * The plugins of the lock's release, as `trust` says who signs it: from the cache, checked again,
  * or downloaded, checked, and kept, once its tag is found to point at the lock's commit too. A
  * cached copy that's wrong (changed since it was kept, say) is put aside, and the release
- * downloaded again, once. Only then refused.
+ * downloaded again, once. Only then refused. What GitHub fails to answer for nothing of the
+ * release's (a 5xx, say) is asked again, twice (TRIED_AGAIN_AFTER_MS).
  */
 export async function takePlugins(
   lock: Lock,
   trust: Trust,
-  options: Asking & { cache?: string } = {},
+  options: Taking = {},
 ): Promise<PluginFiles> {
   return (await takeRelease(lock, trust, options)).files
 }
@@ -240,7 +271,7 @@ export async function takePlugins(
 export async function takeRelease(
   lock: Lock,
   trust: Trust,
-  { cache = CACHE, ...asking }: Asking & { cache?: string } = {},
+  { cache = CACHE, triedAgainAfter = TRIED_AGAIN_AFTER_MS, ...asking }: Taking = {},
 ): Promise<Taken> {
   const lockWrong = lockProblems(lock)
   if (lockWrong.length) throw new PluginsReleaseError(lockWrong.join('\n'))
@@ -254,7 +285,7 @@ export async function takeRelease(
       rmSync(entry, { recursive: true, force: true })
     }
   }
-  const tagged = await taggedCommit(lock.version, asking)
+  const tagged = await tried(() => taggedCommit(lock.version, asking), triedAgainAfter)
   if (tagged !== lock.commit) {
     throw new PluginsReleaseError(
       tagged === undefined
@@ -262,7 +293,7 @@ export async function takeRelease(
         : `v${lock.version}: ${PLUGINS_REPOSITORY}’s tag points at ${tagged}, and ${LOCK_FILE} pins ${lock.commit}`,
     )
   }
-  const release = await downloadRelease(lock, asking)
+  const release = await tried(() => downloadRelease(lock, asking), triedAgainAfter)
   const taken = checkedAgainst(release, lock, trust)
   keep(entry, lock, release)
   return taken
