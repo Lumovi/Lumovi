@@ -20,26 +20,39 @@ import { menuContent, menuItem } from '../shell/menu-styles'
 /** In its charts/ folder, packed or unpacked. */
 const PRESENT = new Set(['ok', 'unpacked'])
 
-export interface CheckedChart {
-  chart: LocalChart
-  lint: LintResult
+/** A chart on this computer, read, and checked with `helm lint`: each as it comes. */
+export interface ChartCheck {
+  read: UseQueryResult<LocalChart>
+  lint: UseQueryResult<LintResult>
+  /** Read and checked again, against the values as they are now: whether both could be. */
+  again: () => Promise<boolean>
 }
 
 /**
- * A chart on this computer, read and checked with `helm lint` against the
- * values being edited; fetching it again checks it again. Only the desktop
- * app has charts on this computer (`api.localCharts`).
+ * A chart on this computer, read and checked with `helm lint` against the values being edited.
+ * What it is shows as soon as it's read (its missing subcharts among it); helm lint, which takes
+ * longest, comes after. Only the desktop app has charts on this computer (`api.localCharts`).
  */
-export function useLocalChart(path: string, values: string, enabled: boolean) {
-  return useQuery({
+export function useLocalChart(path: string, values: string, enabled: boolean): ChartCheck {
+  const read = useQuery({
     queryKey: ['helm-local', path],
-    queryFn: async (): Promise<CheckedChart> => {
-      const chart = await unwrap(api.localCharts!.read(path))
-      return { chart, lint: await unwrap(api.localCharts!.lint(chart.path, values)) }
-    },
+    queryFn: () => unwrap(api.localCharts!.read(path)),
     enabled: enabled && path !== '',
     gcTime: 0,
   })
+  const at = read.data?.path
+  const lint = useQuery({
+    queryKey: ['helm-local-lint', at],
+    queryFn: () => unwrap(api.localCharts!.lint(at!, values)),
+    enabled: enabled && at !== undefined,
+    gcTime: 0,
+  })
+  const again = async () => {
+    const chart = await read.refetch()
+    if (chart.isError) return false
+    return !(await lint.refetch()).isError
+  }
+  return { read, lint, again }
 }
 
 const SEVERITY = {
@@ -95,7 +108,7 @@ export function LocalChartPanel({
 }: {
   path: string
   onPath: (path: string) => void
-  checked: UseQueryResult<CheckedChart>
+  checked: ChartCheck
   release?: HelmReleaseDetail
 }) {
   const [draft, setDraft] = useState(path)
@@ -104,20 +117,25 @@ export function LocalChartPanel({
   const open = (next: string) => {
     setDraft(next)
     setProblem(undefined)
-    if (next === path) void checked.refetch()
+    if (next === path) void checked.again()
     else onPath(next)
   }
   const choose = async (kind: 'folder' | 'archive') => {
     const chosen = await api.localCharts!.choose(kind)
     if (chosen) open(chosen)
   }
-  const data = checked.data
-  const missing = data?.chart.dependencies.filter((d) => !PRESENT.has(d.status)) ?? []
+  const chart = checked.read.data
+  const lint = checked.lint.data
+  const busy = checked.read.isFetching || checked.lint.isFetching
+  const missing = chart?.dependencies.filter((d) => !PRESENT.has(d.status)) ?? []
   const download = async () => {
+    // (What a download before said went wrong is said no more.)
+    setProblem(undefined)
     setDownloading(true)
-    const result = await api.localCharts!.updateDependencies(data!.chart.path)
+    const result = await api.localCharts!.updateDependencies(chart!.path)
     setDownloading(false)
-    if (result.ok) void checked.refetch()
+    // Read again first: what's still missing is said as soon as that's known, before helm lint.
+    if (result.ok) void checked.read.refetch().then(() => checked.lint.refetch())
     else setProblem(result.error.message)
   }
   return (
@@ -158,37 +176,35 @@ export function LocalChartPanel({
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-      {checked.isFetching && (
+      {busy && (
         <p className="flex items-center gap-1.5 text-xs text-ink-3">
           <LoaderCircle className="size-3.5 animate-spin" /> Reading and checking the chart…
         </p>
       )}
-      {(problem ?? checked.error) && (
+      {(problem ?? checked.read.error ?? checked.lint.error) && (
         <p role="alert" className="text-xs text-critical-text">
-          {problem ?? (checked.error as Error).message}
+          {problem ?? ((checked.read.error ?? checked.lint.error) as Error).message}
         </p>
       )}
-      {data && (
+      {chart && (
         <div className="space-y-2 rounded-md bg-surface-2 px-3 py-2.5">
           <div>
             <p className="text-[13px] text-ink-1">
-              <span className="font-semibold">{data.chart.name}</span> {data.chart.version}
+              <span className="font-semibold">{chart.name}</span> {chart.version}
               <span className="text-ink-3">
-                {data.chart.appVersion && ` · app ${data.chart.appVersion}`}
-                {data.chart.archive && ' · packaged'}
+                {chart.appVersion && ` · app ${chart.appVersion}`}
+                {chart.archive && ' · packaged'}
               </span>
             </p>
-            {data.chart.description && (
-              <p className="text-xs text-ink-3">{data.chart.description}</p>
-            )}
+            {chart.description && <p className="text-xs text-ink-3">{chart.description}</p>}
           </div>
-          {release && data.chart.name !== release.chart && (
+          {release && chart.name !== release.chart && (
             <p className="flex gap-1.5 text-xs text-warn-text">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              {release.name} runs the {release.chart} chart; this one is {data.chart.name}.
+              {release.name} runs the {release.chart} chart; this one is {chart.name}.
             </p>
           )}
-          {release && compareVersions(data.chart.version, release.chartVersion) < 0 && (
+          {release && compareVersions(chart.version, release.chartVersion) < 0 && (
             <p className="flex gap-1.5 text-xs text-warn-text">
               <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
               It’s older than the {release.chartVersion} {release.name} runs.
@@ -212,15 +228,13 @@ export function LocalChartPanel({
             </div>
           )}
           <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <LintFindings lint={data.lint} />
-            </div>
+            <div className="min-w-0 flex-1">{lint && <LintFindings lint={lint} />}</div>
             <Button
               variant="ghost"
               className="h-6 shrink-0 px-2 text-xs"
-              disabled={checked.isFetching}
+              disabled={busy}
               // Against the values as they are now.
-              onClick={() => void checked.refetch()}
+              onClick={() => void checked.again()}
             >
               Check again
             </Button>

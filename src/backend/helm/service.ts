@@ -234,102 +234,109 @@ export class HelmService {
     return this.#result(async () => {
       const r = assertQuery<HelmDeploy>(request)
       this.#assertChangeable(r)
-      if (r.install === true) await this.#allowed(r, 'install', 'install charts')
-      else {
-        await this.#allowed(r, 'upgrade', 'upgrade releases')
-        // Upgrading starts from the values it has, which only those shown them can keep.
-        await this.#guard?.require(r.context, 'secrets', 'values', r.namespace, 'upgrade releases')
-      }
-      // No values at all is fine: the chart's defaults apply.
-      if (typeof r.values !== 'string') throw invalid('values must be a string')
-      for (const flag of ['wait', 'rollbackOnFailure'] as const) {
-        if (r[flag] !== undefined && typeof r[flag] !== 'boolean') {
-          throw invalid(`${flag} must be true or false`)
-        }
-      }
-      if (r.timeoutSeconds !== undefined) {
-        assertIntegerInRange(r.timeoutSeconds, 'timeoutSeconds', 30, LONGEST_TIMEOUT_S)
-      }
-      // (A dry run makes nothing to wait for, nor to undo.)
-      const waits = r.dryRun !== true ? await this.#waitArgs(r) : []
-      if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
-      const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
-      let fetchedDone: (() => Promise<void>) | undefined
-      try {
-        const values = join(directory, 'values.yaml')
-        await writeFile(values, r.values)
-        let chart: string[]
-        // Where a chart from a repository Lumovi keeps came from, on the release (or none now).
-        let label: string[] = []
-        if (r.source === 'stored') {
-          // The chart the release runs is stored with it, but without its subcharts.
-          const { latest } = await releaseHistory(this.#list(r.context), r.namespace, r.name)
-          if (latest.chart.metadata.dependencies?.length) {
-            throw invalid(
-              `${r.name}’s chart has subcharts, which Helm doesn’t keep with the release. Choose the chart to upgrade with.`,
-            )
-          }
-          chart = [await writeChart(latest.chart, join(directory, 'chart'))]
-        } else if (r.source.saved !== undefined) {
-          const fetched = await this.#savedChart(r.source)
-          fetchedDone = fetched.done
-          chart = [fetched.file]
-          label = ['--labels', `${REPOSITORY_LABEL}=${r.source.saved}`]
-        } else {
-          const given = await this.#sourceArgs(r.source)
-          fetchedDone = given.done
-          chart = given.args
-          // Another chart in place of one from a repository Lumovi keeps: no longer from there.
-          // (Only where it was labelled so: a helm older than 3.13 has no --labels. Where its
-          // record can't be read, helm says what's wrong; a label left is never trusted alone.)
-          if (r.install !== true) {
-            const latest = await releaseHistory(this.#list(r.context), r.namespace, r.name).then(
-              (history) => history.latest,
-              () => undefined,
-            )
-            if (latest?.labels?.[REPOSITORY_LABEL]) label = ['--labels', `${REPOSITORY_LABEL}=null`]
-          }
-        }
-        const doing: HelmDoing = r.install === true ? 'installing' : 'upgrading'
-        const deploy = () =>
-          this.#onCluster(r.context, (args, env) =>
-            this.#helm(
-              [
-                r.install === true ? 'install' : 'upgrade',
-                r.name,
-                ...chart,
-                '--namespace',
-                r.namespace,
-                ...args,
-                '--values',
-                values,
-                '--output',
-                'json',
-                ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
-                ...(r.dryRun === true ? ['--dry-run=server'] : []),
-                ...label,
-                ...waits,
-              ],
-              env,
-              // (Helm's own timeout ends it first: Lumovi's is a while after.)
-              r.timeoutSeconds !== undefined && r.dryRun !== true
-                ? Math.max(RUN_TIMEOUT_MS, (r.timeoutSeconds + 120) * 1000)
-                : undefined,
-            ),
-          )
-        const output =
-          r.dryRun === true ? await deploy() : await this.#while({ name: r.name, doing }, deploy)
-        const deployed = JSON.parse(output) as StoredRelease
-        return {
-          revision: deployed.version,
-          manifest: deployed.manifest,
-          notes: deployed.info.notes,
-        }
-      } finally {
-        await fetchedDone?.()
-        await rm(directory, { recursive: true, force: true })
-      }
+      // Under way from here, its checks and its chart's fetching too, not only once helm runs:
+      // quitting meanwhile stops it as surely, so it's what quitting asks about. (A dry run
+      // changes nothing.)
+      if (r.dryRun === true) return this.#deploy(r)
+      const doing: HelmDoing = r.install === true ? 'installing' : 'upgrading'
+      return this.#while({ name: r.name, doing }, () => this.#deploy(r))
     })
+  }
+
+  /** `deploy`, its request checked as one whose release can change. */
+  async #deploy(r: HelmDeploy): Promise<HelmDeployed> {
+    if (r.install === true) await this.#allowed(r, 'install', 'install charts')
+    else {
+      await this.#allowed(r, 'upgrade', 'upgrade releases')
+      // Upgrading starts from the values it has, which only those shown them can keep.
+      await this.#guard?.require(r.context, 'secrets', 'values', r.namespace, 'upgrade releases')
+    }
+    // No values at all is fine: the chart's defaults apply.
+    if (typeof r.values !== 'string') throw invalid('values must be a string')
+    for (const flag of ['wait', 'rollbackOnFailure'] as const) {
+      if (r[flag] !== undefined && typeof r[flag] !== 'boolean') {
+        throw invalid(`${flag} must be true or false`)
+      }
+    }
+    if (r.timeoutSeconds !== undefined) {
+      assertIntegerInRange(r.timeoutSeconds, 'timeoutSeconds', 30, LONGEST_TIMEOUT_S)
+    }
+    // (A dry run makes nothing to wait for, nor to undo.)
+    const waits = r.dryRun !== true ? await this.#waitArgs(r) : []
+    if (r.values.length > MAX_VALUES) throw invalid('The values are too large')
+    const directory = await mkdtemp(join(tmpdir(), 'lumovi-helm-'))
+    let fetchedDone: (() => Promise<void>) | undefined
+    try {
+      const values = join(directory, 'values.yaml')
+      await writeFile(values, r.values)
+      let chart: string[]
+      // Where a chart from a repository Lumovi keeps came from, on the release (or none now).
+      let label: string[] = []
+      if (r.source === 'stored') {
+        // The chart the release runs is stored with it, but without its subcharts.
+        const { latest } = await releaseHistory(this.#list(r.context), r.namespace, r.name)
+        if (latest.chart.metadata.dependencies?.length) {
+          throw invalid(
+            `${r.name}’s chart has subcharts, which Helm doesn’t keep with the release. Choose the chart to upgrade with.`,
+          )
+        }
+        chart = [await writeChart(latest.chart, join(directory, 'chart'))]
+      } else if (r.source.saved !== undefined) {
+        const fetched = await this.#savedChart(r.source)
+        fetchedDone = fetched.done
+        chart = [fetched.file]
+        label = ['--labels', `${REPOSITORY_LABEL}=${r.source.saved}`]
+      } else {
+        const given = await this.#sourceArgs(r.source)
+        fetchedDone = given.done
+        chart = given.args
+        // Another chart in place of one from a repository Lumovi keeps: no longer from there.
+        // (Only where it was labelled so: a helm older than 3.13 has no --labels. Where its
+        // record can't be read, helm says what's wrong; a label left is never trusted alone.)
+        if (r.install !== true) {
+          const latest = await releaseHistory(this.#list(r.context), r.namespace, r.name).then(
+            (history) => history.latest,
+            () => undefined,
+          )
+          if (latest?.labels?.[REPOSITORY_LABEL]) label = ['--labels', `${REPOSITORY_LABEL}=null`]
+        }
+      }
+      const deploy = () =>
+        this.#onCluster(r.context, (args, env) =>
+          this.#helm(
+            [
+              r.install === true ? 'install' : 'upgrade',
+              r.name,
+              ...chart,
+              '--namespace',
+              r.namespace,
+              ...args,
+              '--values',
+              values,
+              '--output',
+              'json',
+              ...(r.install === true && r.createNamespace === true ? ['--create-namespace'] : []),
+              ...(r.dryRun === true ? ['--dry-run=server'] : []),
+              ...label,
+              ...waits,
+            ],
+            env,
+            // (Helm's own timeout ends it first: Lumovi's is a while after.)
+            r.timeoutSeconds !== undefined && r.dryRun !== true
+              ? Math.max(RUN_TIMEOUT_MS, (r.timeoutSeconds + 120) * 1000)
+              : undefined,
+          ),
+        )
+      const deployed = JSON.parse(await deploy()) as StoredRelease
+      return {
+        revision: deployed.version,
+        manifest: deployed.manifest,
+        notes: deployed.info.notes,
+      }
+    } finally {
+      await fetchedDone?.()
+      await rm(directory, { recursive: true, force: true })
+    }
   }
 
   /** Refuses unless they may install charts there: asked before anything is made for one. */

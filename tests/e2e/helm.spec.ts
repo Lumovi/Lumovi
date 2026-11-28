@@ -348,10 +348,19 @@ test('install and upgrade options: wait, undo it if it fails, and a timeout, eac
   await upgrade.getByRole('button', { name: 'Review' }).click()
   await expect(upgrade).toContainText('storefront is ready.')
   const release = holdHelm(lumovi, 'upgrade')
+  const before = helmCalls(lumovi).length
   await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
   await expect(upgrade.getByRole('status')).toContainText(
     'Upgrading, then waiting until it’s ready: up to 10 minutes',
   )
+  // (Helm has the upgrade, held: what quitting would stop is under way.)
+  await expect
+    .poll(() =>
+      helmCalls(lumovi)
+        .slice(before)
+        .some((args) => args[0] === 'upgrade' && !args.includes('--dry-run=server')),
+    )
+    .toBe(true)
   await expect(upgrade.getByRole('status')).toContainText(
     'Closing this doesn’t stop it. The release’s page says how it ended.',
   )
@@ -374,6 +383,58 @@ test('install and upgrade options: wait, undo it if it fails, and a timeout, eac
   release()
   await expect(toasts(page)).toContainText('Upgraded storefront')
   expect(helmCalls(lumovi).at(-1)).toContain('--wait')
+})
+
+test('quitting while an upgrade is still being checked, before helm runs it, asks first', async ({
+  page,
+  lumovi,
+}) => {
+  await openCluster(page)
+  await openHelm(page)
+  const storefront = await openRelease(page, HELM.storefront)
+  await storefront.getByRole('button', { name: 'Upgrade…' }).click()
+  const upgrade = dialog(page)
+  // Undoing a failure asks which helm runs (its flag's name differs), before the upgrade itself:
+  // held there, the upgrade is still being checked.
+  await upgrade.getByRole('checkbox', { name: /Undo it if it fails/ }).check()
+  await upgrade.getByRole('button', { name: 'Review' }).click()
+  await expect(upgrade).toContainText('storefront is ready.')
+  // Every call the stand-in had, version checks too, as it had them (before any hold).
+  const calls = () =>
+    readFileSync(join(lumovi.helmDir!, 'calls.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[])
+  const release = holdHelm(lumovi, 'version')
+  const before = calls().length
+  await upgrade.getByRole('button', { name: 'Upgrade', exact: true }).click()
+  await expect
+    .poll(() =>
+      calls()
+        .slice(before)
+        .some((args) => args[0] === 'version'),
+    )
+    .toBe(true)
+  // (Helm hasn't the upgrade yet.)
+  expect(
+    calls()
+      .slice(before)
+      .some((args) => args[0] === 'upgrade'),
+  ).toBe(false)
+  const asks = await lumovi.app.evaluate(({ app, dialog }) => {
+    const said: string[] = []
+    dialog.showMessageBoxSync = ((options: { message: string; detail?: string }) => {
+      said.push(`${options.message} ${options.detail}`)
+      return 0
+    }) as typeof dialog.showMessageBoxSync
+    app.quit()
+    return said
+  })
+  expect(asks).toEqual([
+    'storefront is still upgrading. Quitting stops Helm, and can leave the release pending.',
+  ])
+  release()
+  await expect(toasts(page)).toContainText('Upgraded storefront')
 })
 
 test('on Helm 4, undoing a failure is --rollback-on-failure', async ({ page, lumovi }) => {

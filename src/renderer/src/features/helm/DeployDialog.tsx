@@ -155,7 +155,7 @@ export function DeployDialog({
     stored: true,
     repository: source.chart !== '',
     // Read and checked as it is now (a failed read keeps the last one's data).
-    local: checked.isSuccess,
+    local: checked.read.isSuccess && checked.lint.isSuccess,
   }[mode]
   // Installing where the person's access doesn't let them is said before they try.
   const here = useAccessHere()
@@ -177,7 +177,7 @@ export function DeployDialog({
     setChecking(true)
     setProblem(undefined)
     // A chart being worked on is checked again first, with these values.
-    if (mode === 'local' && (await checked.refetch()).isError) {
+    if (mode === 'local' && !(await checked.again())) {
       setChecking(false)
       return
     }
@@ -257,7 +257,7 @@ export function DeployDialog({
               lines of manifest
             </span>
           </div>
-          {mode === 'local' && <LintFindings lint={checked.data!.lint} />}
+          {mode === 'local' && <LintFindings lint={checked.lint.data!} />}
           {diff!.added + diff!.removed === 0 ? (
             <p className="text-[13px] text-ink-2">Nothing it makes changes.</p>
           ) : (
@@ -337,7 +337,7 @@ export function DeployDialog({
           <div>
             <div className="mb-1 flex items-center gap-2">
               <span className="flex-1 text-xs font-medium text-ink-2">Values</span>
-              {mode === 'local' && Boolean(checked.data?.chart.valuesFiles.length) && (
+              {mode === 'local' && Boolean(checked.read.data?.valuesFiles.length) && (
                 <select
                   aria-label="Load values from"
                   value=""
@@ -349,7 +349,7 @@ export function DeployDialog({
                   className="h-7 max-w-44 rounded-md border border-line bg-surface-2 px-1.5 text-xs text-ink-1"
                 >
                   <option value="">Load values from…</option>
-                  {checked.data!.chart.valuesFiles.map((file) => (
+                  {checked.read.data!.valuesFiles.map((file) => (
                     <option key={file} value={file}>
                       {file}
                     </option>
