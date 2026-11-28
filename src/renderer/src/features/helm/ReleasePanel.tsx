@@ -48,6 +48,8 @@ import { DeployDialog } from './DeployDialog'
 import { UpdatePill } from './UpdatePill'
 import { RollbackReleaseDialog, UninstallReleaseDialog } from './ReleaseDialogs'
 import { SecretsHidden } from './SecretsHidden'
+import { FindButton } from '@renderer/components/FindBar'
+import { useFindControl, type FindControl } from '@renderer/lib/find'
 
 /** The release named by `?release=namespace/name`, next to the list. */
 export function ReleasePanel() {
@@ -479,6 +481,7 @@ function ReleaseValues({ release }: { release: HelmReleaseDetail }) {
   const text = Object.keys(values).length
     ? toYaml(values)
     : '# No values set: the chart’s defaults apply.\n'
+  const find = useFindControl()
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-5 py-2">
@@ -499,18 +502,27 @@ function ReleaseValues({ release }: { release: HelmReleaseDetail }) {
           ))}
         </div>
         <span className="flex-1" />
+        <FindButton control={find} />
         <CopyButton text={text} label="Copy values" />
       </div>
-      <YamlText text={text} label="Values" />
+      <YamlText text={text} label="Values" find={find} />
     </div>
   )
 }
 
 /** Over a manifest that holds a Secret's values, a line of its own with Reveal values. */
-function SecretsBar(props: { revealed: boolean; onReveal: (revealed: boolean) => void }) {
+function SecretsBar({
+  find,
+  ...props
+}: {
+  revealed: boolean
+  onReveal: (revealed: boolean) => void
+  find?: FindControl
+}) {
   return (
     <div className="flex items-center justify-end gap-2 border-b border-line px-5 py-2">
       <SecretsHidden {...props} />
+      {find && <FindButton control={find} />}
     </div>
   )
 }
@@ -519,10 +531,12 @@ function SecretsBar(props: { revealed: boolean; onReveal: (revealed: boolean) =>
 function ReleaseManifest({ manifest }: { manifest: string }) {
   const [revealed, setRevealed] = useState(false)
   const masked = useMemo(() => maskedManifest(manifest), [manifest])
+  // (Its toolbar, and Find in it, only where there's a Secret to reveal: ⌘F finds otherwise.)
+  const find = useFindControl()
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {masked !== manifest && <SecretsBar revealed={revealed} onReveal={setRevealed} />}
-      <YamlText text={revealed ? manifest : masked} label="Manifest" />
+      {masked !== manifest && <SecretsBar revealed={revealed} onReveal={setRevealed} find={find} />}
+      <YamlText text={revealed ? manifest : masked} label="Manifest" find={find} />
     </div>
   )
 }

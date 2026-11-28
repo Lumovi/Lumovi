@@ -2,6 +2,8 @@ import { inPieces } from '@shared/kit/characters'
 import { cn } from '@renderer/lib/cn'
 import { tokenizeYamlLine, type YamlTokenType } from '@renderer/lib/yaml'
 import { Pieces } from '@renderer/plugins/TheirText'
+import type { FindControl } from '@renderer/lib/find'
+import { Findable } from './Findable'
 
 const TOKEN_CLASS: Record<YamlTokenType, string> = {
   key: 'text-accent-strong',
@@ -15,29 +17,40 @@ const TOKEN_CLASS: Record<YamlTokenType, string> = {
 
 /**
  * YAML, highlighted, with line numbers. It's mostly the cluster's text, so it's drawn in pieces:
- * what would turn a line round or can't be seen is a mark, never itself.
+ * what would turn a line round or can't be seen is a mark, never itself. ⌘F finds in it.
  */
-export function YamlText({ text, label }: { text: string; label: string }) {
+export function YamlText({
+  text,
+  label,
+  find,
+}: {
+  text: string
+  label: string
+  /** Its toolbar's Find, where it has one. */
+  find?: FindControl
+}) {
   const lines = text.trimEnd().split('\n')
   return (
-    <pre
-      aria-label={label}
-      className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] select-text selectable"
-    >
-      <code className="grid grid-cols-[auto_1fr]">
-        {lines.map((line, index) => (
-          <span key={index} className="contents">
-            <span className="pr-4 pl-5 text-right text-ink-3/60 select-none">{index + 1}</span>
-            <span className="pr-5 whitespace-pre">
-              {tokenizeYamlLine(line).map((token, i) => (
-                <span key={i} className={cn(TOKEN_CLASS[token.type])}>
-                  <Pieces pieces={inPieces(token.text)} />
-                </span>
-              ))}
+    <Findable label={label} control={find}>
+      <pre
+        aria-label={label}
+        className="min-h-0 flex-1 overflow-auto bg-surface-2/60 py-3 font-mono text-[12px] leading-[1.7] select-text selectable"
+      >
+        <code className="grid grid-cols-[auto_1fr]">
+          {lines.map((line, index) => (
+            <span key={index} className="contents">
+              <span className="pr-4 pl-5 text-right text-ink-3/60 select-none">{index + 1}</span>
+              <span data-find-text="" className="pr-5 whitespace-pre">
+                {tokenizeYamlLine(line).map((token, i) => (
+                  <span key={i} className={cn(TOKEN_CLASS[token.type])}>
+                    <Pieces pieces={inPieces(token.text)} />
+                  </span>
+                ))}
+              </span>
             </span>
-          </span>
-        ))}
-      </code>
-    </pre>
+          ))}
+        </code>
+      </pre>
+    </Findable>
   )
 }

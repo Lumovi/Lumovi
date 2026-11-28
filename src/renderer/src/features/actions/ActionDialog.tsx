@@ -27,6 +27,7 @@ import { useProduction } from '@renderer/hooks/settings'
 import { focusBack, useOpener } from '@renderer/lib/focus-back'
 import { useCluster } from '@renderer/state/cluster'
 import { useDock } from '../terminal/dock'
+import { escapeIsSearchs } from '@renderer/lib/find'
 
 export interface ActionDialogProps {
   icon: LucideIcon
@@ -121,9 +122,7 @@ export function ActionDialog({
           // not the dialog. (A completion or a card takes its Escape before the dialog hears it:
           // see schema-editor.ts.)
           onEscapeKeyDown={(event) => {
-            if ((event.target as HTMLElement | null)?.closest?.('.cm-panel')) {
-              event.preventDefault()
-            }
+            if (escapeIsSearchs(event.target)) event.preventDefault()
           }}
           // (Closed: back to the button it was opened from, or the busy one in its place.)
           onCloseAutoFocus={(event) => {

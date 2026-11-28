@@ -14,6 +14,8 @@ import { toYaml } from '@renderer/lib/yaml'
 import { useSchemaSource } from '@renderer/hooks/schema-source'
 import { useCluster } from '@renderer/state/cluster'
 import { kindOf, target } from '../actions/common'
+import { FindButton } from '@renderer/components/FindBar'
+import { useFindControl } from '@renderer/lib/find'
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -154,6 +156,9 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
   }
 
   const diff = reviewed ? unifiedDiff(initial, text) : undefined
+  // Find, in what's being edited and in the review: each its own.
+  const editFind = useFindControl()
+  const reviewFind = useFindControl()
 
   return (
     <div
@@ -184,6 +189,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
         )}
         {diff ? (
           <>
+            <FindButton control={reviewFind} />
             <Button variant="ghost" onClick={() => setReviewed(undefined)} disabled={pending}>
               Back to editing
             </Button>
@@ -194,6 +200,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
           </>
         ) : (
           <>
+            <FindButton control={editFind} />
             <Button variant="ghost" onClick={onDone}>
               Cancel
             </Button>
@@ -231,7 +238,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
       )}
 
       {diff ? (
-        <DiffView diff={diff} label="Changes" />
+        <DiffView diff={diff} label="Changes" find={reviewFind} />
       ) : (
         <div className="min-h-0 flex-1 bg-surface-2/60">
           <CodeEditor
@@ -243,6 +250,7 @@ export function YamlEditor({ object, onDone }: { object: KubeObject; onDone: () 
             onSave={() => void review()}
             label={`YAML of ${name}`}
             schema={schema}
+            find={editFind}
           />
         </div>
       )}

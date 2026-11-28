@@ -71,6 +71,7 @@ import { useCluster } from '@renderer/state/cluster'
 import { Results } from './CreateDialog'
 import { createCommand, useCreating } from './create-run'
 import { keepMovedFocus } from '@renderer/lib/focus-back'
+import { escapeIsSearchs } from '@renderer/lib/find'
 
 const KINDS = Object.keys(FORM_KINDS) as FormKindName[]
 
@@ -330,6 +331,10 @@ export function CreateForm({ sides, onClose }: { sides: ReactNode; onClose: () =
           // (Closed: the keyboard back where it was, unless the person has put it elsewhere since.)
           onCloseAutoFocus={keepMovedFocus}
           aria-describedby={undefined}
+          // Escape in the editor's search closes the search, not the dialog.
+          onEscapeKeyDown={(event) => {
+            if (escapeIsSearchs(event.target)) event.preventDefault()
+          }}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             // On its first field: a form is filled from the top.

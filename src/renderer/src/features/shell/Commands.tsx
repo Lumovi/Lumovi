@@ -5,6 +5,7 @@ import { useMatch, useNavigate } from 'react-router'
 import { GO_KEYS, QUICK_NAV, type AppCommand, type NavTarget } from '@shared/navigation'
 import { useGo } from '@renderer/hooks/go'
 import { api } from '@renderer/lib/api'
+import { openFind } from '@renderer/lib/find'
 import { targetPath } from '@renderer/lib/routes'
 import { useUi } from '@renderer/state/ui'
 import { useDock } from '../terminal/dock'
@@ -172,6 +173,19 @@ export function Commands() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Find, in the YAML or the diff in front, wherever the keyboard is: not a terminal's
+      // (its own keys), nor an editor's own search, which has it first. Where there's none, the
+      // key is left as it is (in a browser, its find).
+      if (
+        pressed(event, 'find') &&
+        !event.defaultPrevented &&
+        !inTerminal(event.target) &&
+        !claimedPress(event) &&
+        openFind()
+      ) {
+        event.preventDefault()
+        return
+      }
       // A command's keys, as Settings has them: with ⌘ or Ctrl, wherever the keyboard is;
       // others not while typing, nor past an open dialog or menu.
       const held = event.metaKey || event.ctrlKey

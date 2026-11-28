@@ -104,6 +104,14 @@ export const SHORTCUTS: Shortcut[] = [
     group: 'General',
     keys: ['Mod+Shift+F'],
   },
+  // (A terminal keeps it while it has the keyboard; an editor's search has it first.)
+  {
+    id: 'find',
+    label: 'Find in YAML or a diff',
+    place: 'everywhere',
+    group: 'General',
+    keys: ['Mod+F'],
+  },
   {
     id: 'list.select',
     label: 'Select the row (Shift for a range)',

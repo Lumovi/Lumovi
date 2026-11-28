@@ -515,3 +515,33 @@ test('in a window too short for the changeâ€™s floor, the line that says thereâ€
     }),
   ).toBe(true)
 })
+
+test('a search of a long change stays at the top of its box as the box scrolls, and what it steps to is in sight under it', async ({
+  serve,
+  page,
+}) => {
+  const server = await served(serve)
+  await opened(page, server, SMALLEST)
+  const copy = await asked(page, 'Copy')
+  await page.keyboard.press('ControlOrMeta+f')
+  const search = copy.getByRole('search', { name: 'Find in The whole object Lumovi will create' })
+  await expect(search.getByRole('textbox')).toBeFocused()
+  // The last part's value: far down the box.
+  await page.keyboard.type('p29')
+  await page.keyboard.press('Enter')
+  await expect(search).toContainText('1 of 1')
+  await expect.poll(() => box(copy).evaluate((lines) => lines.scrollTop)).toBeGreaterThan(0)
+  const [top, at] = [await placed(box(copy)), await placed(search)]
+  expect(Math.abs(at.y - top.y)).toBeLessThan(1)
+  const match = await page.evaluate(() => {
+    const range = [...CSS.highlights.get('lumovi-find-current')!][0] as Range
+    const { top, bottom } = range.getBoundingClientRect()
+    return { top, bottom }
+  })
+  expect(match.top).toBeGreaterThanOrEqual(at.y + at.height)
+  expect(match.bottom).toBeLessThanOrEqual(top.y + top.height)
+  // Escape closes the search, not the dialog.
+  await page.keyboard.press('Escape')
+  await expect(search).toHaveCount(0)
+  await expect(copy).toBeVisible()
+})

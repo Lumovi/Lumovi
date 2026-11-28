@@ -66,6 +66,7 @@ import { requestBase, useProposals, type ShownProposal } from './proposals'
 import { CopyButton } from '@renderer/components/CopyButton'
 import { focusBack, useOpener } from '@renderer/lib/focus-back'
 import { TheirText } from './TheirText'
+import { escapeIsSearchs } from '@renderer/lib/find'
 
 /** Lumovi's word for an action, where the plugin's isn't the button's. */
 const LUMOVIS_WORD = {
@@ -585,6 +586,10 @@ function Proposal({ shown }: { shown: ShownProposal }): ReactNode {
           ref={dialogRef}
           aria-describedby={undefined}
           data-plugin-proposal={by.plugin}
+          // Escape in a search (the change's) closes the search, not the dialog.
+          onEscapeKeyDown={(event) => {
+            if (escapeIsSearchs(event.target)) event.preventDefault()
+          }}
           // (Closed: back to the button it was opened from, or the busy one in its place.)
           onCloseAutoFocus={(event) => {
             event.preventDefault()
