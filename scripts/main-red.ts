@@ -81,15 +81,47 @@ export interface Said {
   failedJobs: string[]
   failed: string[]
   flaky: string[]
+  /** Where its coverage gate failed (coverageOf), if it did. */
+  coverage?: string[]
+}
+
+/** How many of the files with what didn't run a failed gate names, the most first. */
+const MOST_FILES = 10
+
+/**
+ * What the coverage gate's log says of a miss (scripts/check-coverage.ts): each file no test
+ * loaded, each measure at or under the line, and the files with the most that didn't run, with
+ * how much, the most first. So the fix starts where it fell. Nothing where it passed.
+ */
+export function coverageOf(log: string): string[] {
+  const lines = log.split('\n').map(untimed)
+  const unloaded = lines.filter((line) => / never loaded by any test$/.test(line))
+  const low = lines.filter((line) =>
+    /^ {2}(statements|branches|functions|lines): [\d.]+%, not more than /.test(line),
+  )
+  if (unloaded.length === 0 && low.length === 0) return []
+  const notRun = new Map<string, number>()
+  for (const line of lines) {
+    const file = /^ {2}(?:statement|function|branch) +(\S+?):\d+ /.exec(line)?.[1]
+    if (file) notRun.set(file, (notRun.get(file) ?? 0) + 1)
+  }
+  const most = [...notRun.entries()]
+    .sort(([a, x], [b, y]) => y - x || (a < b ? -1 : 1))
+    .slice(0, MOST_FILES)
+    .map(([file, count]) => `${file}: ${count} not run`)
+  return [...unloaded.map((line) => line.trim()), ...low.map((line) => line.trim()), ...most]
 }
 
 /** What a red run says on `main-red`: its commit, then each job and test that failed. */
-export function redComment({ what, sha, url, failedJobs, failed }: Said): string {
+export function redComment({ what, sha, url, failedJobs, failed, coverage = [] }: Said): string {
   return [
     `**${what} is red at ${sha.slice(0, 7)}:** ${url}`,
     '',
     ...failedJobs.map((job) => `- ${job}`),
     ...(failed.length > 0 ? ['', 'Failed on every try:', '', ...failed.map((t) => `- ${t}`)] : []),
+    ...(coverage.length > 0
+      ? ['', 'Coverage, where it fell:', '', ...coverage.map((line) => `- ${line}`)]
+      : []),
   ].join('\n')
 }
 
@@ -196,6 +228,10 @@ export function tell(
     ranOutOfTime,
   )
   const tests = finished.filter(ranTests).map((job) => testsOf(logOf(job)))
+  const gate = finished.find(
+    (job) => job.name === 'Coverage (all platforms)' && job.conclusion === 'failure',
+  )
+  const coverage = gate ? coverageOf(logOf(gate)) : []
   const said: Said = {
     what,
     sha,
@@ -203,6 +239,7 @@ export function tell(
     failedJobs: finished.filter((job) => job.conclusion === 'failure').map((job) => job.name),
     failed: tests.flatMap((each) => each.failed),
     flaky: tests.flatMap((each) => each.flaky),
+    ...(coverage.length > 0 ? { coverage } : {}),
   }
   const done: string[] = []
   if (verdict === 'red') {

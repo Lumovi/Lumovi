@@ -1,0 +1,29 @@
+# What a pull request and a merge to main run on Linux, with tests/e2e/smoke.txt's files, every spec
+# file the change touches, and the security set where it touches what holds a plugin in
+# (scripts/ci-changes.ts): an area each, quickly. Everything runs nightly and for a release.
+tests/e2e/details.spec.ts
+tests/e2e/editing.spec.ts
+tests/e2e/logs.spec.ts
+tests/e2e/yaml.spec.ts
+tests/e2e/yaml-edit.spec.ts
+tests/e2e/lists.spec.ts
+tests/e2e/add-cluster.spec.ts
+tests/e2e/plugins.spec.ts
+tests/e2e/plugin-page.spec.ts
+tests/e2e/plugin-pages.spec.ts
+tests/web/server.spec.ts
+tests/web/sign-in.spec.ts
+tests/web/served.spec.ts
+tests/web/second-wall.spec.ts
+tests/web/fleet.spec.ts
+tests/web/create.spec.ts
+tests/web/streams.spec.ts
+tests/web/phone-kit.spec.ts
+tests/web/phone-pins.spec.ts
+tests/web/ci-changes.spec.ts
+tests/web/changelog.spec.ts
+tests/web/coverage-maps.spec.ts
+tests/web/list-noun.spec.ts
+tests/web/marks-budget.spec.ts
+tests/web/read-only-replicas.spec.ts
+tests/web/terminal-input.spec.ts

@@ -1,39 +1,26 @@
 /**
  * What a CI run needs, from what started it and what a pull request changes (CI's "What changed"
- * job), for $GITHUB_OUTPUT:
+ * job), for $GITHUB_OUTPUT (LMV-405):
  *
+ * - `full`: everything, on every system, macOS and Windows in full, the browser's tests on each,
+ *   the integration tests, the packages and the coverage gate. Main's nightly run, a run by hand,
+ *   a release's pull request (`release-<version>`, whose run the release itself waits on), and a
+ *   pull request whose label (`full-ci`) asks.
+ * - Anything else (a pull request, a merge to main) runs less, and quickly: on Linux, the smoke
+ *   set (tests/e2e/smoke.txt and tests/smoke.txt) and every spec file it changes, split over
+ *   shards by how long they took (`files` and `shard` in `e2e`); the security set too
+ *   (SECURITY_SET), with the box in every browser engine (`browsers`), where it changes what
+ *   holds a plugin in; Windows' and macOS's smoke sets where it changes what differs by system
+ *   (`platforms`), or macOS's desktop tests in full where its label (`macos-full`) asks; and the
+ *   packages where it changes how they're made (`packages`).
  * - `docs`: a pull request that changes only docs (Markdown, docs/, images outside the app): no
  *   E2E, packaging or integration tests, and "CI passed" all the same.
- * - `e2e`: the E2E shards, each with the tests' projects it runs. Linux runs every test, the
- *   desktop app's (tests/e2e) and the browser's (tests/web). macOS and Windows run the desktop
- *   app's, less those whose logic is the same on every system (tests/e2e/linux-only.txt): those,
- *   and the browser's, run there only nightly, for a run by hand and for a release's pull
- *   request, since the server Lumovi ships runs on Linux. macOS runs its desktop tests in full for
- *   main's merges, and for a pull request that changes what macOS does differently (MACOS: the
- *   main process, Electron, packaging, the dependencies, the tests' harness, CI's own scripts and
- *   workflow), names a system (NAMES_A_SYSTEM), is a release's (`release-<version>`), or whose
- *   label (`macos-full`) asks. Any other pull request runs macOS's smoke set
- *   (tests/e2e/smoke.txt): an account has five macOS machines at once, and a full run takes all
- *   five.
  * - `release`: whether this is a release's own pull request, whose branch is named for its version
  *   (`release-1.22.0`): any other branch whose name starts the same is an ordinary one.
- * - `platforms`: whether Windows, macOS, the Firefox and WebKit job and the packages run. They
- *   do everywhere but a pull request whose every change is alike on every system
- *   (alikeOnEverySystem) and doesn't ask which system it's on: Linux alone runs that, in full.
- *   A path not named as alike runs them all.
- * - `integration`: whether the integration tests run: everywhere but a pull request that changes
- *   nothing they see (integrationsSee).
- * - `macos`: `full`, `smoke` or `none`, and `windows`: `ran` or `none`, for the coverage job:
- *   what main's newest full run reached on the systems that didn't run here (or ran macOS's
- *   smoke set), and this run's didn't, is borrowed from it (scripts/borrow-coverage.ts), and
- *   nothing else: the rest is this run's own to reach.
+ * - `integration`: whether the integration tests run: in a full run.
  *
- * Main's merges and its nightly run are the ones that bind. A merge's run is the one that counts
- * for macOS: what a pull request's can't see (something only macOS reaches that a change elsewhere
- * stops being reached) shows there. The nightly run is every test on every system, the only run
- * of main's that runs the browser's tests and linux-only.txt's on macOS and Windows; so a red
- * nightly is a red main too, a warning on every pull request (the workflow's "Whether main is
- * red").
+ * A red nightly is a red main, said on the `main-red` issue (scripts/main-red.ts), which only a
+ * green full run closes.
  *
  *   node scripts/ci-changes.ts [changed files...]   (by default, HEAD's against its first parent)
  *
@@ -106,40 +93,6 @@ export function namingASystem(
   })
 }
 
-/**
- * What can't change what the integration tests see (a real cluster, Lumovi served from it and the
- * desktop app beside it): the other tests, the mock clusters, the tests' timings, entries and
- * docs. Anything else runs them: the server, the chart, the image, the app, CI, a path not named
- * here.
- */
-const NOT_INTEGRATIONS = [
-  /^changelog\.d\//,
-  /^tests\/(e2e|web|plugins)\//,
-  /^tests\/mock-[\w-]+\//,
-  /^tests\/durations\.json$/,
-]
-export const integrationsSee = (path: string) =>
-  !isDocs(path) && !NOT_INTEGRATIONS.some((not) => not.test(path))
-
-/**
- * What macOS does differently, or what decides how the app is built and tested: a pull request
- * that changes it runs macOS's desktop tests in full, not its smoke set.
- */
-const MACOS = [
-  /^src\/(main|preload)\//,
-  /^src\/backend\/(helm\/service|kube\/(client|kubeconfig|files|streams)|network)\.ts$/,
-  /^(build|packaging)\//,
-  /^electron(-builder\.yml|\.vite\.config\.ts)$/,
-  /^package(-lock)?\.json$/,
-  /^\.nvmrc$/,
-  /^playwright\.config\.ts$/,
-  /^tests\/e2e\/(fixtures|global-setup)\.ts$/,
-  /^tests\/e2e\/(smoke|linux-only)\.txt$/,
-  /^scripts\/(ci-changes|e2e-shard|borrow-coverage|vite-coverage|judge)\.(ts|sh)$/,
-  /^\.github\/workflows\/ci\.yml$/,
-]
-export const isMacos = (path: string) => MACOS.some((macos) => macos.test(path))
-
 /** A release's own branch: `release-` and its version (`release-1.22.0`, `release-2.0.0-rc.1`). */
 export const isRelease = (branch: string) =>
   /^release-\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(branch)
@@ -147,14 +100,171 @@ export const isRelease = (branch: string) =>
 /** The label that asks for everything on macOS, whatever changed. */
 export const MACOS_FULL = 'macos-full'
 
+/** The label that asks for everything, on every system, as a release's pull request runs. */
+export const FULL_CI = 'full-ci'
+
 /**
- * Whether a run's artifacts (their names) hold macOS's coverage in full: every shard's, not the
- * smoke set's.
+ * The tests' harness, and what runs them: their fixtures, helpers and the files they read, the mock
+ * clusters and other stand-ins, the Playwright configs and the script that splits them. A change to
+ * it can break any test, so it runs everything, as the label full-ci asks. So does a change to the
+ * integration tests, specs and cluster alike: they run only in a run of everything.
  */
-export const ranMacosInFull = (names: string[]) =>
-  Array.from({ length: SHARDS['macos-latest'] }, (_, i) => `coverage-macOS-${i + 1}`).every(
-    (name) => names.includes(name),
-  )
+const HARNESS = [
+  /^tests\/integration\//,
+  /^tests\/(e2e|web)\/(?![^/]+\.spec\.ts$)(?![^/]+\.txt$).+/,
+  /^tests\/mock-[\w-]+\//,
+  /^tests\/[^/]+\.ts$/,
+  /^playwright[\w.-]*\.config\.ts$/,
+  /^scripts\/e2e-shard\.ts$/,
+]
+export const isHarness = (path: string) => HARNESS.some((harness) => harness.test(path))
+
+/** A spec file of the desktop app's tests or the browser's: what a change to one runs in full. */
+const isSpec = (path: string) => /^tests\/(e2e|web)\/[^/]+\.spec\.ts$/.test(path)
+
+/**
+ * What decides how the app is packaged, or what it's packaged with: a change to it builds the
+ * packages on every system, and tries each.
+ */
+const PACKAGING = [
+  /^(build|packaging)\//,
+  /^electron-builder\.yml$/,
+  /^package(-lock)?\.json$/,
+  /^\.nvmrc$/,
+  /^scripts\/(after-pack|sbom|helm|node-pty)[\w-]*\.(ts|mjs)$/,
+  /^\.github\/workflows\/ci\.yml$/,
+]
+export const isPackaging = (path: string) => PACKAGING.some((packaging) => packaging.test(path))
+
+/** What a plugin gets out of its box (nothing), on the desktop and a server, and what a hostile one can ask. */
+const BOX = [
+  'tests/e2e/plugin-box.spec.ts',
+  'tests/e2e/plugin-box-ways-out.spec.ts',
+  'tests/e2e/plugin-hostile.spec.ts',
+  'tests/e2e/plugin-hostile-own.spec.ts',
+  'tests/e2e/plugin-hostile-store.spec.ts',
+  'tests/web/plugin-box.spec.ts',
+  'tests/web/plugin-box-apart.spec.ts',
+  'tests/web/box-check.spec.ts',
+  'tests/web/box-check-calls.spec.ts',
+  'tests/web/plugin-hostile.spec.ts',
+  'tests/web/plugin-hand-over.spec.ts',
+  'tests/web/plugin-code-switch.spec.ts',
+]
+/** A Secret's values masked, and what a view withholds. */
+const MASKED = [
+  'tests/e2e/plugin-secret-page.spec.ts',
+  'tests/e2e/secret-by-key.spec.ts',
+  'tests/e2e/withheld.spec.ts',
+  'tests/web/plugin-secret-page.spec.ts',
+  'tests/web/plugin-secret.spec.ts',
+  'tests/web/secret-by-key.spec.ts',
+  'tests/web/withheld.spec.ts',
+]
+/** An object's YAML, a compare and Find: a Secret's values hidden until revealed, and never found. */
+const SHOWN_MASKED = [
+  'tests/e2e/details.spec.ts',
+  'tests/e2e/find.spec.ts',
+  'tests/e2e/compare.spec.ts',
+  'tests/web/compare.spec.ts',
+]
+/** A server's own pages and their policy: what may frame them, and what they may load. */
+const SERVER_PAGES = [
+  'tests/web/server.spec.ts',
+  'tests/web/plugin-box.spec.ts',
+  'tests/web/box-check.spec.ts',
+]
+/** What the audit keeps. */
+const AUDIT = ['tests/e2e/audit.spec.ts', 'tests/web/audit.spec.ts']
+/** What an assistant may read and change, and what its approvals show. */
+const ASSISTANT = [
+  'tests/e2e/assistant-permissions.spec.ts',
+  'tests/web/assistant-permissions.spec.ts',
+  'tests/e2e/assistants.spec.ts',
+  'tests/web/assistants.spec.ts',
+]
+/** A Helm release's review, its Secrets masked. */
+const HELM_DIFF = ['tests/web/helm-diff.spec.ts', 'tests/e2e/helm.spec.ts']
+/** On a server: who may do what. */
+const ACCESS = ['tests/web/access.spec.ts', 'tests/e2e/access-control.spec.ts']
+/** On a server: signing in, and its sessions. */
+const SIGN_IN = ['tests/web/sign-in.spec.ts', 'tests/web/server.spec.ts', 'tests/web/oidc.spec.ts']
+/** A fleet's hub and agents, with the secrets they join by. */
+const FLEET = [
+  'tests/web/fleet-add.spec.ts',
+  'tests/web/fleet-agents.spec.ts',
+  'tests/web/fleet-join-agent.spec.ts',
+  'tests/web/fleet-refusals.spec.ts',
+  'tests/web/fleet-sources.spec.ts',
+]
+
+/**
+ * Where Lumovi holds a plugin in, and keeps what it shouldn't hand on, each with the specs that
+ * guard it: the main process and its preload (all of them); a plugin's box and its door, on the
+ * desktop and on a server (the box's check, and the plugin's code a server hands a browser); a
+ * Secret's values masked and withheld, in a view, its YAML, a compare and a Helm release's review;
+ * an assistant's reads and approvals; the audit; and on a server, its own pages' policy, who may
+ * do what, signing in, sessions and the fleet's secrets. A pull request that
+ * changes any of it runs those specs, and every browser engine, not waiting for the nightly run.
+ * The one list of it (CONTRIBUTING.md points here): a new file that holds any of that is added
+ * here, with its specs, by the pull request that makes it.
+ */
+export const SECURITY: readonly { paths: RegExp; specs: readonly string[] }[] = [
+  {
+    paths: /^src\/(main|preload)\//,
+    specs: [
+      ...BOX,
+      ...MASKED,
+      ...SHOWN_MASKED,
+      ...AUDIT,
+      ...ASSISTANT,
+      ...HELM_DIFF,
+      ...ACCESS,
+      ...SIGN_IN,
+      ...FLEET,
+      ...SERVER_PAGES,
+    ],
+  },
+  { paths: /^src\/renderer\/src\/plugins\//, specs: BOX },
+  { paths: /^src\/(backend|shared|server)\/plugin[\w-]*\.ts$/, specs: [...BOX, ...MASKED] },
+  { paths: /^src\/(shared|server)\/box-check\.ts$/, specs: BOX },
+  { paths: /^src\/backend\/withholding\.ts$/, specs: MASKED },
+  {
+    paths: /^src\/backend\/mcp\/(present|access|tools|approvals)\.ts$/,
+    specs: [...ASSISTANT, ...MASKED],
+  },
+  { paths: /^src\/renderer\/src\/lib\/helm-diff\.ts$/, specs: [...HELM_DIFF, ...MASKED] },
+  {
+    paths: /^src\/renderer\/src\/features\/(details\/YamlTab|compare\/ComparePage)\.tsx$/,
+    specs: [...SHOWN_MASKED, ...MASKED],
+  },
+  { paths: /^src\/server\/(pages|app)\.ts$/, specs: SERVER_PAGES },
+  { paths: /^src\/backend\/audit\//, specs: AUDIT },
+  { paths: /^src\/server\/audit\.ts$/, specs: AUDIT },
+  { paths: /^src\/server\/access\.ts$/, specs: ACCESS },
+  { paths: /^src\/server\/(auth|sessions)\.ts$/, specs: SIGN_IN },
+  { paths: /^src\/server\/fleet\/secrets\.ts$/, specs: FLEET },
+]
+export const touchesSecurity = (path: string) => SECURITY.some(({ paths }) => paths.test(path))
+
+/** The specs that guard what `changed` touches of SECURITY, each once. */
+export const securitySpecs = (changed: string[]): string[] => [
+  ...new Set(
+    SECURITY.filter(({ paths }) => changed.some((path) => paths.test(path))).flatMap(
+      ({ specs }) => specs,
+    ),
+  ),
+]
+
+/** The security set: every spec any of SECURITY names. */
+export const SECURITY_SET: readonly string[] = [...new Set(SECURITY.flatMap(({ specs }) => specs))]
+
+/**
+ * How many minutes of Linux's tests, one after another, a shard of a run of less than everything
+ * is given at most: a machine runs four at once, so seven or eight minutes of it, and with its
+ * build the run ends within about fifteen.
+ */
+export const SMOKE_SHARD_MINUTES = 30
 
 /** What the run needs, from the event, the pull request's branch, labels and what it changes. */
 export function plan({
@@ -163,6 +273,8 @@ export function plan({
   changed,
   labels = [],
   namesASystem = [],
+  smoke = [],
+  minutes = () => 0,
 }: {
   event: string | undefined
   branch?: string
@@ -171,79 +283,103 @@ export function plan({
   labels?: string[]
   /** Of the files changed, those whose text asks which system it's on (NAMES_A_SYSTEM). */
   namesASystem?: string[]
+  /** The smoke set's spec files (tests/e2e/smoke.txt and tests/smoke.txt). */
+  smoke?: readonly string[]
+  /** How many minutes the tests of these spec files took on Linux, one after another. */
+  minutes?: (files: string[]) => number
 }) {
   const pullRequest = event === 'pull_request'
   const release = pullRequest && isRelease(branch)
-  const asked = pullRequest && labels.includes(MACOS_FULL)
-  // What macOS does differently, or a file that asks which system it's on.
-  const macosOwn = changed.some((path) => isMacos(path) || namesASystem.includes(path))
-  // macOS in full: main's merges and nightly run, a run by hand, a release's pull request, a
-  // label's ask, or a pull request that changes macOS's own. Any other runs its smoke set.
-  const macos = !pullRequest || release || asked || macosOwn
-  // Docs alone run no tests on a pull request; main runs its tests for every merge.
-  const docs = pullRequest && !release && changed.length > 0 && changed.every(isDocs)
-  // Windows, macOS, the other browsers' engines and the packages: everywhere but a pull request
-  // whose every change is alike on every system (and doesn't ask which it's on), or a release's.
+  const askedFull = pullRequest && labels.includes(FULL_CI)
+  // Everything, on every system: the nightly run, a run by hand, a release's pull request, one
+  // whose label asks, and a change to the tests' harness (a pull request's or a merge's). Any other
+  // merge to main runs what a pull request does: the nightly run, and the release's own, are the
+  // ones that run everything.
+  const harness = changed.some(isHarness)
+  const full =
+    event === 'schedule' || event === 'workflow_dispatch' || release || askedFull || harness
+  // Docs alone run no tests on a pull request.
+  const docs = pullRequest && !full && changed.length > 0 && changed.every(isDocs)
+  const askedMacos = pullRequest && labels.includes(MACOS_FULL)
+  const security = full || changed.some(touchesSecurity)
+  // Windows and macOS: everywhere a change isn't alike on every system (or asks which it's on).
   const platforms =
-    !pullRequest ||
-    release ||
-    asked ||
+    full ||
+    askedMacos ||
     changed.some((path) => !alikeOnEverySystem(path) || namesASystem.includes(path))
-  // The integration tests: everywhere but a pull request that changes nothing they see.
-  const integration = !pullRequest || release || changed.some(integrationsSee)
-  // The browser's tests on every system: the nightly run, a run by hand, a release's pull request.
-  // Otherwise on Linux alone, where the server Lumovi ships runs.
-  const everySystem = event === 'schedule' || event === 'workflow_dispatch' || release
-  const projectsOn = (os: (typeof OSES)[number]) =>
-    os === 'ubuntu-latest' || everySystem ? 'desktop web' : 'desktop'
-  // What a system's shards leave to Linux: the tests that are alike on every system.
-  // (macOS in full, as its label asks, is all of the desktop app's tests there.)
-  const onlyOn = (os: (typeof OSES)[number]) =>
-    os === 'ubuntu-latest' || everySystem || (os === 'macos-latest' && asked) ? '' : 'system'
-  const e2e = OSES.flatMap((os) =>
-    os !== 'ubuntu-latest' && !platforms
-      ? []
-      : os === 'macos-latest' && !macos
-        ? [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '' }]
-        : Array.from({ length: SHARDS[os] }, (_, i) => ({
-            os,
-            shard: `${i + 1}/${SHARDS[os]}`,
-            part: String(i + 1),
-            projects: projectsOn(os),
-            only: onlyOn(os),
-          })),
-  )
+  const integration = full
+  const browsers = security
+  const packages = full || changed.some(isPackaging)
+  // Less than everything: on Linux, the smoke set, every spec file the change touches, and the
+  // security set where it touches what holds a plugin in; split so each shard has its share.
+  const files = [
+    ...new Set([...smoke, ...changed.filter(isSpec), ...(full ? [] : securitySpecs(changed))]),
+  ]
+  const smokeShards = Math.max(2, Math.ceil(minutes(files) / SMOKE_SHARD_MINUTES))
+  const everything = (os: (typeof OSES)[number]) =>
+    Array.from({ length: SHARDS[os] }, (_, i) => ({
+      os,
+      shard: `${i + 1}/${SHARDS[os]}`,
+      part: String(i + 1),
+      projects: 'desktop web',
+      only: '',
+      files: '',
+    }))
+  const e2e = full
+    ? OSES.flatMap(everything)
+    : [
+        ...Array.from({ length: smokeShards }, (_, i) => ({
+          os: 'ubuntu-latest',
+          shard: `${i + 1}/${smokeShards}`,
+          part: `smoke-${i + 1}`,
+          projects: 'desktop web',
+          only: '',
+          files: files.join(' '),
+        })),
+        ...(platforms
+          ? (['macos-latest', 'windows-latest'] as const).flatMap((os) =>
+              os === 'macos-latest' && askedMacos
+                ? Array.from({ length: SHARDS[os] }, (_, i) => ({
+                    os,
+                    shard: `${i + 1}/${SHARDS[os]}`,
+                    part: String(i + 1),
+                    projects: 'desktop',
+                    only: '',
+                    files: '',
+                  }))
+                : [{ os, shard: 'smoke', part: 'smoke', projects: 'desktop', only: '', files: '' }],
+            )
+          : []),
+      ]
   const said = [
     event === 'schedule'
-      ? 'Main’s nightly run: everything, on every system, macOS in full.'
+      ? 'Main’s nightly run: everything, on every system.'
       : event === 'workflow_dispatch'
-        ? 'A run by hand: everything, on every system, macOS in full.'
+        ? 'A run by hand: everything, on every system.'
         : release
-          ? 'A release’s pull request: everything, on every system, macOS in full.'
-          : !pullRequest
-            ? 'Main’s merge: every test on Linux, the desktop app’s on Windows and macOS (everything runs on every system nightly).'
-            : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
+          ? 'A release’s pull request: everything, on every system, of its own commit.'
+          : askedFull
+            ? `Everything, on every system, as its label asks (${FULL_CI}).`
+            : harness
+              ? 'Everything, on every system: it changes the tests’ harness, which any test can rest on.'
+              : !pullRequest
+                ? 'Main’s merge: the smoke set, what the merge touches, and where it asks, more (everything runs nightly).'
+                : `${changed.length} ${changed.length === 1 ? 'file' : 'files'} changed.`,
     docs ? 'Docs only: no E2E, packaging or integration tests.' : '',
-    pullRequest && !release && !docs && !platforms
-      ? 'Linux alone: nothing it changes is a system’s own (Windows, macOS, Firefox and WebKit, and the packages, run on main, nightly and for a release).'
+    !full && !docs
+      ? `On Linux, the smoke set and every spec file it changes${security ? ', with the security set' : ''}, in ${smokeShards} shards.`
       : '',
-    pullRequest && !release && !docs && !integration
-      ? 'No integration tests: nothing it changes is theirs.'
+    !full && !docs && platforms
+      ? askedMacos
+        ? `Windows' smoke set, and macOS's desktop tests in full, as its label asks (${MACOS_FULL}).`
+        : 'Windows’ and macOS’s smoke sets: it changes what differs by system.'
       : '',
-    pullRequest && !release && !docs && platforms
-      ? asked
-        ? `The desktop app’s tests in full on macOS, as its label asks (${MACOS_FULL}).`
-        : macosOwn
-          ? 'The desktop app’s tests in full on macOS: it changes what macOS does differently.'
-          : `macOS runs its smoke set: nothing it changes is macOS’s own (its full suite runs on main; the label ${MACOS_FULL} asks for it here).`
-      : '',
-    pullRequest && !release && !docs
-      ? 'The browser’s tests run on Linux (on every system nightly).'
-      : '',
+    !full && !docs && packages ? 'The packages, built and tried on every system.' : '',
+    !full && !docs && browsers ? 'The box in Firefox and WebKit too.' : '',
   ]
     .filter(Boolean)
     .join(' ')
-  return { docs, release, macos, platforms, integration, e2e, said }
+  return { docs, release, full, platforms, integration, browsers, packages, e2e, said }
 }
 
 /**
@@ -291,12 +427,32 @@ if (import.meta.main) {
       return undefined
     }
   })
-  const { docs, release, macos, platforms, integration, e2e, said } = plan({
+  // The smoke set's files, and how long each file's tests took on Linux, one after another.
+  const smoke = ['tests/e2e/smoke.txt', 'tests/smoke.txt'].flatMap((list) =>
+    readFileSync(list, 'utf8')
+      .split('\n')
+      .map((line) => line.trim().replace(/^\[[\w-]+\] › /, ''))
+      .filter((line) => line && !line.startsWith('#')),
+  )
+  const linux =
+    (
+      JSON.parse(readFileSync('tests/durations.json', 'utf8')) as Record<
+        string,
+        Record<string, number>
+      >
+    ).linux ?? {}
+  const minutes = (files: string[]) =>
+    Object.entries(linux)
+      .filter(([name]) => files.includes(name.split(' › ')[1]!))
+      .reduce((total, [, seconds]) => total + seconds, 0) / 60
+  const { docs, release, full, platforms, integration, browsers, packages, e2e, said } = plan({
     event,
     branch: process.env.GITHUB_HEAD_REF,
     changed,
     labels: labelsNow(),
     namesASystem,
+    smoke,
+    minutes,
   })
   console.log(said)
   const output = process.env.GITHUB_OUTPUT
@@ -306,10 +462,11 @@ if (import.meta.main) {
       [
         `docs=${docs}`,
         `release=${release}`,
+        `full=${full}`,
         `platforms=${platforms}`,
         `integration=${integration}`,
-        `macos=${!platforms ? 'none' : macos ? 'full' : 'smoke'}`,
-        `windows=${platforms ? 'ran' : 'none'}`,
+        `browsers=${browsers}`,
+        `packages=${packages}`,
         `e2e=${JSON.stringify({ include: e2e })}`,
         '',
       ].join('\n'),
