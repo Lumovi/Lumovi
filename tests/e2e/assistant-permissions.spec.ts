@@ -573,6 +573,65 @@ test('Assistants keep to the rules: what’s hidden isn’t there, and Secrets, 
   await client.close()
 })
 
+test('A change an assistant asks for shows a Secret’s values masked until asked, in the manifest it gave, however it writes it', async ({
+  page,
+}) => {
+  await openCluster(page)
+  await permit(page, [], { ...DEFAULTS, secrets: 'values' })
+  const client = await connect(page)
+  const value = Buffer.from('made-up').toString('base64')
+  const flow = `{apiVersion: v1, kind: Secret, metadata: {name: masked, namespace: default}, data: {password: ${value}}}`
+  const json = `{"apiVersion":"v1","kind":"Secret","metadata":{"name":"masked","namespace":"default"},"data":{"password":"${value}"}}`
+  for (const [manifest, hidden] of [
+    [
+      `apiVersion: v1\nkind: Secret\nmetadata:\n  name: masked\n  namespace: default\ndata:\n  password: ${value}\n`,
+      'Secrets’ values hidden',
+    ],
+    // (In more than one shape, as a person or an assistant may write it: these hidden whole.)
+    [`--- ${flow}\n`, '1 document hidden'],
+    [`--- ${json}\n`, '1 document hidden'],
+    [`---\t${flow}\n`, '1 document hidden'],
+  ]) {
+    const asking = call(client, 'apply_manifest', { cluster: 'demo', manifest, reason: 'Test.' })
+    const dialog = page.getByRole('dialog', { name: 'Create Secret masked' })
+    // The change has none of its values (Lumovi hides them as it reads it); the manifest it gave
+    // has them masked. Whether the value is there, folded or not, said yes or no: a failure prints
+    // no value.
+    await expect(dialog.locator('pre[aria-label="Changes"]')).toContainText(
+      'password: (hidden by Lumovi)',
+    )
+    const shows = () => dialog.evaluate((at, v) => at.textContent!.includes(v), value)
+    expect(await shows()).toBe(false)
+    await dialog.getByText(/^The manifest .* gave$/).click()
+    await expect(dialog).toContainText(hidden!)
+    expect(await shows()).toBe(false)
+    await dialog.getByRole('button', { name: 'Reveal values' }).click()
+    await expect.poll(shows).toBe(true)
+    await dialog.getByRole('button', { name: 'Hide values' }).click()
+    await expect.poll(shows).toBe(false)
+    await dialog.getByRole('button', { name: 'Reject…' }).click()
+    await dialog.getByRole('button', { name: 'Reject', exact: true }).click()
+    expect((await asking).text).toBe('The person rejected it in Lumovi. Nothing was changed.')
+    await expect(dialog).toHaveCount(0)
+  }
+  // A Secret deleted: nothing it gave to reveal, nothing offered.
+  const deleting = call(client, 'delete_resource', {
+    cluster: 'demo',
+    kind: 'secret',
+    namespace: 'data',
+    name: DEMO.secrets.postgresCredentials,
+    reason: 'Test.',
+  })
+  const deletion = page.getByRole('dialog', {
+    name: `Delete Secret ${DEMO.secrets.postgresCredentials}`,
+  })
+  await expect(deletion).toContainText('(hidden by Lumovi)')
+  await expect(deletion.getByRole('button', { name: 'Reveal values' })).toHaveCount(0)
+  await deletion.getByRole('button', { name: 'Reject…' }).click()
+  await deletion.getByRole('button', { name: 'Reject', exact: true }).click()
+  expect((await deleting).text).toBe('The person rejected it in Lumovi. Nothing was changed.')
+})
+
 test('Labels the person can’t read count where they’re stricter', async ({ page, clusters }) => {
   await openCluster(page)
   const demo = clusters.demo

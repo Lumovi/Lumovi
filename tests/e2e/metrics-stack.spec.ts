@@ -162,6 +162,52 @@ test('reviewed, installed, charted, and removed without a trace', async ({ lumov
   })
 })
 
+test('what it makes shows a Secret’s values masked until asked', async ({ lumovi }) => {
+  const { page } = lumovi
+  const value = Buffer.from('made-up').toString('base64')
+  // A dry run that makes a Secret (the stack itself makes none): as a chart could.
+  writeFileSync(
+    join(lumovi.helmDir!, 'responses.json'),
+    JSON.stringify({
+      install: {
+        stdout: JSON.stringify({
+          version: 1,
+          info: { status: 'pending-install' },
+          manifest: `---
+# Source: metrics/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metrics-auth
+data:
+  password: ${value}
+`,
+        }),
+      },
+    }),
+  )
+  await openMetrics(page)
+  await offer(page).click()
+  const dialog = installing(page)
+  await dialog.getByRole('button', { name: 'Review' }).click()
+  const reviewed = dialog.getByLabel('What it makes', { exact: true })
+  await expect(reviewed).toContainText('password: ••••••••')
+  // Whether the value is there, said yes or no: a failure prints no value.
+  const shows = () => reviewed.evaluate((at, v) => at.textContent!.includes(v), value)
+  expect(await shows()).toBe(false)
+  await expect(dialog).toContainText('Secrets’ values hidden')
+  await dialog.getByRole('button', { name: 'Reveal values' }).click()
+  await expect.poll(shows).toBe(true)
+  await dialog.getByRole('button', { name: 'Hide values' }).click()
+  await expect.poll(shows).toBe(false)
+  // Back, and reviewed again: hidden again.
+  await dialog.getByRole('button', { name: 'Reveal values' }).click()
+  await dialog.getByRole('button', { name: 'Back' }).click()
+  await dialog.getByRole('button', { name: 'Review' }).click()
+  await expect(reviewed).toContainText('password: ••••••••')
+  expect(await shows()).toBe(false)
+})
+
 test('without the cluster’s leave, it says what’s missing and installs nothing', async ({
   lumovi,
   clusters,

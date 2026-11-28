@@ -7,7 +7,7 @@ import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
 import { age } from '@renderer/lib/format'
 import { manifestObjects } from '@renderer/lib/helm'
-import { maskedManifest, valueKeys } from '@renderer/lib/helm-diff'
+import { maskedPair, valueKeys } from '@renderer/lib/helm-diff'
 import { helm } from '@renderer/lib/kubectl'
 import { useCluster } from '@renderer/state/cluster'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
@@ -49,10 +49,7 @@ export function RollbackReleaseDialog({
   const keys = valueKeys(current!.values, chosen.values)
   const keyCount = keys.changed.length + keys.added.length + keys.removed.length
   const [revealed, setRevealed] = useState(false)
-  const masked = {
-    before: maskedManifest(current!.manifest),
-    after: maskedManifest(chosen.manifest),
-  }
+  const masked = maskedPair(current!.manifest, chosen.manifest)
   const hidesSome = masked.before !== current!.manifest || masked.after !== chosen.manifest
   const manifest = unifiedDiff(current!.manifest, chosen.manifest, revealed ? undefined : masked)
   return (
@@ -183,7 +180,13 @@ export function RollbackReleaseDialog({
                       <span className="font-medium text-critical-text">−{manifest.removed}</span>{' '}
                       <span className="text-ink-3">lines</span>
                     </span>
-                    {hidesSome && <SecretsHidden revealed={revealed} onReveal={setRevealed} />}
+                    {hidesSome && (
+                      <SecretsHidden
+                        revealed={revealed}
+                        onReveal={setRevealed}
+                        hidden={masked.hidden}
+                      />
+                    )}
                   </div>
                   <DiffView diff={manifest} label="Manifest changes" />
                 </div>

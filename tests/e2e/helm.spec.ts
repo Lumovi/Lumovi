@@ -8,6 +8,7 @@ import type { Locator, Page } from '@playwright/test'
 import { encodeRelease, HELM, releaseRecord } from '../mock-cluster/fixtures/helm.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { dialog, focusDisabled, toasts } from './action-helpers.ts'
+import { asHelmKeeps, FORMS, MORE_SHAPES, SEPARATORS, separated, shows } from '../manifest-forms.ts'
 import { CONTEXTS, expect, openCluster, panel, row, rows, test, type Lumovi } from './fixtures.ts'
 
 const releasePanel = (page: Page, name: string) =>
@@ -483,6 +484,128 @@ data:
   } finally {
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v1')
     clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v2')
+  }
+})
+
+test('a manifest’s document Lumovi can’t read plainly is hidden whole, says why, and is shown in full when asked', async ({
+  page,
+  clusters,
+}) => {
+  // (Made-up values, each said yes or no: a failure prints none.)
+  const settings = (tier: string) => `---
+# Source: odd-app/templates/settings.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odd-app-settings
+  labels:
+    tier: &tier ${tier}
+data:
+  tier: *tier
+`
+  const secret = `---
+# Source: odd-app/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: odd-app-db
+stringData:
+  password: made-up-password
+`
+  addRelease(clusters.demo, 'odd-app', {
+    revision: 1,
+    status: 'superseded',
+    manifest: `${settings('made-up-first')}${secret}`,
+  })
+  addRelease(clusters.demo, 'odd-app', { revision: 2, manifest: settings('made-up-second') })
+  const shows = (where: Locator, value: string) =>
+    expect.poll(() => where.evaluate((at, v) => at.textContent!.includes(v), value))
+  const why = '# Hidden whole: Lumovi can’t tell what’s secret here.'
+  try {
+    await openCluster(page)
+    await openHelm(page)
+    // The Manifest tab: the document's names, and why the rest is hidden; then all of it.
+    const release = await openRelease(page, 'odd-app')
+    await release.getByRole('tab', { name: 'Manifest' }).click()
+    const manifest = yaml(release, 'Manifest')
+    await expect(manifest).toContainText('name: odd-app-settings')
+    await expect(manifest).toContainText(why)
+    await shows(manifest, 'made-up-second').toBe(false)
+    await expect(release).toContainText('1 document hidden')
+    await release.getByRole('button', { name: 'Reveal values' }).click()
+    await shows(manifest, 'tier: &tier made-up-second').toBe(true)
+    await expect(manifest).not.toContainText(why)
+    await release.getByRole('button', { name: 'Hide values' }).click()
+    await shows(manifest, 'made-up-second').toBe(false)
+
+    // Its history, the manifests compared: one side also has a Secret's values hidden.
+    await release.getByRole('tab', { name: 'History' }).click()
+    await release
+      .getByRole('group', { name: 'Compare' })
+      .getByRole('button', { name: 'manifest' })
+      .click()
+    const differences = release.getByLabel('Differences')
+    await expect(differences).toContainText(why)
+    await expect(release).toContainText('Secrets’ values and 1 document hidden')
+    for (const value of ['made-up-first', 'made-up-second', 'made-up-password']) {
+      await shows(differences, value).toBe(false)
+    }
+    await release.getByRole('button', { name: 'Reveal values' }).click()
+    for (const value of ['made-up-first', 'made-up-second', 'made-up-password']) {
+      await shows(differences, value).toBe(true)
+    }
+    await expect(differences).not.toContainText(why)
+  } finally {
+    clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.odd-app.v1')
+    clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.odd-app.v2')
+  }
+})
+
+test('a release’s manifests in every shape the masking reads are compared with no Secret’s value shown', async ({
+  page,
+  clusters,
+}) => {
+  test.setTimeout(240_000)
+  // Each shape, a revision of its own; and documents however they're cut.
+  const manifests = [
+    ...FORMS.map((form) => asHelmKeeps(form.template)),
+    ...SEPARATORS.flatMap(separated),
+    ...MORE_SHAPES,
+  ]
+  manifests.forEach((manifest, i) =>
+    addRelease(clusters.demo, 'shapes', {
+      revision: i + 1,
+      status: i === manifests.length - 1 ? 'deployed' : 'superseded',
+      manifest,
+    }),
+  )
+  try {
+    await openCluster(page)
+    await openHelm(page)
+    const release = await openRelease(page, 'shapes')
+    await release.getByRole('tab', { name: 'Manifest' }).click()
+    await expect(yaml(release, 'Manifest')).toBeVisible()
+    await release.getByRole('tab', { name: 'History' }).click()
+    await release
+      .getByRole('group', { name: 'Compare' })
+      .getByRole('button', { name: 'manifest' })
+      .click()
+    const differences = release.getByLabel('Differences')
+    await release.getByRole('combobox', { name: 'From' }).selectOption('1')
+    for (let to = 2; to <= manifests.length; to++) {
+      await release.getByRole('combobox', { name: 'To' }).selectOption(String(to))
+      // (Whether the value is there, said yes or no: a failure prints none.)
+      await expect
+        .poll(() => differences.evaluate((at) => at.textContent ?? ''), { message: String(to) })
+        .not.toBe('')
+      expect(shows(await differences.evaluate((at) => at.textContent ?? '')), String(to)).toBe(
+        false,
+      )
+    }
+  } finally {
+    manifests.forEach((_, i) =>
+      clusters.demo.remove('Secret', 'default', `sh.helm.release.v1.shapes.v${i + 1}`),
+    )
   }
 })
 

@@ -1,0 +1,670 @@
+[
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\n---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- \napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- \n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- \n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n--- \n--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n--- \r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\t\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\t\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\t\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\t\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\t\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\t\n---\t\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["---\t\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\t\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\t\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- # c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- # c\n",
+    "helm3": [
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "# c"
+    ],
+    "cluster": [
+      "--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- # c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- # c\n"
+    ]
+  },
+  {
+    "text": "\n  \n--- # c\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["# c", "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": [
+      "\n  \n--- # c\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "a: 1\r\n--- # c\r\nb: 2",
+    "helm3": ["a: 1", "# c\r\nb: 2"],
+    "cluster": ["a: 1\n--- # c\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---# c\n",
+    "helm3": [
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "# c"
+    ],
+    "cluster": [
+      "---# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---# c\n"
+    ]
+  },
+  {
+    "text": "\n  \n---# c\n---# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["# c", "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n---# c\n---# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---# c\r\nb: 2",
+    "helm3": ["a: 1", "# c\r\nb: 2"],
+    "cluster": ["a: 1\n---# c\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\t# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\t# c\n",
+    "helm3": [
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "# c"
+    ],
+    "cluster": [
+      "---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\t# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\t# c\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\t# c\n---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["# c", "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": [
+      "\n  \n---\t# c\n---\t# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "a: 1\r\n---\t# c\r\nb: 2",
+    "helm3": ["a: 1", "# c\r\nb: 2"],
+    "cluster": ["a: 1\n---\t# c\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---x: y\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "x: y\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---x: y\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---x: y\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---x: y\n",
+    "helm3": [
+      "x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "x: y\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "x: y"
+    ],
+    "cluster": [
+      "---x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---x: y\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---x: y\n"
+    ]
+  },
+  {
+    "text": "\n  \n---x: y\n---x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["x: y", "x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": [
+      "\n  \n---x: y\n---x: y\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "a: 1\r\n---x: y\r\nb: 2",
+    "helm3": ["a: 1", "x: y\r\nb: 2"],
+    "cluster": ["a: 1\n---x: y\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- \napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- \n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- \n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n--- \n--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["", "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "--- \napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n--- \r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- # c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- # c\n",
+    "helm3": [
+      "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "# c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "# c"
+    ],
+    "cluster": [
+      "--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- # c\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- # c\n"
+    ]
+  },
+  {
+    "text": "\n  \n--- # c\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["# c", "# c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": [
+      "\n  \n--- # c\n--- # c\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "a: 1\r\n--- # c\r\nb: 2",
+    "helm3": ["a: 1", "# c\r\nb: 2"],
+    "cluster": ["a: 1\n--- # c\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\f\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\f\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\f\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\f\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\f\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\f\n---\f\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["---\f\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\f\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\f\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\u000b\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\u000b\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\u000b\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\u000b\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\u000b\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\u000b\n---\u000b\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["", "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\u000b\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\u000b\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\r\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\r\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\r\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\r\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\r\n---\r\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["---\r\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\r\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\n---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["", "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---\u2028\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---\u2028\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---\u2028\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---\u2028\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "apiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "---\u2028\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n",
+      "\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\n  \n---\u2028\n---\u2028\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["", "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n", "---\u2028\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---\u2028\r\nb: 2",
+    "helm3": ["a: 1", "b: 2"],
+    "cluster": ["a: 1\n", "b: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---﻿\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "﻿\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n---﻿\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "---﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---﻿\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---﻿\n",
+    "helm3": [
+      "﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "﻿\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "﻿"
+    ],
+    "cluster": [
+      "---﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n---﻿\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n---﻿\n"
+    ]
+  },
+  {
+    "text": "\n  \n---﻿\n---﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["﻿", "﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n---﻿\n---﻿\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n---﻿\r\nb: 2",
+    "helm3": ["a: 1", "﻿\r\nb: 2"],
+    "cluster": ["a: 1\n---﻿\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n ---\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n ---\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n ---\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": " ---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n ---\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n ---\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n ---\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n ---"
+    ],
+    "cluster": [
+      " ---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n ---\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n ---\n"
+    ]
+  },
+  {
+    "text": "\n  \n ---\n ---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n ---\n ---\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n ---\r\nb: 2",
+    "helm3": ["a: 1\r\n ---\r\nb: 2"],
+    "cluster": ["a: 1\n ---\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n...\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n...\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n...\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n...\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n...\n",
+    "helm3": [
+      "...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n...\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n..."
+    ],
+    "cluster": [
+      "...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n...\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n...\n"
+    ]
+  },
+  {
+    "text": "\n  \n...\n...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["...\n...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n...\n...\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n...\r\nb: 2",
+    "helm3": ["a: 1\r\n...\r\nb: 2"],
+    "cluster": ["a: 1\n...\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n\n"
+    ]
+  },
+  {
+    "text": "\n  \n\n\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n\n\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n\r\nb: 2",
+    "helm3": ["a: 1\r\n\r\nb: 2"],
+    "cluster": ["a: 1\n\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n----\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "-\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n----\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "----\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n----\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n----\n",
+    "helm3": [
+      "-\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "-\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "-"
+    ],
+    "cluster": [
+      "----\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n----\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n----\n"
+    ]
+  },
+  {
+    "text": "\n  \n----\n----\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": ["-", "-\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"],
+    "cluster": ["\n  \n----\n----\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"]
+  },
+  {
+    "text": "a: 1\r\n----\r\nb: 2",
+    "helm3": ["a: 1", "-\r\nb: 2"],
+    "cluster": ["a: 1\n----\nb: 2\n"]
+  },
+  {
+    "text": "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n",
+    "helm3": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "{kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "apiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- {kind: Secret}\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- {kind: Secret}\n",
+    "helm3": [
+      "{kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap",
+      "{kind: Secret}\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap",
+      "{kind: Secret}"
+    ],
+    "cluster": [
+      "--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n\n--- {kind: Secret}\n\napiVersion: v1\nmetadata:\n  name: Doc_B\nkind: ConfigMap\n--- {kind: Secret}\n"
+    ]
+  },
+  {
+    "text": "\n  \n--- {kind: Secret}\n--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n",
+    "helm3": [
+      "{kind: Secret}",
+      "{kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap"
+    ],
+    "cluster": [
+      "\n  \n--- {kind: Secret}\n--- {kind: Secret}\napiVersion: v1\nmetadata:\n  name: Doc_A\nkind: ConfigMap\n"
+    ]
+  },
+  {
+    "text": "a: 1\r\n--- {kind: Secret}\r\nb: 2",
+    "helm3": ["a: 1", "{kind: Secret}\r\nb: 2"],
+    "cluster": ["a: 1\n--- {kind: Secret}\nb: 2\n"]
+  },
+  {
+    "text": "\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: finding-nemo,\n  annotations:\n    \"helm.sh/hook\": test\nspec:\n  containers:\n  - name: nemo-test\n    image: fake-image\n    cmd: fake-command\n",
+    "helm3": [
+      "apiVersion: v1\nkind: Pod\nmetadata:\n  name: finding-nemo,\n  annotations:\n    \"helm.sh/hook\": test\nspec:\n  containers:\n  - name: nemo-test\n    image: fake-image\n    cmd: fake-command"
+    ],
+    "cluster": [
+      "\n",
+      "apiVersion: v1\nkind: Pod\nmetadata:\n  name: finding-nemo,\n  annotations:\n    \"helm.sh/hook\": test\nspec:\n  containers:\n  - name: nemo-test\n    image: fake-image\n    cmd: fake-command\n"
+    ]
+  },
+  {
+    "text": "{\"kind\": \"ConfigMap\"}\n",
+    "helm3": ["{\"kind\": \"ConfigMap\"}"],
+    "cluster": ["{\"kind\": \"ConfigMap\"}\n"]
+  },
+  {
+    "text": "{\"kind\": \"ConfigMap\"}\n---\n{\"kind\": \"Secret\"}\n",
+    "helm3": ["{\"kind\": \"ConfigMap\"}", "{\"kind\": \"Secret\"}"],
+    "cluster": ["{\"kind\": \"ConfigMap\"}\n", "{\"kind\": \"Secret\"}\n"]
+  },
+  {
+    "text": "",
+    "helm3": [],
+    "cluster": []
+  },
+  {
+    "text": "---",
+    "helm3": [],
+    "cluster": ["---\n"]
+  },
+  {
+    "text": "\n\n---\n\n",
+    "helm3": [],
+    "cluster": ["\n\n", "\n"]
+  }
+]
