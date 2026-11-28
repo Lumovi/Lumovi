@@ -180,16 +180,23 @@ test('arrowing past clusters reads none of them: a cluster is read only once itâ
   lumovi,
   clusters,
 }) => {
-  const { page } = lumovi
+  const { app, page } = lumovi
   checkout(clusters.demo, 'shop', { image: 'a:1', replicas: 1, url: 'u', password: 'p' })
   checkout(clusters.sandbox, 'shop', { image: 'a:2', replicas: 1, url: 'u', password: 'p' })
   await openCluster(page)
   await compareFrom(page)
-  // From this one, past the sandbox (the second) to the third, at a key's pace.
+  // From this one, past the sandbox (the second) to the third, at a key's pace: both keys sent
+  // at once, as a person's are (two round trips from the test can be further apart than the
+  // moment a pick must stay, on a slow machine).
   const before = clusters.sandbox.requests.length
   await clusterList(page).getByRole('radio').first().focus()
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('ArrowDown')
+  await app.evaluate(({ BrowserWindow }) => {
+    const page = (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]!).webContents
+    for (let i = 0; i < 2; i++) {
+      page.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
+      page.sendInputEvent({ type: 'keyUp', keyCode: 'Down' })
+    }
+  })
   await expect(clusterList(page).getByRole('radio').nth(2)).toBeChecked()
   await holds(
     () => clusters.sandbox.requests.length === before,

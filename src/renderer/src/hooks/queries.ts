@@ -4,6 +4,7 @@ import type { ResourceDefinition, ResourceKind } from '@shared/resources'
 import { api, KubeApiError, unwrap } from '@renderer/lib/api'
 import { AT_ONCE, settledAtMost, whyUnread, type PickedList } from '@renderer/lib/namespaces'
 import { useCluster } from '@renderer/state/cluster'
+import { timing } from '@renderer/lib/timings'
 import { watched, WATCHED_POLL_MS } from '@renderer/lib/watches'
 
 /** How often lists and metrics refresh while the window is visible. */
@@ -46,7 +47,8 @@ interface ListOptions {
  */
 export function listPollInterval(items: number): number {
   if (items > 2_000) return 30_000
-  return items > 500 ? 10_000 : POLL_INTERVAL
+  // (A test may lengthen the shortest: lib/timings.ts.)
+  return items > 500 ? 10_000 : timing('poll', POLL_INTERVAL)
 }
 
 /**
@@ -277,7 +279,9 @@ export function useObject(kind: ResourceKind, name: string, namespace?: string, 
     queryFn: () => unwrap(api.kube.get({ context, kind, name, namespace })),
     enabled,
     refetchInterval: (query) =>
-      watched(query.queryHash) && query.state.status !== 'error' ? WATCHED_POLL_MS : POLL_INTERVAL,
+      watched(query.queryHash) && query.state.status !== 'error'
+        ? WATCHED_POLL_MS
+        : timing('poll', POLL_INTERVAL),
   })
 }
 

@@ -18,7 +18,16 @@ import { holds } from '../holds.ts'
 import { DEMO_TOKEN, writeKubeconfig } from '../mock-cluster/kubeconfig.ts'
 import type { MockCluster } from '../mock-cluster/server.ts'
 import { open } from './action-helpers.ts'
-import { CONTEXTS, DEMO, clusterOption, expect, openCluster, panel, test } from './fixtures.ts'
+import {
+  CONTEXTS,
+  DEMO,
+  clusterOption,
+  expect,
+  lengthen,
+  openCluster,
+  panel,
+  test,
+} from './fixtures.ts'
 
 /** A link handed to Lumovi, as the system hands one over. */
 const hand = (app: ElectronApplication, link: string) =>
@@ -321,6 +330,9 @@ test('a link that comes while a dialog is open waits, said by a line a screen re
 }) => {
   const { app, page } = lumovi
   await openCluster(page)
+  // (The card's first moment long enough for the Esc at the end on a slow machine: what's tested
+  // is that one in it isn't an answer.)
+  await lengthen(page, { answerAfter: 5_000 })
   const link = await linkFor(page, `/cluster/${CONTEXTS.demo}/pods`)
   const before = await address(page)
   await inUse(app)
@@ -369,11 +381,10 @@ test('a link that comes while a dialog is open waits, said by a line a screen re
   // Asking, as ever: closing the dialog chose nothing, and an Esc just after doesn't either.
   await expect(card(page).getByRole('button', { name: 'Cancel' })).toBeFocused()
   await page.keyboard.press('Escape')
-  await holds(
-    async () => (await card(page).count()) === 1 && (await address(page)) === before,
-    700,
-    'one card, still asking',
-  )
+  // Once it answers, that Esc wasn't one: one card, still asking.
+  await expect(card(page)).toHaveAttribute('data-answering', 'true')
+  expect(await card(page).count()).toBe(1)
+  expect(await address(page)).toBe(before)
 })
 
 test('fifty links in a second make one card, and nothing is said of those let go', async ({
@@ -542,8 +553,13 @@ test('keys typed as a link raises Lumovi from another app are nothing, before an
 }) => {
   // (Windows' PowerShell can take most of a minute to give its prompt.)
   test.slow(process.platform === 'win32')
-  const { app, page } = await launch({ env: { SHELL: '/bin/sh' } })
+  // (The windows in which keys are nothing, Lumovi's and the card's, longer than a slow machine's
+  // pauses between the keys below: what's tested is what's done with keys inside them.)
+  const { app, page } = await launch({
+    env: { SHELL: '/bin/sh', LUMOVI_TEST_KEYS_QUIET_MS: '3000' },
+  })
   await openCluster(page)
+  await lengthen(page, { answerAfter: 3_000 })
   const link = await linkFor(page, `/cluster/${CONTEXTS.sandbox}/pods`)
   // A terminal had the keyboard: the typing that goes on as the link raises the window is
   // nothing, from the hand-over on (before the card is drawn: it's the page's, a moment later).

@@ -10,6 +10,7 @@ import {
   CONTEXTS,
   DEMO,
   goTo,
+  lengthen,
   mockOpenExternal,
   openCluster,
   row,
@@ -561,6 +562,8 @@ test.describe('overview', () => {
   test('says when part of it is stale', async ({ page, clusters }) => {
     await openCluster(page)
     await expect(page.getByRole('region', { name: 'Pods running' })).toContainText('28')
+    // (No poll clears the line before Retry is pressed, on a slow machine: Retry is what's tested.)
+    await lengthen(page, { poll: 600_000 })
     const clear = clusters.demo.fail('/api/v1/pods', { status: 500, body: 'etcd leader changed' })
     await page.getByRole('button', { name: /^Refresh/ }).click()
     const stale = page.getByRole('status').filter({ hasText: 'Couldn’t refresh' })

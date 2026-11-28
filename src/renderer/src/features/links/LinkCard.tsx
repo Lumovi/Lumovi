@@ -23,12 +23,15 @@ import { useActionsUi } from '@renderer/state/actions'
 import { toast } from '@renderer/state/toasts'
 import { isEditable } from '../actions/ActionSurfaces'
 import { windowRestored } from '../terminal/BelowKept'
+import { timing } from '@renderer/lib/timings'
 
 /**
  * How long Enter, Space and Esc do nothing once a card is up: a key on its way isn't an answer (one
  * held, or repeated, as the Esc that closed a dialog can be).
  */
 const ANSWER_AFTER_MS = 500
+/** That wait, as a test may lengthen it (lib/timings.ts). */
+const answerAfter = () => timing('answerAfter', ANSWER_AFTER_MS)
 const NOT_YET = new Set(['Enter', ' ', 'Escape'])
 const MAC = api.platform === 'darwin'
 /** The key that goes to a card that waits, from anywhere: ⌘L, or Ctrl+⇧L (Ctrl+L is the shell's). */
@@ -275,7 +278,16 @@ function Card({
   const [waiting, setWaiting] = useState(shown.waiting)
   const [picked, setPicked] = useState<string>()
   const [hasKeys, setHasKeys] = useState(false)
+  // Whether Enter, Space and Esc are answers yet, and whether typing from another app has stopped:
+  // marked on the card, for the tests, which wait on them rather than on time.
+  const [answering, setAnswering] = useState(false)
+  const [typing, setTyping] = useState(shown.elsewhere)
   const { arrival } = shown
+
+  useEffect(() => {
+    const at = setTimeout(() => setAnswering(true), shown.at + answerAfter() - Date.now())
+    return () => clearTimeout(at)
+  }, [shown.at])
 
   // Raised from another app: what the person goes on typing there, as Lumovi comes forward, is
   // nothing here (never what had the keyboard here, a terminal say, nor the card's buttons) until
@@ -283,19 +295,23 @@ function Card({
   // answered. A click answers at once. (Before anything in the page hears a key.)
   useEffect(() => {
     if (!shown.elsewhere) return
-    let quietFrom = Date.now()
     let typing = true
+    const stop = () => {
+      typing = false
+      setTyping(false)
+    }
+    let quiet = setTimeout(stop, answerAfter())
     const swallowed = new Set<string>()
     const onDown = (event: globalThis.KeyboardEvent) => {
       // (Once typing has stopped, keys are the card's as ever.)
-      if (typing && Date.now() - quietFrom < ANSWER_AFTER_MS) {
-        quietFrom = Date.now()
+      if (typing) {
+        clearTimeout(quiet)
+        quiet = setTimeout(stop, answerAfter())
         swallowed.add(event.code)
         event.preventDefault()
         event.stopImmediatePropagation()
         return
       }
-      typing = false
       if (event.key !== 'Tab' || !card.current) return
       const stops = [
         ...card.current.querySelectorAll<HTMLElement>(
@@ -317,6 +333,7 @@ function Card({
     window.addEventListener('keydown', onDown, true)
     window.addEventListener('keyup', onUp, true)
     return () => {
+      clearTimeout(quiet)
       window.removeEventListener('keydown', onDown, true)
       window.removeEventListener('keyup', onUp, true)
     }
@@ -542,7 +559,7 @@ function Card({
 
   // (A key on its way as the card came up isn't an answer: Space presses a button as it's let go.)
   const early = (event: KeyboardEvent<HTMLDivElement>) =>
-    NOT_YET.has(event.key) && Date.now() - shown.at < ANSWER_AFTER_MS
+    NOT_YET.has(event.key) && Date.now() - shown.at < answerAfter()
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (early(event)) event.preventDefault()
     else if (event.key === 'Escape') {
@@ -562,6 +579,8 @@ function Card({
         aria-modal="false"
         aria-labelledby={titleId}
         data-link-card
+        data-answering={answering || undefined}
+        data-typing={typing || undefined}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
         onFocus={() => setHasKeys(true)}

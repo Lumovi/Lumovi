@@ -648,6 +648,20 @@ export async function hoverForTooltip(target: Locator, text: string | RegExp): P
   }).toPass()
 }
 
+/**
+ * Lengthens Lumovi's waits in a window (its tests' build alone: lib/timings.ts), for steps that
+ * must land inside one: a slow machine takes longer over them than the wait is. A test then waits
+ * on what the wait marks (the link card's `data-answering`, say), not on time.
+ */
+export async function lengthen(
+  page: Page,
+  timings: Partial<Record<'answerAfter' | 'typing' | 'poll', number>>,
+): Promise<void> {
+  await page.evaluate((set) => {
+    ;(window as unknown as { __lumoviTimings: object }).__lumoviTimings = set
+  }, timings)
+}
+
 /** The detail panel for an object. */
 export function panel(page: Page, kind: string, name: string) {
   return page.getByRole('complementary', { name: `${kind} ${name}` })
