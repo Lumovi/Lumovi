@@ -486,6 +486,79 @@ data:
   }
 })
 
+test('an upgrade’s review masks each Secret’s values in its manifest’s changes until asked: a find finds none of them, folded or not', async ({
+  page,
+  lumovi,
+  clusters,
+}) => {
+  const manifest = (replicas: number) => `---
+# Source: vault-app/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-app-db
+data:
+  password: ${Buffer.from('made-up').toString('base64')}
+---
+# Source: vault-app/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-app-config
+data:
+  replicas: "${replicas}"
+`
+  addRelease(clusters.demo, 'vault-app', {
+    templates: { 'templates/config.yaml': 'kind: ConfigMap\n' },
+    manifest: manifest(1),
+  })
+  // Whether a value is shown, said yes or no: a failure prints no value.
+  const value = Buffer.from('made-up').toString('base64')
+  const shows = (where: Locator) => where.evaluate((at, v) => at.textContent!.includes(v), value)
+  try {
+    await openCluster(page)
+    await openHelm(page)
+    const release = await openRelease(page, 'vault-app')
+    await release.getByRole('button', { name: 'Upgrade…' }).click()
+    const upgrade = dialog(page)
+    // The upgrade changes the ConfigMap alone: the Secret's lines are unchanged, folded away.
+    scriptHelm(lumovi, {
+      upgrade: {
+        stdout: JSON.stringify({ version: 2, info: { status: 'deployed' }, manifest: manifest(2) }),
+      },
+    })
+    await upgrade.getByRole('button', { name: 'Review' }).click()
+    const changes = upgrade.getByLabel('Manifest changes', { exact: true })
+    await expect(changes).toContainText('replicas: "2"')
+    await expect(upgrade).toContainText('Secrets’ values hidden')
+    // A value, as only a shown one could be (the pattern, never a value, is what's typed).
+    await changes.click()
+    await page.keyboard.press('ControlOrMeta+f')
+    const search = upgrade.getByRole('search', { name: 'Find in Manifest changes' })
+    const field = search.getByRole('textbox', { name: 'Find in Manifest changes' })
+    await expect(field).toBeFocused()
+    await field.fill('password: [A-Za-z0-9+/=]{4}')
+    await field.press('Alt+r')
+    await expect(search).toContainText('No matches')
+    // The key is there to find, in the fold: unfolded, its value is the mask.
+    await field.fill('password')
+    await field.press('Enter')
+    await expect(search).toContainText('1 of 1')
+    await expect(changes).toContainText('password: ••••••••')
+    expect(await shows(changes)).toBe(false)
+    // Asked for: as it is; and hidden again.
+    await upgrade.getByRole('button', { name: 'Reveal values' }).click()
+    await field.fill('password: [A-Za-z0-9+/=]{4}')
+    await expect(search).toContainText('1 match')
+    await expect.poll(() => shows(changes)).toBe(true)
+    await upgrade.getByRole('button', { name: 'Hide values' }).click()
+    await expect(search).toContainText('No matches')
+    await expect.poll(() => shows(changes)).toBe(false)
+  } finally {
+    clusters.demo.remove('Secret', 'default', 'sh.helm.release.v1.vault-app.v1')
+  }
+})
+
 test('roll back and uninstall, with helm', async ({ page, lumovi }) => {
   await openCluster(page)
   await openHelm(page)

@@ -17,7 +17,7 @@ import { DiffView, unifiedDiff } from '@renderer/components/DiffView'
 import { useHelmChange, useHelmRepositories } from '@renderer/hooks/helm'
 import { api } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/cn'
-import { undoneBy } from '@renderer/lib/helm-diff'
+import { maskedManifest, undoneBy } from '@renderer/lib/helm-diff'
 import { helm } from '@renderer/lib/kubectl'
 import { toYaml } from '@renderer/lib/yaml'
 import { useCluster } from '@renderer/state/cluster'
@@ -25,6 +25,7 @@ import { usePrefs } from '@renderer/state/prefs'
 import { ActionDialog, useSubmit } from '../actions/ActionDialog'
 import { LintFindings, LocalChartPanel, useLocalChart } from './LocalChart'
 import { FluxWarning } from './ReleaseDialogs'
+import { SecretsHidden } from './SecretsHidden'
 import { useAccessHere } from '../access/use-access'
 
 /**
@@ -90,6 +91,8 @@ export function DeployDialog({
   // The editor starts over when values are loaded into it.
   const [loads, setLoads] = useState(0)
   const [reviewed, setReviewed] = useState<HelmDeployed>()
+  // Each Secret's values in the manifest's changes, masked until asked (as a rollback's are).
+  const [revealed, setRevealed] = useState(false)
   const [problem, setProblem] = useState<string>()
   const [checking, setChecking] = useState(false)
   const { pending, error, submit } = useSubmit(() => {
@@ -203,7 +206,17 @@ export function DeployDialog({
       }.`
     : undefined
 
-  const diff = reviewed && unifiedDiff(current?.manifest ?? '', reviewed.manifest)
+  // The diff worked out on the manifests' text, shown with each Secret's values masked until
+  // asked: an unchanged one's lines too, folded away, which a find can unfold.
+  const before = current?.manifest ?? ''
+  const masked = reviewed && {
+    before: maskedManifest(before),
+    after: maskedManifest(reviewed.manifest),
+  }
+  const hidesSome =
+    masked !== undefined && (masked.before !== before || masked.after !== reviewed!.manifest)
+  const diff =
+    reviewed && unifiedDiff(before, reviewed.manifest, revealed ? undefined : masked || undefined)
   return (
     <ActionDialog
       icon={install ? PackagePlus : ArrowUpCircle}
@@ -230,7 +243,10 @@ export function DeployDialog({
             <Button
               variant="ghost"
               className="h-7 px-2 text-xs"
-              onClick={() => setReviewed(undefined)}
+              onClick={() => {
+                setReviewed(undefined)
+                setRevealed(false)
+              }}
             >
               <ArrowLeft /> Back to editing
             </Button>
@@ -246,6 +262,11 @@ export function DeployDialog({
             <p className="text-[13px] text-ink-2">Nothing it makes changes.</p>
           ) : (
             <div className="flex max-h-[45vh] min-h-0 flex-col overflow-hidden rounded-lg border border-line">
+              {hidesSome && (
+                <div className="flex items-center justify-end gap-2 border-b border-line px-3 py-1.5 text-xs">
+                  <SecretsHidden revealed={revealed} onReveal={setRevealed} />
+                </div>
+              )}
               <DiffView diff={diff!} label="Manifest changes" />
             </div>
           )}
