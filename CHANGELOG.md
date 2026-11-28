@@ -8,6 +8,20 @@ All notable changes to Lumovi are documented here. The format follows
 
 Entries wait in [`changelog.d/`](changelog.d), a file each, until a release gathers them here (`npm run changelog` prints them).
 
+## [1.24.1] - 2026-11-28
+
+1.24.1 fixes the Managed by column with every namespace in view: a manager's kind the person can't
+list in the whole cluster was read again and again while the list was open, and is now read once.
+It's built with Lumovi-plugins 1.7.0, as 1.24.0 was (bundle digest
+`sha256:95a50b6cb434269bc38c11c42d0db1e710d3cb40acff9a70130b0b917880ed55`).
+
+### Fixed
+
+- **The Managed by column with every namespace in view**: where the person may not list a
+  manager's kind (Argo CD's Applications, say) in the whole cluster, Lumovi read it again and
+  again, many times a second, as long as the list was open. It now reads it once, as it does with
+  some namespaces picked.
+
 ## [1.24.0] - 2026-11-28
 
 1.24.0 has one security update, under Security below: the desktop app runs on Electron 44.9.3.
@@ -1673,7 +1687,8 @@ The first version of Lumovi, the Kubernetes dashboard that was called KubeStacks
   window's page crashes. The window remembers its size and position, and page transitions
   respect reduced motion.
 
-[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.24.0...HEAD
+[Unreleased]: https://github.com/Lumovi/Lumovi/compare/v1.24.1...HEAD
+[1.24.1]: https://github.com/Lumovi/Lumovi/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/Lumovi/Lumovi/compare/v1.23.2...v1.24.0
 [1.23.2]: https://github.com/Lumovi/Lumovi/compare/v1.23.1...v1.23.2
 [1.23.1]: https://github.com/Lumovi/Lumovi/compare/v1.23.0...v1.23.1
